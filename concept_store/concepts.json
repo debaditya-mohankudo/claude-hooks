@@ -51,15 +51,14 @@
         "src/db/schema.py:1",
         "src/db/schema.py:33",
         "scripts/init_db.py: sole caller of migrate_memory_db/migrate_tool_hints_db/migrate_hooks_db",
-        "src/tools/tasks.py: _ensure_db()/_migrate() — competing production path for open_tasks only"
+        "src/tools/tasks.py: _ensure_db() executes OPEN_TASKS_DDL/TASK_EVENTS_DDL/TASK_EDGES_DDL/COMMIT_TASK_MAP_DDL and calls migrate_tasks_db() directly (task:1310d3a3) — proj_tasks.db is no longer an exception"
       ],
       "invariants": [
         "All migrations are additive-only (ALTER TABLE ADD COLUMN) — never destructive",
         "migrate_*() functions are safe to run repeatedly (idempotent)",
-        "DDL constants ARE the authoritative schema definition for MEMORY.sqlite, tool_hints.sqlite, and claude_hooks.sqlite — migrate_memory_db()/migrate_tool_hints_db()/migrate_hooks_db() are only ever called from scripts/init_db.py (one-time install), and none of those DBs' runtime modules (e.g. src/tools/memory.py) maintain a competing self-healing _ensure_db of their own.",
-        "EXCEPTION: proj_tasks.db's open_tasks/task_events/task_edges/commit_task_map tables are the ONE case where this is NOT true — src/tools/tasks.py maintains its own independent, self-healing _ensure_db()/_migrate() as the real production path (task:9d3acbef, deliberate split, not drift). OPEN_TASKS_DDL/TASK_EVENTS_DDL/TASK_EDGES_DDL and migrate_tasks_db() here exist only for test-fixture parity and scripts/init_db.py's one-time bootstrap — see tasks-db-schema-and-migration for the full rationale and the schema-parity test that guards against the two silently diverging."
+        "DDL constants ARE the authoritative schema definition for every DB this module covers, including proj_tasks.db (task:1310d3a3 reversed the task:1219383a-era exception — src/tools/tasks.py's _ensure_db() now executes these DDL constants and calls migrate_tasks_db() directly rather than maintaining a parallel copy). The one nuance: proj_tasks.db's VALUE backfills (keywords, parent_id-from-tags) and status normalization stay in src/tools/tasks.py itself, since they depend on tasks.py's own helper functions and moving them here would create a circular import — schema.py owns structure (what columns exist), tasks.py owns those specific backfills (what values populate them). See tasks-db-schema-and-migration for the full detail."
       ],
-      "last_validated": "2026-07-26T16:14:46.519876+00:00",
+      "last_validated": "2026-07-26T16:26:04.163581+00:00",
       "module": "src/db/schema.py",
       "name": "db-schema-ddl-and-migrations"
     },
@@ -485,33 +484,32 @@
         "handle_update(id, ..., mark_groomed=False) -> {ok, id, status, issue_type, tags, groomed: bool}",
         "_task_row(row)/_task_row_full(row) include groomed_at and introspected_at (None if never run)",
         "handle_list's TOON/json output includes groomed_at and introspected_at in the uniform row schema",
-        "_ensure_db() creates open_tasks, task_events, commit_task_map, AND task_edges — all four tables production code depends on",
+        "_ensure_db() creates open_tasks, task_events, commit_task_map, AND task_edges by executing schema.py's DDL constants — all four tables production code depends on",
         "handle_update_document(id, grooming=None, graded_risks=None, introspection_report=None, related=None) -> {ok, id, document: dict, unmatched_risk_grades?: list[str]} — only touches the namespaces passed; also sets introspected_at when introspection_report is not None",
         "_task_row_full(row) additionally includes document: dict — handle_get is the only reader of the full document",
         "handle_update recomputes and writes document.implementation on every call via _count_checklist(new_body) — a side effect of handle_update, not a separate MCP param"
       ],
       "created_at": "2026-07-26T03:03:10.089937+00:00",
-      "description": "open_tasks/task_events/commit_task_map/task_edges schema and migrations for proj_tasks.db, the task management DB. Includes the groomed_at TIMESTAMP column (task:46634a19), the introspected_at TIMESTAMP column (task:e3a0233b), and the document TEXT DEFAULT NULL column (epic:f42b6958, task:544a21c0) storing a JSON-serialized TaskDocument (see task_document.py's own concept).",
+      "description": "open_tasks/task_events/commit_task_map/task_edges schema and migrations for proj_tasks.db, the task management DB. Includes the groomed_at TIMESTAMP column (task:46634a19), the introspected_at TIMESTAMP column (task:e3a0233b), and the document TEXT DEFAULT NULL column (epic:f42b6958, task:544a21c0) storing a JSON-serialized TaskDocument (see task_document.py's own concept). As of task:1310d3a3, src/db/schema.py IS the single structural source of truth for these 4 tables (DDL + column-existence migration) — src/tools/tasks.py's _ensure_db() executes schema.py's DDL constants and calls schema.py's migrate_tasks_db() directly, rather than maintaining a parallel duplicate copy (the prior task:9d3acbef-era split, guarded only by a parity test, is gone).",
       "evidence": [
-        "src/tools/tasks.py: _ensure_db(), _migrate(), handle_update(), _task_row()",
-        "src/db/schema.py: OPEN_TASKS_DDL, TASK_EVENTS_DDL, TASK_EDGES_DDL, migrate_tasks_db() — test-fixture parity only, NOT the prod path",
-        "tests/test_task_issue_type.py: TestSchemaParity, TestIntrospectedAt",
+        "src/tools/tasks.py: _ensure_db() — imports and executes OPEN_TASKS_DDL/TASK_EVENTS_DDL/TASK_EDGES_DDL/COMMIT_TASK_MAP_DDL from src.db.schema, calls schema.migrate_tasks_db(conn)",
+        "src/db/schema.py: OPEN_TASKS_DDL, TASK_EVENTS_DDL, TASK_EDGES_DDL, COMMIT_TASK_MAP_DDL, migrate_tasks_db() — the actual production structural path now, not test-fixture-only",
+        "tests/test_task_issue_type.py: TestSchemaParity (column-equality now true by construction, kept as cheap drift guard), TestBackfillAndNormalization (real regression coverage for what stays tasks.py-only), TestIntrospectedAt",
         "src/tools/tasks.py: _get_document(), _set_document(), handle_update_document() — document column read/write, uses TaskDocument.from_json/to_json",
-        "src/db/schema.py: OPEN_TASKS_DDL/migrate_tasks_db() document/introspected_at column additions — same dual-maintenance split as groomed_at",
         "src/tools/tasks.py: _count_checklist(), Implementation import — handle_update recomputes document.implementation.progress on every call (task:4d3a6fc5)"
       ],
       "invariants": [
-        "src/db/schema.py's OPEN_TASKS_DDL/TASK_EVENTS_DDL/TASK_EDGES_DDL and migrate_tasks_db() are NOT the production schema/migration path for proj_tasks.db — src/tools/tasks.py's _connect() calls its own locally-defined _ensure_db()/_migrate(). This split is DELIBERATE (task:9d3acbef).",
-        "Any new open_tasks/task_events/task_edges column or table MUST still be added to BOTH src/tools/tasks.py's _ensure_db()/_migrate() (prod) AND schema.py's DDL constants/migrate_tasks_db() (test-fixture parity) — verified by tests/test_task_issue_type.py::TestSchemaParity.",
-        "task_edges was missing entirely from tasks.py's self-healing _ensure_db() until task:9d3acbef — fixed, regression-tested.",
+        "src/db/schema.py's DDL constants + migrate_tasks_db() ARE now the production structural path for proj_tasks.db (task:1310d3a3) — tasks.py's _ensure_db() executes them directly rather than duplicating. The prior invariant here (schema.py is NOT the prod path, task:9d3acbef) is SUPERSEDED; that task explicitly rejected wholesale consolidation for a broader reason (repo-wide self-healing-per-connect convention across memory.py/scratch.py/hooks.py/tasks.py) but didn't evaluate this narrower tasks.py↔schema.py-only version, which doesn't touch the other 3 modules.",
+        "What does NOT move to schema.py: BACKFILL (computing values for newly-added columns — keywords via _extract_keywords, parent_id via _extract_parent_id) and the wip/active→open status normalization. These depend on tasks.py's own helpers; moving them into schema.py would create a circular import (schema.py would need to import from tasks.py, which already imports schema.py's DDL). _ensure_db() snapshots open_tasks/task_events columns BEFORE calling migrate_tasks_db(), so it knows which columns were newly-added and only backfills those.",
+        "Any new open_tasks/task_events/task_edges/commit_task_map column or table now needs to be added to schema.py ONLY (single source) — tasks.py picks it up automatically via the DDL constants + migrate_tasks_db() it already calls. Only add tasks.py-side code if the new column also needs a VALUE backfill (like keywords/parent_id did).",
+        "task_edges was missing entirely from tasks.py's self-healing _ensure_db() until task:9d3acbef; commit_task_map had no schema.py DDL constant at all until task:1310d3a3 added COMMIT_TASK_MAP_DDL as part of this consolidation.",
         "groomed_at is set via handle_update(id, mark_groomed=True) — reuses the existing tasks__update MCP action. Staleness detected by comparing groomed_at against updated_at.",
         "groomed_at is added inside _task_row() unconditionally, always present for TOON's uniform-header requirement. introspected_at follows the same unconditional-presence pattern.",
-        "document follows the same dual-maintenance rule as every other column here. NULL-safe by contract: TaskDocument.from_json(None) returns a fresh empty TaskDocument, no migration/backfill needed.",
-        "document is excluded from _task_row() (list/search) the same way body already is — only _task_row_full() (used by handle_get) decodes and includes it.",
+        "document follows the same NULL-safe contract as every other column here: TaskDocument.from_json(None) returns a fresh empty TaskDocument, no migration/backfill needed. document is excluded from _task_row() (list/search) — only _task_row_full() (handle_get) decodes and includes it.",
         "handle_update UNCONDITIONALLY recomputes document.implementation.progress on every call (task:4d3a6fc5). This is the ONE document namespace written from handle_update rather than handle_update_document; grooming/introspection/related still go exclusively through handle_update_document.",
-        "introspected_at (task:e3a0233b) is set AUTOMATICALLY inside handle_update_document whenever introspection_report is passed (a second UPDATE on open_tasks in the same connection, after _set_document) — unlike groomed_at, there is deliberately no separate mark_introspected flag, since passing introspection_report already is the definitive signal that /task-introspection ran on this task."
+        "introspected_at (task:e3a0233b) is set AUTOMATICALLY inside handle_update_document whenever introspection_report is passed — unlike groomed_at, deliberately no separate mark_introspected flag, since passing introspection_report already is the definitive signal /task-introspection ran."
       ],
-      "last_validated": "2026-07-26T16:08:14.152862+00:00",
+      "last_validated": "2026-07-26T16:25:53.663490+00:00",
       "module": "src/tools/tasks.py",
       "name": "tasks-db-schema-and-migration"
     },
