@@ -564,3 +564,88 @@ class TestUpdateDocument:
             result = tasks_module.handle_update_document(id=tid, graded_risks={"y": "wrong"})
         assert result["unmatched_risk_grades"] == ["y"]
         assert result["document"]["grooming"]["risks"][0]["graded"] is None
+
+
+class TestImplementationProgress:
+    """document.implementation.progress (task:4d3a6fc5) — auto-derived checklist
+    tally recomputed on every handle_update, not a duplicated checklist."""
+
+    def _mk(self, tmp_path, body):
+        db = tmp_path / "impl.db"
+        with patch("src.tools.tasks._DB", db):
+            tid = handle_create(title="Impl test", body=body)["id"]
+        return db, tid
+
+    def test_no_checklist_is_zero_zero(self, tmp_path):
+        db, tid = self._mk(tmp_path, "Type: task\nJust a plain body, no checklist.")
+        with patch("src.tools.tasks._DB", db):
+            handle_update(id=tid, tags="noop")
+            doc = handle_get(tid)["document"]
+        assert doc["implementation"] == {"total": 0, "done": 0}
+
+    def test_partial_checklist_counted(self, tmp_path):
+        body = (
+            "Resolution:\n"
+            "- [x] step one\n"
+            "- [x] step two\n"
+            "- [ ] step three\n"
+            "- [ ] step four\n"
+            "- [ ] step five"
+        )
+        db, tid = self._mk(tmp_path, body)
+        with patch("src.tools.tasks._DB", db):
+            handle_update(id=tid, tags="noop")
+            doc = handle_get(tid)["document"]
+        assert doc["implementation"] == {"total": 5, "done": 2}
+
+    def test_fully_done_checklist(self, tmp_path):
+        body = "Resolution:\n- [x] a\n- [x] b"
+        db, tid = self._mk(tmp_path, body)
+        with patch("src.tools.tasks._DB", db):
+            handle_update(id=tid, tags="noop")
+            doc = handle_get(tid)["document"]
+        assert doc["implementation"] == {"total": 2, "done": 2}
+
+    def test_recompute_on_every_update_does_not_touch_other_namespaces(self, tmp_path):
+        body = "Resolution:\n- [ ] a\n- [ ] b"
+        db, tid = self._mk(tmp_path, body)
+        with patch("src.tools.tasks._DB", db):
+            tasks_module.handle_update_document(id=tid, grooming={"clarifications": ["kept"]})
+            handle_update(id=tid, body="Resolution:\n- [x] a\n- [ ] b")
+            doc = handle_get(tid)["document"]
+        assert doc["implementation"] == {"total": 2, "done": 1}
+        assert doc["grooming"]["clarifications"] == ["kept"]
+
+    def test_fenced_code_block_example_not_counted(self, tmp_path):
+        body = (
+            "Resolution:\n"
+            "- [x] real step\n"
+            "\n"
+            "Example convention:\n"
+            "```\n"
+            "- [ ] this is just documentation, not a real checklist item\n"
+            "```\n"
+        )
+        db, tid = self._mk(tmp_path, body)
+        with patch("src.tools.tasks._DB", db):
+            handle_update(id=tid, tags="noop")
+            doc = handle_get(tid)["document"]
+        assert doc["implementation"] == {"total": 1, "done": 1}
+
+    def test_duplicate_checklist_text_deduped_not_double_counted(self, tmp_path):
+        body = "Resolution:\n- [ ] run tests\n- [ ] run tests"
+        db, tid = self._mk(tmp_path, body)
+        with patch("src.tools.tasks._DB", db):
+            handle_update(id=tid, tags="noop")
+            doc = handle_get(tid)["document"]
+        assert doc["implementation"] == {"total": 1, "done": 0}
+
+    def test_duplicate_checklist_text_done_wins_on_conflict(self, tmp_path):
+        """Same item text appearing both checked and unchecked (stale duplicate)
+        counts as ONE item, and as done — not two separate items."""
+        body = "Resolution:\n- [x] run tests\n- [ ] run tests"
+        db, tid = self._mk(tmp_path, body)
+        with patch("src.tools.tasks._DB", db):
+            handle_update(id=tid, tags="noop")
+            doc = handle_get(tid)["document"]
+        assert doc["implementation"] == {"total": 1, "done": 1}

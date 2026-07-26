@@ -6,6 +6,7 @@ import pytest
 from src.tools.task_document import (
     Grooming,
     GroomingAccuracy,
+    Implementation,
     Introspection,
     IntrospectionReport,
     Related,
@@ -57,12 +58,21 @@ class TestGroomingGradeRisks:
             g.grade_risks({"x": "missed"})
 
 
+class TestImplementation:
+    def test_defaults_are_zero(self):
+        impl = Implementation()
+        assert impl.total == 0
+        assert impl.done == 0
+
+
 class TestTaskDocumentDefaults:
     def test_empty_document_has_defaults(self):
         doc = TaskDocument()
         assert doc.schema_version == 1
         assert doc.grooming.risks == []
         assert doc.introspection.reports == []
+        assert doc.implementation.total == 0
+        assert doc.implementation.done == 0
         assert doc.related.commits == []
 
 
@@ -97,6 +107,7 @@ class TestRoundTrip:
                     )
                 ]
             ),
+            implementation=Implementation(total=5, done=3),
             related=Related(
                 commits=["c8716d0"],
                 memories=["verify-production-path-before-accepting-task-premise"],

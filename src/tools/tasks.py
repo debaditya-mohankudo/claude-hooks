@@ -18,7 +18,7 @@ import numpy as np
 
 from src.logger import get_logger
 from src.toon import rows_to_toon
-from src.tools.task_document import Grooming, IntrospectionReport, TaskDocument
+from src.tools.task_document import Grooming, Implementation, IntrospectionReport, TaskDocument
 
 _log = get_logger(__name__)
 _DB = Path.home() / ".claude" / "proj_tasks.db"
@@ -117,6 +117,30 @@ def _task_row_full(row: sqlite3.Row) -> dict:
     raw_document = row["document"] if "document" in keys else None
     document = TaskDocument.from_json(raw_document).to_dict() if raw_document else {}
     return {**_task_row(row), "body": row["body"] or "", "document": document}
+
+
+_FENCE_RE = re.compile(r"```.*?```", re.DOTALL)
+_CHECKLIST_RE = re.compile(r"^[ \t]*-[ \t]+\[( |x|X)\][ \t]+(.+)$", re.MULTILINE)
+
+
+def _count_checklist(body: str) -> tuple[int, int]:
+    """Count unique `- [ ]`/`- [x]` checklist items across the whole body.
+
+    Dedupes by item text via a text->bool dict (NOT a set of (text, done)
+    tuples — that wouldn't dedup a line appearing both checked and unchecked,
+    since ('x', False) and ('x', True) are different tuples). Same text seen
+    both checked and unchecked counts once, as done (OR-merge, done-wins).
+    Fenced code blocks are stripped first so an example checklist line inside
+    a ``` block (e.g. this task's own body, showing the convention) isn't
+    counted. Returns (total_unique, done_unique).
+    """
+    stripped = _FENCE_RE.sub("", body)
+    seen: dict[str, bool] = {}
+    for checked, text in _CHECKLIST_RE.findall(stripped):
+        key = text.strip()
+        is_checked = checked.lower() == "x"
+        seen[key] = seen.get(key, False) or is_checked
+    return len(seen), sum(seen.values())
 
 
 def _extract_parent_id(tags: str) -> Optional[str]:
@@ -712,6 +736,16 @@ def handle_update(id: str, title: str = "", body: str = "", status: str = "", is
                 """UPDATE open_tasks SET title=?, body=?, status=?, issue_type=?, tags=?, keywords=?, updated_at=datetime('now') WHERE id=?""",
                 (new_title, new_body, new_status, new_issue_type, new_tags, new_keywords, id),
             )
+        # Quantified deliverable for /task-implementation (task:4d3a6fc5) — recomputed
+        # unconditionally from whatever body ends up stored (cheap, idempotent parse),
+        # not gated on whether `body` was passed this call. Reuses the row already
+        # fetched above rather than a second SELECT; overwrites only .implementation,
+        # leaving grooming/introspection/related untouched.
+        raw_document = row["document"] if "document" in row.keys() else None
+        doc = TaskDocument.from_json(raw_document)
+        total, done = _count_checklist(new_body)
+        doc.implementation = Implementation(total=total, done=done)
+        _set_document(conn, id, doc)
     _log.info("[tasks__update] id=%s status=%s issue_type=%s mark_groomed=%s", id, new_status, new_issue_type, mark_groomed)
     return {"ok": True, "id": id, "status": new_status, "issue_type": new_issue_type, "tags": new_tags, "groomed": mark_groomed}
 

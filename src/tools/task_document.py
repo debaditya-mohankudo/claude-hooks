@@ -118,6 +118,17 @@ class Introspection:
 
 
 @dataclass
+class Implementation:
+    """Quantified deliverable for /task-implementation (task:4d3a6fc5) — a
+    derived tally of the body's Resolution: checklist, not a copy of it. The
+    checklist itself stays in the body (single source of truth, human-skimmable
+    in the IDE); this is recomputed on every handle_update body write, always
+    overwritten wholesale (no history to preserve, unlike Grooming)."""
+    total: int = 0
+    done: int = 0
+
+
+@dataclass
 class Related:
     """Reference-only — every list here is a slug/id pointing into a store
     that already owns the real data (commit_task_map, MEMORY.sqlite,
@@ -154,6 +165,7 @@ class TaskDocument:
     schema_version: int = SCHEMA_VERSION
     grooming: Grooming = field(default_factory=Grooming)
     introspection: Introspection = field(default_factory=Introspection)
+    implementation: Implementation = field(default_factory=Implementation)
     related: Related = field(default_factory=Related)
 
     def to_json(self) -> str:
@@ -178,6 +190,7 @@ class TaskDocument:
 
         grooming_data = data.get("grooming") or {}
         introspection_data = data.get("introspection") or {}
+        implementation_data = data.get("implementation") or {}
         related_data = data.get("related") or {}
 
         return cls(
@@ -188,6 +201,10 @@ class TaskDocument:
                     IntrospectionReport.from_dict(r)
                     for r in introspection_data.get("reports", [])
                 ]
+            ),
+            implementation=Implementation(
+                total=implementation_data.get("total", 0),
+                done=implementation_data.get("done", 0),
             ),
             related=Related.from_dict(related_data),
         )
