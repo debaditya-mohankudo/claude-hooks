@@ -72,14 +72,27 @@ This context is used to understand what changed and what the system now knows �
 
 This is the feedback loop that tells us whether grooming works — without it, grooming's predictions are write-only.
 
-Check `groomed_at` on the task (via `tasks__get`) — this is the structured signal that grooming ran (set by `/task-grooming`'s Step 6 via `tasks__update(mark_groomed=True)`, task:46634a19), more reliable than a body substring search. **If `groomed_at` is unset, skip this step silently** — same escape hatch as Step 1's no-turn-history case. If it's set, look for the `## Grooming Notes (YYYY-MM-DD)` section in the task body (grade the most recent; mention older ones only if they contradict it) — `groomed_at` tells you grooming happened, the body section is what to grade it against.
+Check `groomed_at` on the task (via `tasks__get`) — this is the structured signal that grooming ran (set by `/task-grooming`'s Step 6 via `tasks__update(mark_groomed=True)`, task:46634a19). **If `groomed_at` is unset, skip this step silently** — same escape hatch as Step 1's no-turn-history case.
 
-For each item under **Risks**, **Hidden Assumptions**, and any "most likely to stall" prediction, grade it against what actually happened:
+Grade against `document.grooming.risks` from that same `tasks__get` response (already included — `_task_row_full` returns `document` alongside `groomed_at`), not a `## Grooming Notes` body section (that pre-adoption convention is gone; epic:f42b6958 was adopted per task:2f275e17). `tasks__get`'s `document.grooming` holds only the *most recent* grooming pass (task:74dad096) — that's exactly what should be graded, so no extra lookup is needed.
+
+For each item in **`grooming.risks`** (this covers both classic "risks" and any "most likely to stall" prediction — both are falsifiable predictions about the future, graded identically), grade it against what actually happened. **`hidden_assumptions` is informational context, not graded** — those are things grooming identified/validated in the present, not predictions about what would happen later (task:3c46c40d — the original body-based instructions said to grade Hidden Assumptions too, but nothing in the schema structurally supports that; resolved by scoping grading to `risks[]` only rather than reworking the schema again):
 
 * **materialized** — predicted and it happened (did the recorded mitigation hold?)
 * **avoided** — predicted, and the prediction caused the plan change that dodged it
 * **wrong** — predicted but irrelevant; noise in the grooming pass
-* **missed** — a Step 3.3 surprise that no grooming item anticipated
+* **missed** — a Step 3.3 surprise that no grooming item anticipated (this one has no matching risk to grade — it goes in `introspection_report.missed_surprises` at Step 7b, not written back here)
+
+Write materialized/avoided/wrong grades back onto the risks themselves:
+
+```python
+mcp__claude-hooks__tasks__update_document(
+    id="<task_id>",
+    graded_risks={"<exact risk text from document.grooming.risks>": "avoided", "...": "materialized"},
+)
+```
+
+Use `graded_risks`, **not** the `grooming` param — `grooming` replaces the whole namespace and would wrongly reset `last_run_at` to now, as if grooming just re-ran. `graded_risks` matches by exact risk text and only sets `.graded`, leaving everything else in `document.grooming` untouched. If the response includes `unmatched_risk_grades`, a risk's text has drifted or been misquoted — fix the text and retry rather than silently losing the grade.
 
 Grade prose as prose — LLM judgment over the markdown bullets, no parser, no structured schema. Summarize as one line for the Step 7 report:
 
@@ -159,13 +172,15 @@ test -f "<repo>/concepts.db" -a -f "<repo>/concept_store.py" && echo sqlite
 
 JSON format: match `Files:` against `concept["module"]` in `concept_store/concepts.json` — or, for a non-Java target repo, `concept__list(repo="<repo>")` (task:2813ece5) instead of reading the file directly. SQLite format: match `Files:` against each concept's evidence `source_ref` values (`ConceptStore.get_evidence(concept_id)`) or against `domain`/`name` for the touched subsystem — same lookup `/update-concept-store` Step 2b and `/task-grooming` Step 2 already use.
 
-```
-## Concepts touched
-- hooks/gates.py: gates-prereq-chain-enforcement
-```
-(SQLite format: use the matched concept's `name`/`domain` in place of the JSON example's `module` slug.)
+Write the matched concept slugs to `document.related.concepts` — this is additive/deduped (task:74dad096's `Related.merge()`), so it's safe to call even if `/task-grooming` already added some of the same slugs earlier:
 
-Fold this into the Step 7b persisted section rather than writing it separately. This gives future grooming/introspection passes a direct link from task → concept without re-deriving the file-to-concept match each time.
+```python
+mcp__claude-hooks__tasks__update_document(id="<task_id>", related={"concepts": ["gates-prereq-chain-enforcement", "..."]})
+```
+
+(SQLite-format target repos: use the matched concept's `name`/`domain` in place of a JSON `module` slug — same value, just sourced differently.)
+
+This gives future grooming/introspection passes a direct link from task → concept without re-deriving the file-to-concept match each time.
 
 ---
 
@@ -237,12 +252,37 @@ Keep it brief and focused on insights, not chronology. If nothing to encode and 
 
 Chat output evaporates; the task body rides the injection pipeline (`load_related_tasks` scores against title/body, and related-task snippets surface on future similar tasks). Persist the report, mirroring grooming's append convention:
 
-1. `tasks__get(id="<task_id>")` — **`tasks__update(body=...)` REPLACES the body**, so fetch the existing body first; never pass only the new section.
-2. Append the Step 7 report as a dated section — condensed to **≤10 lines, findings only** (Grooming Accuracy line, decisions captured, new/stale knowledge, highest-leverage improvement). Longer sections dilute the `body_snippet` future sessions actually see, and injected bodies are hard-truncated at 3000 chars.
+1. Write the Step 7 report as a structured `introspection_report` (this accumulates — history, unlike `grooming`, is meant to be kept). This call also auto-sets the task's `introspected_at` column (task:e3a0233b, mirrors `groomed_at`) — no extra step needed, passing `introspection_report` here IS what sets it:
 
 ```python
-mcp__claude-hooks__tasks__update(id="<task_id>", body="<existing body>\n\n## Introspection (YYYY-MM-DD)\n...")
+mcp__claude-hooks__tasks__update_document(
+    id="<task_id>",
+    introspection_report={
+        "date": "YYYY-MM-DD",
+        "grooming_accuracy": {"predicted": N, "materialized": M, "avoided": K, "wrong": J},
+        "missed_surprises": ["..."],
+        "new_knowledge": ["..."],
+        "stale_knowledge_flagged": ["..."],
+        "highest_leverage": "...",
+        "overall_assessment": "...",
+    },
+)
 ```
+
+2. Populate `related.commits`/`related.memories` — reference lists, not copies (task:74dad096):
+
+```python
+commits = mcp__claude-hooks__tasks__get_commits(task_id="<task_id>")  # [{commit_hash, ...}, ...]
+history = mcp__claude-hooks__tasks__history(id="<task_id>")            # rows include a comma-separated `memories` field per turn
+memories = sorted({name for row in history for name in row.get("memories", "").split(",") if name})
+
+mcp__claude-hooks__tasks__update_document(
+    id="<task_id>",
+    related={"commits": [c["commit_hash"] for c in commits], "memories": memories},
+)
+```
+
+This is a rollup of data that already exists per-turn in `task_events.memories` and per-commit in `commit_task_map` — not a new write path, just the first time it's aggregated onto the task itself.
 
 3. Re-index so the closed task's embedding includes the learnings:
 
@@ -250,7 +290,9 @@ mcp__claude-hooks__tasks__update(id="<task_id>", body="<existing body>\n\n## Int
 mcp__claude-hooks__tasks__index_task(task_id="<task_id>")
 ```
 
-The task is already `done` at this point — `tasks__update` with only `body` does not touch status.
+The task is already `done` at this point — this doesn't touch status.
+
+**Repos without `tasks__update_document`** (i.e. not claude-hooks-dev's `proj_tasks.db`): fall back to the pre-adoption body-append convention — `tasks__get(id="<task_id>")` first (`tasks__update(body=...)` REPLACES the body, so fetch existing first), then append the Step 7 report as a dated section, condensed to **≤10 lines, findings only** (Grooming Accuracy line, decisions captured, new/stale knowledge, highest-leverage improvement — injected bodies are hard-truncated at 3000 chars), then re-index the same way.
 
 ---
 
