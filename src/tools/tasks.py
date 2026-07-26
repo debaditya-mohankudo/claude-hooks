@@ -10,6 +10,7 @@ import json
 import re
 import sqlite3
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -17,6 +18,7 @@ import numpy as np
 
 from src.logger import get_logger
 from src.toon import rows_to_toon
+from src.tools.task_document import Grooming, IntrospectionReport, TaskDocument
 
 _log = get_logger(__name__)
 _DB = Path.home() / ".claude" / "proj_tasks.db"
@@ -105,8 +107,16 @@ def _task_row(row: sqlite3.Row) -> dict:
 
 
 def _task_row_full(row: sqlite3.Row) -> dict:
-    """Full row including body. Used only by handle_get."""
-    return {**_task_row(row), "body": row["body"] or ""}
+    """Full row including body and the structured document. Used only by handle_get.
+
+    `document` is kept out of _task_row (list/search) the same way `body`
+    already is — it can grow, and list/search payloads should stay small
+    (this is also why handle_list defaults its `format` to TOON — task:4b5bf21f).
+    """
+    keys = row.keys()
+    raw_document = row["document"] if "document" in keys else None
+    document = TaskDocument.from_json(raw_document).to_dict() if raw_document else {}
+    return {**_task_row(row), "body": row["body"] or "", "document": document}
 
 
 def _extract_parent_id(tags: str) -> Optional[str]:
@@ -163,7 +173,8 @@ def _ensure_db(conn: sqlite3.Connection) -> None:
             keywords   TEXT DEFAULT NULL,
             created_at TIMESTAMP DEFAULT (datetime('now')),
             updated_at TIMESTAMP DEFAULT (datetime('now')),
-            groomed_at TIMESTAMP DEFAULT NULL
+            groomed_at TIMESTAMP DEFAULT NULL,
+            document   TEXT DEFAULT NULL
         )
     """)
     conn.execute("""
@@ -214,6 +225,8 @@ def _ensure_db(conn: sqlite3.Connection) -> None:
                 conn.execute("UPDATE open_tasks SET parent_id=? WHERE id=?", (pid, row["id"]))
     if "groomed_at" not in cols:
         conn.execute("ALTER TABLE open_tasks ADD COLUMN groomed_at TIMESTAMP DEFAULT NULL")
+    if "document" not in cols:
+        conn.execute("ALTER TABLE open_tasks ADD COLUMN document TEXT DEFAULT NULL")
     conn.commit()
 
 
@@ -528,6 +541,111 @@ def handle_list(status: str = "open,blocked", limit: int = 50, format: str = "to
         normalized = [{**t, "_context_only": t.get("_context_only", False)} for t in result]
         return f"count: {len(normalized)}\n{rows_to_toon(normalized)}"
 
+    return result
+
+
+def _get_document(conn: sqlite3.Connection, task_id: str) -> TaskDocument:
+    """Read a task's document column as a TaskDocument. NULL/missing row ->
+    a fresh empty TaskDocument, never an error — matches from_json()'s
+    NULL-handling contract (task:74dad096)."""
+    row = conn.execute("SELECT document FROM open_tasks WHERE id = ?", (task_id,)).fetchone()
+    if row is None:
+        return TaskDocument()
+    return TaskDocument.from_json(row["document"])
+
+
+def _set_document(conn: sqlite3.Connection, task_id: str, document: TaskDocument) -> None:
+    """Write a TaskDocument back to the column. Caller is responsible for
+    reading via _get_document first and mutating the returned object —
+    this always overwrites the whole column (SQLite has no in-place JSON
+    patch without the json1 extension's json_set, which we deliberately
+    avoid here to keep this readable in plain Python for an experimental,
+    still-changing schema; revisit if/when this graduates past epic:f42b6958)."""
+    conn.execute(
+        "UPDATE open_tasks SET document = ? WHERE id = ?",
+        (document.to_json(), task_id),
+    )
+
+
+def handle_update_document(
+    id: str,
+    grooming: Optional[dict] = None,
+    graded_risks: Optional[dict] = None,
+    introspection_report: Optional[dict] = None,
+    related: Optional[dict] = None,
+) -> dict:
+    """Merge-update a task's structured document (epic:f42b6958, task:dd87e9f0/3c46c40d).
+
+    Only the namespaces provided are touched — omit an argument to leave that
+    part of the document untouched.
+
+    Args:
+        id:                    Task id.
+        grooming:               If provided, REPLACES document.grooming wholesale
+                               (only the latest pass is kept — task:74dad096's
+                               design decision). `last_run_at` is set server-side
+                               to the current UTC timestamp, overriding any value
+                               the caller passes for it. Shape: {clarifications,
+                               hidden_assumptions, risks: [{text, graded}],
+                               prior_art, suggested_improvements}. Use this for a
+                               fresh /task-grooming pass, not for grading existing
+                               risks — use graded_risks for that instead.
+        graded_risks:          If provided, sets `.graded` on EXISTING risks in
+                               document.grooming.risks, matched by exact text —
+                               does NOT touch last_run_at or any other grooming
+                               field (task:3c46c40d: reusing `grooming` for this
+                               would wrongly imply a fresh grooming pass just
+                               happened). Shape: {"<risk text>": "materialized"
+                               | "avoided" | "wrong"}. This is what
+                               /task-introspection's Step 3.0 writes back after
+                               grading. Text keys with no matching risk are
+                               silently ignored (not an error) — the response's
+                               `unmatched_risk_grades` lists them so callers can
+                               notice a stale/renamed risk text.
+        introspection_report:  If provided, APPENDED to document.introspection.reports[]
+                               (history accumulates, unlike grooming). Shape:
+                               {date, grooming_accuracy: {predicted, materialized,
+                               avoided, wrong}, missed_surprises, new_knowledge,
+                               stale_knowledge_flagged, highest_leverage,
+                               overall_assessment}.
+        related:               If provided, each list (commits/memories/concepts/
+                               decision_event_ids) present is EXTENDED and
+                               deduplicated against the existing document, never
+                               overwritten — both /task-grooming and
+                               /task-introspection add to this independently.
+    """
+    if grooming is None and graded_risks is None and introspection_report is None and related is None:
+        return {"error": "at least one of grooming/graded_risks/introspection_report/related is required"}
+    with _connect() as conn:
+        row = conn.execute("SELECT id FROM open_tasks WHERE id = ?", (id,)).fetchone()
+        if row is None:
+            return {"error": f"Task '{id}' not found"}
+
+        doc = _get_document(conn, id)
+        unmatched_risk_grades: list[str] = []
+
+        if grooming is not None:
+            doc.grooming = Grooming.from_dict(grooming)
+            doc.grooming.last_run_at = datetime.now(timezone.utc).isoformat()
+
+        if graded_risks is not None:
+            unmatched_risk_grades = doc.grooming.grade_risks(graded_risks)
+
+        if introspection_report is not None:
+            doc.introspection.reports.append(IntrospectionReport.from_dict(introspection_report))
+
+        if related is not None:
+            doc.related.merge(related)
+
+        _set_document(conn, id, doc)
+
+    _log.info(
+        "[tasks__update_document] id=%s grooming=%s graded_risks=%s introspection_report=%s related=%s",
+        id, grooming is not None, graded_risks is not None, introspection_report is not None, related is not None,
+    )
+    result = {"ok": True, "id": id, "document": doc.to_dict()}
+    if unmatched_risk_grades:
+        result["unmatched_risk_grades"] = unmatched_risk_grades
     return result
 
 

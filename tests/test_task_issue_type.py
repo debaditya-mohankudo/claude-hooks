@@ -8,8 +8,10 @@ from unittest.mock import patch
 
 import pytest
 
+import src.tools.tasks as tasks_module
 from src.tools.tasks import handle_create, handle_get, handle_list, handle_update
 from src.db.schema import OPEN_TASKS_DDL, TASK_EVENTS_DDL, TASK_EDGES_DDL
+from src.tools.task_document import TaskDocument
 
 
 @pytest.fixture(autouse=True)
@@ -370,3 +372,195 @@ class TestSchemaParity:
         with __import__("sqlite3").connect(str(db)) as conn:
             tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         assert "task_edges" in tables
+
+
+class TestDocumentColumn:
+    """epic:f42b6958 — experimental document column. Verifies the column
+    itself (added to both tasks.py's real _ensure_db() and schema.py's
+    test-fixture DDL, per task:544a21c0), separately from TaskDocument's
+    own serialization (covered by tests/test_task_document.py)."""
+
+    def _mk(self, tmp_path, title="A"):
+        db = tmp_path / "doc.db"
+        with patch("src.tools.tasks._DB", db):
+            tid = handle_create(title=title, body=BODY)["id"]
+        return db, tid
+
+    def test_new_task_document_defaults_to_none(self, tmp_path):
+        db, tid = self._mk(tmp_path)
+        with patch("src.tools.tasks._DB", db):
+            row = handle_get(id=tid)
+        assert row["document"] == {}
+
+    def test_get_document_on_fresh_task_is_empty_taskdocument(self, tmp_path):
+        db, tid = self._mk(tmp_path)
+        with patch("src.tools.tasks._DB", db):
+            with tasks_module._connect() as conn:
+                doc = tasks_module._get_document(conn, tid)
+        assert doc == TaskDocument()
+
+    def test_set_then_get_document_round_trips(self, tmp_path):
+        db, tid = self._mk(tmp_path)
+        with patch("src.tools.tasks._DB", db):
+            with tasks_module._connect() as conn:
+                doc = tasks_module._get_document(conn, tid)
+                doc.grooming.last_run_at = "2026-07-26T12:00:00Z"
+                doc.related.concepts.append("tasks-db-schema-and-migration")
+                tasks_module._set_document(conn, tid, doc)
+                conn.commit()
+
+            with tasks_module._connect() as conn:
+                reloaded = tasks_module._get_document(conn, tid)
+        assert reloaded == doc
+
+        with patch("src.tools.tasks._DB", db):
+            row = handle_get(id=tid)
+        assert row["document"]["grooming"]["last_run_at"] == "2026-07-26T12:00:00Z"
+        assert row["document"]["related"]["concepts"] == ["tasks-db-schema-and-migration"]
+
+    def test_document_not_included_in_list_output(self, tmp_path):
+        """document is excluded from _task_row (list/search) the same way
+        body already is — only handle_get returns it."""
+        db, tid = self._mk(tmp_path)
+        with patch("src.tools.tasks._DB", db):
+            rows = handle_list(format="json")
+        assert "document" not in rows[0]
+
+    def test_migration_adds_document_to_existing_db(self, tmp_path):
+        """A DB predating the document column gets it added on connect."""
+        import sqlite3 as _sq
+
+        db = tmp_path / "old.db"
+        conn = _sq.connect(str(db))
+        conn.execute("""
+            CREATE TABLE open_tasks (
+                id TEXT PRIMARY KEY, title TEXT NOT NULL,
+                body TEXT DEFAULT '', tags TEXT DEFAULT '',
+                status TEXT DEFAULT 'open', issue_type TEXT DEFAULT 'task',
+                created_at TIMESTAMP DEFAULT (datetime('now')),
+                updated_at TIMESTAMP DEFAULT (datetime('now'))
+            )
+        """)
+        conn.execute("INSERT INTO open_tasks (id, title) VALUES ('x1', 'Old task')")
+        conn.commit()
+        conn.close()
+
+        with patch("src.tools.tasks._DB", db):
+            row = handle_get(id="x1")
+        assert row["document"] == {}
+
+
+class TestUpdateDocument:
+    """tasks__update_document (task:dd87e9f0) — the MCP-exposed merge-update
+    entry point /task-grooming and /task-introspection write through."""
+
+    def _mk(self, tmp_path, title="A"):
+        db = tmp_path / "doc.db"
+        with patch("src.tools.tasks._DB", db):
+            tid = handle_create(title=title, body=BODY)["id"]
+        return db, tid
+
+    def test_missing_task_is_error(self, tmp_path):
+        db, _ = self._mk(tmp_path)
+        with patch("src.tools.tasks._DB", db):
+            result = tasks_module.handle_update_document(id="nonexistent", grooming={"clarifications": ["x"]})
+        assert "error" in result
+
+    def test_no_args_is_error(self, tmp_path):
+        db, tid = self._mk(tmp_path)
+        with patch("src.tools.tasks._DB", db):
+            result = tasks_module.handle_update_document(id=tid)
+        assert "error" in result
+
+    def test_grooming_write_sets_last_run_at_server_side(self, tmp_path):
+        db, tid = self._mk(tmp_path)
+        with patch("src.tools.tasks._DB", db):
+            result = tasks_module.handle_update_document(
+                id=tid,
+                grooming={
+                    "clarifications": ["no existing concept covers this"],
+                    "risks": [{"text": "schema.py names wrong file", "graded": None}],
+                },
+            )
+        assert result["ok"] is True
+        assert result["document"]["grooming"]["last_run_at"] is not None
+        assert result["document"]["grooming"]["clarifications"] == ["no existing concept covers this"]
+        assert result["document"]["grooming"]["risks"] == [{"text": "schema.py names wrong file", "graded": None}]
+
+    def test_grooming_write_ignores_caller_supplied_last_run_at(self, tmp_path):
+        db, tid = self._mk(tmp_path)
+        with patch("src.tools.tasks._DB", db):
+            result = tasks_module.handle_update_document(
+                id=tid, grooming={"last_run_at": "1999-01-01T00:00:00Z"}
+            )
+        assert result["document"]["grooming"]["last_run_at"] != "1999-01-01T00:00:00Z"
+
+    def test_regrooming_replaces_wholesale_not_merges(self, tmp_path):
+        db, tid = self._mk(tmp_path)
+        with patch("src.tools.tasks._DB", db):
+            tasks_module.handle_update_document(id=tid, grooming={"clarifications": ["first pass"]})
+            result = tasks_module.handle_update_document(id=tid, grooming={"clarifications": ["second pass"]})
+        assert result["document"]["grooming"]["clarifications"] == ["second pass"]
+
+    def test_introspection_report_appends_not_replaces(self, tmp_path):
+        db, tid = self._mk(tmp_path)
+        with patch("src.tools.tasks._DB", db):
+            tasks_module.handle_update_document(
+                id=tid, introspection_report={"date": "2026-07-25", "highest_leverage": "first"}
+            )
+            result = tasks_module.handle_update_document(
+                id=tid, introspection_report={"date": "2026-07-26", "highest_leverage": "second"}
+            )
+        reports = result["document"]["introspection"]["reports"]
+        assert len(reports) == 2
+        assert reports[0]["highest_leverage"] == "first"
+        assert reports[1]["highest_leverage"] == "second"
+
+    def test_related_merges_and_dedupes(self, tmp_path):
+        db, tid = self._mk(tmp_path)
+        with patch("src.tools.tasks._DB", db):
+            tasks_module.handle_update_document(id=tid, related={"concepts": ["concept-a"]})
+            result = tasks_module.handle_update_document(
+                id=tid, related={"concepts": ["concept-a", "concept-b"], "commits": ["c123"]}
+            )
+        assert result["document"]["related"]["concepts"] == ["concept-a", "concept-b"]
+        assert result["document"]["related"]["commits"] == ["c123"]
+
+    def test_grooming_and_related_can_both_be_written_by_different_calls(self, tmp_path):
+        """Simulates /task-grooming writing grooming + related concepts,
+        then /task-introspection later adding to related without touching
+        grooming."""
+        db, tid = self._mk(tmp_path)
+        with patch("src.tools.tasks._DB", db):
+            tasks_module.handle_update_document(
+                id=tid,
+                grooming={"clarifications": ["c1"]},
+                related={"concepts": ["concept-a"]},
+            )
+            result = tasks_module.handle_update_document(id=tid, related={"memories": ["mem-a"]})
+        assert result["document"]["grooming"]["clarifications"] == ["c1"]
+        assert result["document"]["related"]["concepts"] == ["concept-a"]
+        assert result["document"]["related"]["memories"] == ["mem-a"]
+
+    def test_graded_risks_does_not_bump_last_run_at(self, tmp_path):
+        """task:3c46c40d: grading an existing risk (introspection's job) must
+        not look like a fresh grooming pass just happened."""
+        db, tid = self._mk(tmp_path)
+        with patch("src.tools.tasks._DB", db):
+            first = tasks_module.handle_update_document(
+                id=tid, grooming={"risks": [{"text": "schema.py names wrong file", "graded": None}]}
+            )
+            original_last_run_at = first["document"]["grooming"]["last_run_at"]
+            result = tasks_module.handle_update_document(
+                id=tid, graded_risks={"schema.py names wrong file": "avoided"}
+            )
+        assert result["document"]["grooming"]["last_run_at"] == original_last_run_at
+        assert result["document"]["grooming"]["risks"][0]["graded"] == "avoided"
+
+    def test_graded_risks_unmatched_text_reported_not_raised(self, tmp_path):
+        db, tid = self._mk(tmp_path)
+        with patch("src.tools.tasks._DB", db):
+            tasks_module.handle_update_document(id=tid, grooming={"risks": [{"text": "x", "graded": None}]})
+            result = tasks_module.handle_update_document(id=tid, graded_risks={"y": "wrong"})
+        assert result["unmatched_risk_grades"] == ["y"]
+        assert result["document"]["grooming"]["risks"][0]["graded"] is None
