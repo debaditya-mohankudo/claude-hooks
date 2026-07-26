@@ -232,7 +232,7 @@ class TestListToonFormat:
         result = handle_list()
         assert isinstance(result, str)
         assert result.startswith("count: 1")
-        assert "rows[1]{id,title,tags,status,issue_type,parent_id,keywords,created_at,updated_at,groomed_at,depth,_context_only}:" in result
+        assert "rows[1]{id,title,tags,status,issue_type,parent_id,keywords,created_at,updated_at,groomed_at,introspected_at,depth,_context_only}:" in result
 
     def test_toon_empty_list(self):
         result = handle_list(status="abandoned")
@@ -649,3 +649,51 @@ class TestImplementationProgress:
             handle_update(id=tid, tags="noop")
             doc = handle_get(tid)["document"]
         assert doc["implementation"] == {"total": 1, "done": 1}
+
+
+class TestIntrospectedAt:
+    """introspected_at column (task:e3a0233b) — mirrors groomed_at, but set
+    automatically whenever handle_update_document writes an introspection_report,
+    not via a separate mark_introspected flag."""
+
+    def _mk(self, tmp_path, title="A"):
+        db = tmp_path / "introspected.db"
+        with patch("src.tools.tasks._DB", db):
+            tid = handle_create(title=title, body=BODY)["id"]
+        return db, tid
+
+    def test_nil_by_default(self, tmp_path):
+        db, tid = self._mk(tmp_path)
+        with patch("src.tools.tasks._DB", db):
+            row = handle_get(tid)
+        assert row["introspected_at"] is None
+
+    def test_set_after_introspection_report(self, tmp_path):
+        db, tid = self._mk(tmp_path)
+        with patch("src.tools.tasks._DB", db):
+            tasks_module.handle_update_document(
+                id=tid,
+                introspection_report={"date": "2026-07-26", "overall_assessment": "fine"},
+            )
+            row = handle_get(tid)
+        assert row["introspected_at"] is not None
+
+    def test_not_set_by_grooming_only_call(self, tmp_path):
+        db, tid = self._mk(tmp_path)
+        with patch("src.tools.tasks._DB", db):
+            tasks_module.handle_update_document(id=tid, grooming={"clarifications": ["c1"]})
+            row = handle_get(tid)
+        assert row["introspected_at"] is None
+
+    def test_not_set_by_related_only_call(self, tmp_path):
+        db, tid = self._mk(tmp_path)
+        with patch("src.tools.tasks._DB", db):
+            tasks_module.handle_update_document(id=tid, related={"concepts": ["c1"]})
+            row = handle_get(tid)
+        assert row["introspected_at"] is None
+
+    def test_present_in_list_rows(self, tmp_path):
+        db, tid = self._mk(tmp_path)
+        with patch("src.tools.tasks._DB", db):
+            rows = handle_list(format="json")
+        assert any("introspected_at" in r for r in rows)
