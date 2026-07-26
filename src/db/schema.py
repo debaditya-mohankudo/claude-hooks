@@ -81,7 +81,8 @@ CREATE TABLE IF NOT EXISTS open_tasks (
     created_at TIMESTAMP DEFAULT (datetime('now')),
     updated_at TIMESTAMP DEFAULT (datetime('now')),
     groomed_at TIMESTAMP DEFAULT NULL,
-    document   TEXT DEFAULT NULL
+    document   TEXT DEFAULT NULL,
+    introspected_at TIMESTAMP DEFAULT NULL
 )
 """
 
@@ -125,6 +126,7 @@ def migrate_tasks_db(conn: sqlite3.Connection) -> None:
         "keywords":   "TEXT DEFAULT NULL",
         "groomed_at": "TIMESTAMP DEFAULT NULL",
         "document":   "TEXT DEFAULT NULL",
+        "introspected_at": "TIMESTAMP DEFAULT NULL",
     }
     for col, typedef in task_additive.items():
         if col not in task_cols:

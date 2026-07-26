@@ -103,6 +103,7 @@ def _task_row(row: sqlite3.Row) -> dict:
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
         "groomed_at": row["groomed_at"] if "groomed_at" in keys else None,
+        "introspected_at": row["introspected_at"] if "introspected_at" in keys else None,
     }
 
 
@@ -198,7 +199,8 @@ def _ensure_db(conn: sqlite3.Connection) -> None:
             created_at TIMESTAMP DEFAULT (datetime('now')),
             updated_at TIMESTAMP DEFAULT (datetime('now')),
             groomed_at TIMESTAMP DEFAULT NULL,
-            document   TEXT DEFAULT NULL
+            document   TEXT DEFAULT NULL,
+            introspected_at TIMESTAMP DEFAULT NULL
         )
     """)
     conn.execute("""
@@ -251,6 +253,8 @@ def _ensure_db(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE open_tasks ADD COLUMN groomed_at TIMESTAMP DEFAULT NULL")
     if "document" not in cols:
         conn.execute("ALTER TABLE open_tasks ADD COLUMN document TEXT DEFAULT NULL")
+    if "introspected_at" not in cols:
+        conn.execute("ALTER TABLE open_tasks ADD COLUMN introspected_at TIMESTAMP DEFAULT NULL")
     conn.commit()
 
 
@@ -583,8 +587,8 @@ def _set_document(conn: sqlite3.Connection, task_id: str, document: TaskDocument
     reading via _get_document first and mutating the returned object —
     this always overwrites the whole column (SQLite has no in-place JSON
     patch without the json1 extension's json_set, which we deliberately
-    avoid here to keep this readable in plain Python for an experimental,
-    still-changing schema; revisit if/when this graduates past epic:f42b6958)."""
+    avoid here to keep this readable in plain Python; revisit if the
+    schema (epic:f42b6958, adopted) grows large enough to need it)."""
     conn.execute(
         "UPDATE open_tasks SET document = ? WHERE id = ?",
         (document.to_json(), task_id),
@@ -631,7 +635,12 @@ def handle_update_document(
                                {date, grooming_accuracy: {predicted, materialized,
                                avoided, wrong}, missed_surprises, new_knowledge,
                                stale_knowledge_flagged, highest_leverage,
-                               overall_assessment}.
+                               overall_assessment}. Also sets the plain
+                               `introspected_at` column to now — mirrors
+                               groomed_at, but set automatically here rather than
+                               via a separate mark_introspected flag, since
+                               passing introspection_report already IS the
+                               definitive signal that introspection ran.
         related:               If provided, each list (commits/memories/concepts/
                                decision_event_ids) present is EXTENDED and
                                deduplicated against the existing document, never
@@ -662,6 +671,11 @@ def handle_update_document(
             doc.related.merge(related)
 
         _set_document(conn, id, doc)
+
+        if introspection_report is not None:
+            conn.execute(
+                "UPDATE open_tasks SET introspected_at=datetime('now') WHERE id=?", (id,),
+            )
 
     _log.info(
         "[tasks__update_document] id=%s grooming=%s graded_risks=%s introspection_report=%s related=%s",
