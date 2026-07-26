@@ -19,6 +19,13 @@ import numpy as np
 from src.logger import get_logger
 from src.toon import rows_to_toon
 from src.tools.task_document import Grooming, Implementation, IntrospectionReport, TaskDocument
+from src.db.schema import (
+    OPEN_TASKS_DDL,
+    TASK_EVENTS_DDL,
+    TASK_EDGES_DDL,
+    COMMIT_TASK_MAP_DDL,
+    migrate_tasks_db,
+)
 
 _log = get_logger(__name__)
 _DB = Path.home() / ".claude" / "proj_tasks.db"
@@ -186,96 +193,48 @@ def _project_name_from_cwd(cwd: str) -> Optional[str]:
 
 
 def _ensure_db(conn: sqlite3.Connection) -> None:
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS open_tasks (
-            id         TEXT PRIMARY KEY,
-            title      TEXT NOT NULL,
-            body       TEXT DEFAULT '',
-            tags       TEXT DEFAULT '',
-            status     TEXT DEFAULT 'open',
-            issue_type           TEXT DEFAULT 'task',
-            parent_id            TEXT DEFAULT NULL REFERENCES open_tasks(id),
-            keywords   TEXT DEFAULT NULL,
-            created_at TIMESTAMP DEFAULT (datetime('now')),
-            updated_at TIMESTAMP DEFAULT (datetime('now')),
-            groomed_at TIMESTAMP DEFAULT NULL,
-            document   TEXT DEFAULT NULL,
-            introspected_at TIMESTAMP DEFAULT NULL
-        )
-    """)
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS task_events (
-            id         INTEGER PRIMARY KEY AUTOINCREMENT,
-            task_id    TEXT NOT NULL,
-            prompt_id  TEXT DEFAULT '',
-            session_id TEXT DEFAULT '',
-            turn       INTEGER DEFAULT 0,
-            summary    TEXT DEFAULT '',
-            tools      TEXT DEFAULT '',
-            related    TEXT DEFAULT '',
-            logged_at  TIMESTAMP DEFAULT (datetime('now')),
-            FOREIGN KEY (task_id) REFERENCES open_tasks(id) ON DELETE CASCADE
-        )
-    """)
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS commit_task_map (
-            id          INTEGER PRIMARY KEY AUTOINCREMENT,
-            task_id     TEXT NOT NULL,
-            commit_hash TEXT NOT NULL,
-            repo_path   TEXT DEFAULT '',
-            logged_at   TIMESTAMP DEFAULT (datetime('now')),
-            FOREIGN KEY (task_id) REFERENCES open_tasks(id) ON DELETE CASCADE,
-            UNIQUE (task_id, commit_hash)
-        )
-    """)
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS task_edges (
-            from_id       TEXT NOT NULL,
-            to_id         TEXT NOT NULL,
-            relation_type TEXT NOT NULL,
-            created_at    TIMESTAMP DEFAULT (datetime('now')),
-            PRIMARY KEY (from_id, to_id, relation_type)
-        )
-    """)
-    # Migrate existing DBs that predate the issue_type / parent_id columns
-    cols = {row[1] for row in conn.execute("PRAGMA table_info(open_tasks)")}
-    if "issue_type" not in cols:
-        conn.execute("ALTER TABLE open_tasks ADD COLUMN issue_type TEXT DEFAULT 'task'")
-    if "parent_id" not in cols:
-        conn.execute("ALTER TABLE open_tasks ADD COLUMN parent_id TEXT DEFAULT NULL REFERENCES open_tasks(id)")
+    """Create/structurally migrate proj_tasks.db.
+
+    Structure (DDL + column-existence) is delegated to schema.py's DDL
+    constants and migrate_tasks_db() — the single source of truth (task:1310d3a3,
+    reversing the deliberate-duplication call from task:9d3acbef now that the
+    split can be eliminated without touching memory.py/scratch.py/hooks.py).
+    Backfill (computing VALUES for newly-added columns) stays here: it depends
+    on tasks.py's own helpers (_extract_keywords, _extract_parent_id) and
+    moving it into schema.py would create a circular import.
+    """
+    conn.execute(OPEN_TASKS_DDL)
+    conn.execute(TASK_EVENTS_DDL)
+    conn.execute(COMMIT_TASK_MAP_DDL)
+    conn.execute(TASK_EDGES_DDL)
+
+    # Snapshot BEFORE migrate_tasks_db() adds columns, so we know which
+    # backfills are actually needed (a column present here already has real
+    # values — running the backfill again would be wasted work, not wrong,
+    # but the snapshot keeps this from silently backfilling every startup).
+    task_cols_before = {row[1] for row in conn.execute("PRAGMA table_info(open_tasks)")}
+
+    migrate_tasks_db(conn)
+
+    if "parent_id" not in task_cols_before:
         # Backfill parent_id from existing parent:<id> tags
         rows = conn.execute("SELECT id, tags FROM open_tasks WHERE tags LIKE '%parent:%'").fetchall()
         for row in rows:
             pid = _extract_parent_id(row["tags"] or "")
             if pid:
                 conn.execute("UPDATE open_tasks SET parent_id=? WHERE id=?", (pid, row["id"]))
-    if "groomed_at" not in cols:
-        conn.execute("ALTER TABLE open_tasks ADD COLUMN groomed_at TIMESTAMP DEFAULT NULL")
-    if "document" not in cols:
-        conn.execute("ALTER TABLE open_tasks ADD COLUMN document TEXT DEFAULT NULL")
-    if "introspected_at" not in cols:
-        conn.execute("ALTER TABLE open_tasks ADD COLUMN introspected_at TIMESTAMP DEFAULT NULL")
-    conn.commit()
-
-
-def _migrate(conn: sqlite3.Connection) -> None:
-    """Apply additive schema migrations for existing DBs."""
-    event_cols = {r[1] for r in conn.execute("PRAGMA table_info(task_events)")}
-    if "related" not in event_cols:
-        conn.execute("ALTER TABLE task_events ADD COLUMN related TEXT DEFAULT ''")
-        conn.commit()
-    if "memories" not in event_cols:
-        conn.execute("ALTER TABLE task_events ADD COLUMN memories TEXT DEFAULT ''")
-        conn.commit()
-    task_cols = {r[1] for r in conn.execute("PRAGMA table_info(open_tasks)")}
-    if "keywords" not in task_cols:
-        conn.execute("ALTER TABLE open_tasks ADD COLUMN keywords TEXT DEFAULT NULL")
-        # Backfill existing rows
+    if "keywords" not in task_cols_before:
         rows = conn.execute("SELECT id, title, body FROM open_tasks").fetchall()
         for row in rows:
             kw = _extract_keywords(row["title"] or "", row["body"] or "")
             conn.execute("UPDATE open_tasks SET keywords=? WHERE id=?", (kw, row["id"]))
-        conn.commit()
+
+    conn.commit()
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    """Data-normalization migrations unrelated to column existence — schema.py
+    has no involvement here, this isn't structure."""
     # wip/active → open migration (active removed — checkpoint-only concept)
     conn.execute("UPDATE open_tasks SET status='open' WHERE status IN ('wip', 'active')")
     conn.commit()

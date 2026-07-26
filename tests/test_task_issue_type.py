@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import sqlite3
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
@@ -329,13 +330,14 @@ def _ddl_columns(ddl: str) -> set[str]:
 
 
 class TestSchemaParity:
-    """Guards against schema.py's DDL constants silently drifting from
-    tasks.py's own self-healing _ensure_db() — the two are deliberately
-    independent (task:cb357eb6/commit de1ae61: schema.py is for test
-    fixtures + one-time install, not the production path), so nothing
-    forces them to stay in sync except this test. Checks column NAMES
-    only (a superset/equality check on names), not types or order —
-    stricter equality would be noisy for legitimate formatting differences.
+    """tasks.py's _ensure_db() now executes schema.py's DDL constants and
+    calls migrate_tasks_db() directly (task:1310d3a3) — column-name parity
+    is guaranteed by construction, not by two independently-maintained
+    copies (that was the pre-task:1310d3a3 design, task:cb357eb6/de1ae61).
+    These column-equality checks stay as cheap regression guards against a
+    future accidental revert to inline duplication; the real regression
+    coverage for THIS module's remaining independent logic (backfills,
+    status normalization) is in TestBackfillAndNormalization below.
     """
 
     def test_open_tasks_columns_match(self, tmp_path):
@@ -372,6 +374,81 @@ class TestSchemaParity:
         with __import__("sqlite3").connect(str(db)) as conn:
             tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         assert "task_edges" in tables
+
+    def test_commit_task_map_table_created_by_ensure_db(self, tmp_path):
+        """commit_task_map has no DDL constant in schema.py at all pre-task:1310d3a3
+        — confirms _ensure_db()'s new schema.py-delegated path still creates it."""
+        db = tmp_path / "fresh.db"
+        with patch("src.tools.tasks._DB", db):
+            handle_create(title="x", body=BODY)
+        with __import__("sqlite3").connect(str(db)) as conn:
+            tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        assert "commit_task_map" in tables
+
+
+class TestBackfillAndNormalization:
+    """task:1310d3a3 — regression coverage for the migration behavior that
+    stays in tasks.py (not delegated to schema.py) because it depends on
+    tasks.py's own helpers: keywords/parent_id backfill for legacy rows,
+    and wip/active status normalization. Column existence itself is now
+    schema.py's job (migrate_tasks_db()); these tests guard the VALUES."""
+
+    def test_parent_id_backfilled_from_legacy_tags_on_missing_column(self, tmp_path):
+        db = tmp_path / "legacy.db"
+        with sqlite3.connect(str(db)) as conn:
+            conn.execute("""
+                CREATE TABLE open_tasks (
+                    id TEXT PRIMARY KEY, title TEXT, body TEXT DEFAULT '',
+                    tags TEXT DEFAULT '', status TEXT DEFAULT 'open',
+                    created_at TIMESTAMP DEFAULT (datetime('now')),
+                    updated_at TIMESTAMP DEFAULT (datetime('now'))
+                )
+            """)
+            conn.execute(
+                "INSERT INTO open_tasks (id, title, tags) VALUES ('child01', 'Child', 'parent:parent01,other')"
+            )
+            conn.commit()
+        with patch("src.tools.tasks._DB", db):
+            handle_get("child01")  # any call through _connect() triggers _ensure_db
+        with sqlite3.connect(str(db)) as conn:
+            row = conn.execute("SELECT parent_id FROM open_tasks WHERE id='child01'").fetchone()
+        assert row[0] == "parent01"
+
+    def test_keywords_backfilled_on_missing_column(self, tmp_path):
+        db = tmp_path / "legacy.db"
+        with sqlite3.connect(str(db)) as conn:
+            conn.execute("""
+                CREATE TABLE open_tasks (
+                    id TEXT PRIMARY KEY, title TEXT, body TEXT DEFAULT '',
+                    tags TEXT DEFAULT '', status TEXT DEFAULT 'open',
+                    created_at TIMESTAMP DEFAULT (datetime('now')),
+                    updated_at TIMESTAMP DEFAULT (datetime('now'))
+                )
+            """)
+            conn.execute(
+                "INSERT INTO open_tasks (id, title, body) VALUES ('legacy01', 'Fix authentication bug', 'detailed body text')"
+            )
+            conn.commit()
+        with patch("src.tools.tasks._DB", db):
+            handle_get("legacy01")
+        with sqlite3.connect(str(db)) as conn:
+            row = conn.execute("SELECT keywords FROM open_tasks WHERE id='legacy01'").fetchone()
+        assert row[0] and "authentication" in row[0]
+
+    def test_wip_and_active_status_normalized_to_open(self, tmp_path):
+        db = tmp_path / "normalize.db"
+        with patch("src.tools.tasks._DB", db):
+            tid1 = handle_create(title="a", body=BODY)["id"]
+            tid2 = handle_create(title="b", body=BODY)["id"]
+        with sqlite3.connect(str(db)) as conn:
+            conn.execute("UPDATE open_tasks SET status='wip' WHERE id=?", (tid1,))
+            conn.execute("UPDATE open_tasks SET status='active' WHERE id=?", (tid2,))
+            conn.commit()
+        with patch("src.tools.tasks._DB", db):
+            handle_get(tid1)  # any _connect() call re-runs _migrate()
+        with sqlite3.connect(str(db)) as conn:
+            statuses = {row[0] for row in conn.execute("SELECT status FROM open_tasks WHERE id IN (?, ?)", (tid1, tid2))}
+        assert statuses == {"open"}
 
 
 class TestDocumentColumn:

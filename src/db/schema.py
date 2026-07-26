@@ -102,6 +102,22 @@ CREATE TABLE IF NOT EXISTS task_events (
 )
 """
 
+# Also created by src/tools/tasks.py's own _ensure_db() — that's the actual
+# production path; this constant is for test fixtures / one-time install
+# only, per this module's docstring. Kept in sync manually; see
+# tests/test_task_issue_type.py::TestSchemaParity for the automated guard.
+COMMIT_TASK_MAP_DDL = """
+CREATE TABLE IF NOT EXISTS commit_task_map (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id     TEXT NOT NULL,
+    commit_hash TEXT NOT NULL,
+    repo_path   TEXT DEFAULT '',
+    logged_at   TIMESTAMP DEFAULT (datetime('now')),
+    FOREIGN KEY (task_id) REFERENCES open_tasks(id) ON DELETE CASCADE,
+    UNIQUE (task_id, commit_hash)
+)
+"""
+
 # Also created by src/tools/tasks.py's own _ensure_db() (task:9d3acbef) — that's
 # the actual production path; this constant is for test fixtures / one-time
 # install only, per this module's docstring. Kept in sync manually; see the
