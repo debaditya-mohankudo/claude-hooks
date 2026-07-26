@@ -445,29 +445,67 @@
       "module": "hooks/server_memory.py",
       "name": "server-memory-tool-recording"
     },
+    "task-document-schema": {
+      "confidence": 0.9,
+      "contracts": [
+        "TaskDocument.to_json()/to_dict() round-trip losslessly through TaskDocument.from_json() for every field, including nested Risk.graded, IntrospectionReport.grooming_accuracy, and Implementation.total/done (tests/test_task_document.py::TestRoundTrip)",
+        "Grooming.grade_risks(grades_by_text: dict[str,str]) -> list[str] — returns unmatched keys, never silently drops them",
+        "_count_checklist(body: str) -> tuple[int, int] — (total_unique, done_unique), whole-body scan, fence-stripped, text-deduped with done-wins"
+      ],
+      "created_at": "2026-07-26T14:50:24.721796+00:00",
+      "description": "Typed Python representation of the open_tasks.document JSON column (epic:f42b6958, adopted per task:2f275e17). Plain dataclasses (TaskDocument/Grooming/Risk/GroomingAccuracy/Introspection/IntrospectionReport/Implementation/Related) with to_json()/from_json()/to_dict(), not pydantic — matches the repo's existing convention of plain-dict domain objects rather than adding a validation-layer dependency. schema_version=1 field allows future migration without touching every existing row. Namespaces: grooming (wholesale-replace each pass), introspection.reports[] (append-only history), implementation.progress (task:4d3a6fc5 — auto-derived checklist tally, always-overwrite, no history), related (additive/deduped reference lists). Body stays focused on Type/Task/Motivation/Resolution/Files (including the human-readable checklist itself); structured grooming/introspection/implementation-progress/decision-reference data lives in this column instead, read/written exclusively through src/tools/tasks.py's handle_update_document (grooming/introspection/related) or handle_update (implementation, recomputed automatically) — never direct SQL.",
+      "evidence": [
+        "src/tools/task_document.py: TaskDocument, Grooming, Risk, GroomingAccuracy, Introspection, IntrospectionReport, Implementation, Related dataclasses",
+        "src/tools/tasks.py: _get_document(), _set_document(), handle_update_document(), _count_checklist(), handle_update() — the only read/write paths for this column",
+        "tests/test_task_document.py: TestRisk, TestGroomingGradeRisks, TestImplementation, TestTaskDocumentDefaults, TestFromJsonNullHandling, TestRoundTrip",
+        "tests/test_task_issue_type.py: TestUpdateDocument, TestImplementationProgress"
+      ],
+      "invariants": [
+        "TaskDocument.from_json(None or '') returns a fresh empty TaskDocument, never raises — every open_tasks row has no document until something writes one, so NULL must be a valid, ordinary input, not an error path (task:74dad096's backward-compatibility requirement).",
+        "Grooming.grade_risks()/handle_update_document's graded_risks param must NEVER touch last_run_at or any other Grooming field besides the matched Risk.graded values (task:3c46c40d).",
+        "handle_update_document's `grooming` param REPLACES document.grooming WHOLESALE (task:74dad096) — anything worth preserving from a prior pass must be copied into prior_art explicitly before the overwrite.",
+        "document.introspection.reports[] is APPEND-only (unlike grooming) — accumulates real history across multiple retrospectives on the same task.",
+        "Related.merge() is additive/deduped per list (commits/memories/concepts/decision_event_ids) — both /task-grooming and /task-introspection write to document.related independently without erasing what the other added.",
+        "Risk.graded is restricted to {'materialized', 'avoided', 'wrong', None} — 'missed' is deliberately not valid; it belongs in IntrospectionReport.missed_surprises. Grooming.hidden_assumptions is informational only, never graded.",
+        "document.implementation.progress (task:4d3a6fc5) is a DERIVED tally, not a copy of the body's Resolution: checklist — the checklist itself stays in the body as the single human-readable source of truth. Recomputed unconditionally inside handle_update from whatever body ends up stored (idempotent parse via _count_checklist), independent of whether the `body` param was passed that call. Does NOT go through handle_update_document — it's the one namespace written from handle_update instead, since it derives from the body handle_update already owns.",
+        "_count_checklist() dedupes checklist items by TEXT using a dict (text -> checked bool, OR-merged) — explicitly not a set of (text, checked) tuples, which would fail to dedup a line appearing both checked and unchecked. Fenced code blocks (```...```) are stripped before scanning so example checklist lines in documentation aren't counted."
+      ],
+      "last_validated": "2026-07-26T15:25:08.584802+00:00",
+      "module": "src/tools/task_document.py",
+      "name": "task-document-schema"
+    },
     "tasks-db-schema-and-migration": {
-      "confidence": 0.92,
+      "confidence": 0.93,
       "contracts": [
         "handle_update(id, ..., mark_groomed=False) -> {ok, id, status, issue_type, tags, groomed: bool}",
         "_task_row(row)/_task_row_full(row) include groomed_at (None if never groomed)",
         "handle_list's TOON/json output includes groomed_at in the uniform row schema",
-        "_ensure_db() creates open_tasks, task_events, commit_task_map, AND task_edges — all four tables production code depends on"
+        "_ensure_db() creates open_tasks, task_events, commit_task_map, AND task_edges — all four tables production code depends on",
+        "handle_update_document(id, grooming=None, graded_risks=None, introspection_report=None, related=None) -> {ok, id, document: dict, unmatched_risk_grades?: list[str]} — only touches the namespaces passed",
+        "_task_row_full(row) additionally includes document: dict — handle_get is the only reader of the full document",
+        "handle_update recomputes and writes document.implementation on every call via _count_checklist(new_body) — a side effect of handle_update, not a separate MCP param"
       ],
       "created_at": "2026-07-26T03:03:10.089937+00:00",
-      "description": "open_tasks/task_events/commit_task_map/task_edges schema and migrations for proj_tasks.db, the task management DB. Includes the groomed_at TIMESTAMP column (task:46634a19) tracking when /task-grooming last ran on a task, orthogonal to status (lifecycle: open/blocked/done/abandoned) since a blocked task can still be groomed.",
+      "description": "open_tasks/task_events/commit_task_map/task_edges schema and migrations for proj_tasks.db, the task management DB. Includes the groomed_at TIMESTAMP column (task:46634a19) and the document TEXT DEFAULT NULL column (epic:f42b6958, task:544a21c0) storing a JSON-serialized TaskDocument (see task_document.py's own concept).",
       "evidence": [
         "src/tools/tasks.py: _ensure_db(), _migrate(), handle_update(), _task_row()",
         "src/db/schema.py: OPEN_TASKS_DDL, TASK_EVENTS_DDL, TASK_EDGES_DDL, migrate_tasks_db() — test-fixture parity only, NOT the prod path",
-        "tests/test_task_issue_type.py: TestSchemaParity"
+        "tests/test_task_issue_type.py: TestSchemaParity",
+        "src/tools/tasks.py: _get_document(), _set_document(), handle_update_document() — document column read/write, uses TaskDocument.from_json/to_json",
+        "src/db/schema.py: OPEN_TASKS_DDL/migrate_tasks_db() document column addition — same dual-maintenance split as groomed_at",
+        "src/tools/tasks.py: _count_checklist(), Implementation import — handle_update recomputes document.implementation.progress on every call (task:4d3a6fc5)"
       ],
       "invariants": [
-        "src/db/schema.py's OPEN_TASKS_DDL/TASK_EVENTS_DDL/TASK_EDGES_DDL and migrate_tasks_db() are NOT the production schema/migration path for proj_tasks.db — src/tools/tasks.py's _connect() calls its own locally-defined _ensure_db()/_migrate() with a separate inline CREATE TABLE/ALTER TABLE implementation. This split is DELIBERATE, not accidental drift to be consolidated (confirmed task:9d3acbef via commit de1ae61/task:cb357eb6, 2026-06-27): schema.py's own docstring, written at the module's creation, states prod connect-time code is intentionally not replaced by it — schema.py exists for test fixtures (no inline DDL in test files) and scripts/init_db.py's one-time install bootstrap. Every other tool module (memory.py, scratch.py, hooks.py) follows the same repo-wide convention of managing its own DB independently of schema.py.",
-        "Any new open_tasks/task_events/task_edges column or table MUST still be added to BOTH src/tools/tasks.py's _ensure_db()/_migrate() (the real production path) AND schema.py's DDL constants/migrate_tasks_db() (test-fixture parity) — the split being deliberate does not mean the two can silently diverge. A schema-parity test (tests/test_task_issue_type.py::TestSchemaParity, task:9d3acbef) connects via tasks.py's real _connect() and asserts its column set matches what schema.py's DDL constants declare, so drift fails CI instead of relying on grooming/introspection to catch it by luck. Checks column NAMES only (not types/order) to avoid noise from legitimate formatting differences.",
-        "task_edges was missing entirely from tasks.py's self-healing _ensure_db() until task:9d3acbef, despite handle_link_tasks/handle_edges (live MCP actions) reading/writing it — it only existed in the live proj_tasks.db because scripts/init_db.py had been run once, manually. Fixed by adding a CREATE TABLE IF NOT EXISTS task_edges block to _ensure_db(), matching commit_task_map's existing pattern (no FOREIGN KEY to open_tasks, matching schema.py's TASK_EDGES_DDL shape exactly). tests/test_task_issue_type.py::TestSchemaParity::test_task_edges_table_created_by_ensure_db is the regression test.",
-        "groomed_at is set via handle_update(id, mark_groomed=True) — reuses the existing tasks__update MCP action rather than a new dispatcher action, matching the param-passthrough pattern from task:d2165715/4b5bf21f. Staleness is detected by comparing groomed_at against updated_at: if updated_at is later, the body changed since the last groom.",
-        "groomed_at is added inside _task_row() unconditionally (unlike _context_only, which is only bolted on for context-only parent rows in handle_list's DFS) — so it's always present in every row dict from _task_row/_task_row_full, needing no extra normalization for TOON's uniform-header requirement."
+        "src/db/schema.py's OPEN_TASKS_DDL/TASK_EVENTS_DDL/TASK_EDGES_DDL and migrate_tasks_db() are NOT the production schema/migration path for proj_tasks.db — src/tools/tasks.py's _connect() calls its own locally-defined _ensure_db()/_migrate(). This split is DELIBERATE (task:9d3acbef).",
+        "Any new open_tasks/task_events/task_edges column or table MUST still be added to BOTH src/tools/tasks.py's _ensure_db()/_migrate() (prod) AND schema.py's DDL constants/migrate_tasks_db() (test-fixture parity) — verified by tests/test_task_issue_type.py::TestSchemaParity.",
+        "task_edges was missing entirely from tasks.py's self-healing _ensure_db() until task:9d3acbef — fixed, regression-tested.",
+        "groomed_at is set via handle_update(id, mark_groomed=True) — reuses the existing tasks__update MCP action. Staleness detected by comparing groomed_at against updated_at.",
+        "groomed_at is added inside _task_row() unconditionally, always present for TOON's uniform-header requirement.",
+        "document follows the same dual-maintenance rule as every other column here. NULL-safe by contract: TaskDocument.from_json(None) returns a fresh empty TaskDocument, no migration/backfill needed.",
+        "document is excluded from _task_row() (list/search) the same way body already is — only _task_row_full() (used by handle_get) decodes and includes it.",
+        "handle_update UNCONDITIONALLY recomputes document.implementation.progress on every call (task:4d3a6fc5), regardless of whether the `body` param was passed — reads the document from the row already fetched in the same query (no extra SELECT), writes back via _set_document in the same connection. This is the ONE document namespace written from handle_update rather than handle_update_document, since it derives from the body handle_update already owns; grooming/introspection/related still go exclusively through handle_update_document."
       ],
-      "last_validated": "2026-07-26T03:16:48.364180+00:00",
+      "last_validated": "2026-07-26T15:25:27.158904+00:00",
       "module": "src/tools/tasks.py",
       "name": "tasks-db-schema-and-migration"
     },

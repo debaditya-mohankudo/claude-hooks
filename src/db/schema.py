@@ -64,6 +64,10 @@ def migrate_memory_db(conn: sqlite3.Connection) -> None:
 
 # ── proj_tasks.db ─────────────────────────────────────────────────────────────
 
+# Also created by src/tools/tasks.py's own _ensure_db() — that's the actual
+# production path; this constant is for test fixtures / one-time install
+# only, per this module's docstring. Kept in sync manually; see
+# tests/test_task_issue_type.py::TestSchemaParity for the automated guard.
 OPEN_TASKS_DDL = """
 CREATE TABLE IF NOT EXISTS open_tasks (
     id         TEXT PRIMARY KEY,
@@ -76,7 +80,8 @@ CREATE TABLE IF NOT EXISTS open_tasks (
     keywords   TEXT DEFAULT NULL,
     created_at TIMESTAMP DEFAULT (datetime('now')),
     updated_at TIMESTAMP DEFAULT (datetime('now')),
-    groomed_at TIMESTAMP DEFAULT NULL
+    groomed_at TIMESTAMP DEFAULT NULL,
+    document   TEXT DEFAULT NULL
 )
 """
 
@@ -119,6 +124,7 @@ def migrate_tasks_db(conn: sqlite3.Connection) -> None:
         "parent_id":  "TEXT DEFAULT NULL",
         "keywords":   "TEXT DEFAULT NULL",
         "groomed_at": "TIMESTAMP DEFAULT NULL",
+        "document":   "TEXT DEFAULT NULL",
     }
     for col, typedef in task_additive.items():
         if col not in task_cols:

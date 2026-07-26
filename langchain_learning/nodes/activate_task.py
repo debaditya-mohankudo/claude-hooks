@@ -66,7 +66,15 @@ def _build_execution_contract(task_id: str, title: str) -> str:
 
 
 def _lookup_task(task_id: str) -> tuple[str, str, str, str] | None:
-    """Return (title, body, parent_id, parent_title) for task_id, marking open→active. None if not found."""
+    """Return (title, body, parent_id, parent_title) for task_id. None if not found.
+
+    Does NOT write status to the DB — active-task tracking is checkpoint-only
+    (memory: tasks-active-status-checkpoint-only). A prior version of this
+    function attempted handle_update(status="active") here, but "active" has
+    never been a valid DB status (_VALID_STATUSES in src/tools/tasks.py), so
+    that call failed on every single activation, logging a WARNING every time
+    for no effect — dead code, removed (found via log audit 2026-07-26).
+    """
     if not _cfg.tasks_db.exists():
         return None
     try:
@@ -81,12 +89,6 @@ def _lookup_task(task_id: str) -> tuple[str, str, str, str] | None:
     except Exception as exc:
         _log.error("[activate_task] DB error looking up task=%s: %s", task_id, exc)
         return None
-
-    if row["status"] == "open":
-        from src.tools.tasks import handle_update
-        result = handle_update(id=task_id, status="active")
-        if "error" in result:
-            _log.warning("[activate_task] open→active transition blocked task=%s: %s", task_id, result["error"])
 
     return row["title"], row["body"] or "", parent_id, parent_title
 

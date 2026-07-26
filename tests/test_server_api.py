@@ -450,3 +450,32 @@ class TestSessionEnd:
     def test_missing_session_id_returns_200(self, client):
         r = client.post("/hook/SessionEnd", json={})
         assert r.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# Malformed request bodies — _safe_json must fail open, not 500
+# ---------------------------------------------------------------------------
+
+class TestMalformedRequestBody:
+    """task:33419f95 — hook endpoints previously crashed with an unhandled
+    JSONDecodeError on an empty/malformed body (found via log audit
+    2026-07-26). _safe_json() must fail open to {} instead."""
+
+    def test_empty_body_pre_tool_use_returns_200(self, client):
+        r = client.post("/hook/PreToolUse", content=b"", headers={"Content-Type": "application/json"})
+        assert r.status_code == 200
+        assert r.json() == {}
+
+    def test_malformed_json_pre_tool_use_returns_200(self, client):
+        r = client.post("/hook/PreToolUse", content=b"not json at all", headers={"Content-Type": "application/json"})
+        assert r.status_code == 200
+        assert r.json() == {}
+
+    def test_empty_body_user_prompt_submit_returns_200(self, client):
+        r = client.post("/hook/UserPromptSubmit", content=b"", headers={"Content-Type": "application/json"})
+        assert r.status_code == 200
+
+    def test_malformed_json_post_tool_use_returns_200(self, client):
+        r = client.post("/hook/PostToolUse", content=b"{broken", headers={"Content-Type": "application/json"})
+        assert r.status_code == 200
+        assert r.json() == {}

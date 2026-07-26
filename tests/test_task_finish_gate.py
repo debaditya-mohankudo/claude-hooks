@@ -69,3 +69,35 @@ class TestFinishResolutionGate:
         tid = r["id"]
         result = handle_finish(task_id=tid, session_id="sess1")
         assert result.get("ok") is True
+
+    def test_prose_mention_of_resolution_does_not_mask_unfilled_section(self):
+        """epic:f42b6958 repro: a Motivation section that happens to contain the
+        word 'resolution' in prose must not hijack the match before the real
+        Resolution: heading — the gate must still block on the real TBD."""
+        body = (
+            "Type: feature\n\n"
+            "Task:\nSome task\n\n"
+            "Motivation:\nnamespaced by skill (meta, resolution, decisions[], grooming{})\n\n"
+            "Resolution:\nTBD\n\n"
+            "Files:\nx.py"
+        )
+        r = handle_create(title="Prose mention", body=body)
+        tid = r["id"]
+        result = handle_finish(task_id=tid, session_id="sess1")
+        assert "error" in result
+        assert "Resolution" in result["error"]
+
+    def test_prose_mention_of_resolution_does_not_block_real_filled_section(self):
+        """Same prose-mention shape, but the real Resolution: section is filled —
+        must be allowed, not falsely blocked by the earlier prose match either."""
+        body = (
+            "Type: feature\n\n"
+            "Task:\nSome task\n\n"
+            "Motivation:\nnamespaced by skill (meta, resolution, decisions[], grooming{})\n\n"
+            "Resolution:\nImplemented and tested.\n\n"
+            "Files:\nx.py"
+        )
+        r = handle_create(title="Prose mention filled", body=body)
+        tid = r["id"]
+        result = handle_finish(task_id=tid, session_id="sess1")
+        assert result.get("ok") is True
