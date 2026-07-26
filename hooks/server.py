@@ -70,6 +70,19 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
     return JSONResponse({"detail": "Internal server error"}, status_code=500)
 
 
+async def _safe_json(request: Request) -> dict:
+    """Parse the request body as JSON, failing open to {} on malformed/empty
+    bodies instead of letting the exception surface as a 500 — matches
+    hooks/client.py's own fail-open philosophy for hook payloads (found via
+    log audit 2026-07-26: an empty/malformed body previously crashed with an
+    unhandled JSONDecodeError)."""
+    try:
+        return await request.json()
+    except Exception as exc:
+        log.warning("malformed request body on %s: %s", request.url.path, exc)
+        return {}
+
+
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
     """Log method, path, status, and elapsed ms for every request via the bare 'server' logger."""
@@ -89,7 +102,7 @@ async def user_prompt_submit(request: Request):
     All lc.* node logs write immediately to claude_hooks.sqlite via SQLiteHandler.
     """
     from hooks.dispatcher import _handle_user_prompt_submit, _extract_prompt
-    body = await request.json()
+    body = await _safe_json(request)
     result = _handle_user_prompt_submit(body)
     try:
         import hooks.server_memory as server_memory
@@ -109,7 +122,7 @@ async def pre_tool_use(request: Request):
     write immediately to claude_hooks.sqlite via SQLiteHandler.
     """
     from hooks.dispatcher import _handle_pre_tool_use
-    body = await request.json()
+    body = await _safe_json(request)
     result = _handle_pre_tool_use(body)
     return JSONResponse(content=result or {})
 
@@ -125,7 +138,7 @@ async def post_tool_use(request: Request):
     UPS turn sees the updated active task. Always returns {}.
     """
     from hooks.dispatcher import _handle_post_tool_use
-    body = await request.json()
+    body = await _safe_json(request)
     result = _handle_post_tool_use(body)
     try:
         import hooks.server_memory as server_memory
@@ -147,7 +160,7 @@ async def stop(request: Request):
     sound-alert reason on the first Stop of a turn (see NoopNode).
     """
     from hooks.dispatcher import _handle_stop
-    body = await request.json()
+    body = await _safe_json(request)
     result = _handle_stop(body)
     return JSONResponse(content=result or {})
 
@@ -155,7 +168,7 @@ async def stop(request: Request):
 @app.post("/hook/SessionStart")
 async def session_start(request: Request):
     """SessionStart hook — logs each new or resumed session."""
-    body = await request.json()
+    body = await _safe_json(request)
     from hooks.dispatcher import _handle_session_start
     _handle_session_start(body)
     return JSONResponse(content={})
@@ -168,7 +181,7 @@ async def session_end(request: Request):
     This is the correct place to reclaim MemorySaver storage (fires once when the
     session ends, unlike Stop which fires every turn). Always returns {}.
     """
-    body = await request.json()
+    body = await _safe_json(request)
     from hooks.dispatcher import _handle_session_end
     _handle_session_end(body)
     return JSONResponse(content={})

@@ -1194,7 +1194,7 @@ def _load_all_tasks() -> list[dict]:
 def rebuild_task_index() -> dict:
     """Full rebuild of the TurboVec semantic index over all tasks."""
     import turbovec
-    from tools.rag_core import save_index
+    from src.tools.rag_core import save_index
 
     tasks = _load_all_tasks()
     if not tasks:
@@ -1230,7 +1230,7 @@ def handle_index_task(task_id: str) -> dict:
         task_id: Task id to upsert into the index.
     """
     import turbovec
-    from tools.rag_core import load_index, save_index
+    from src.tools.rag_core import load_index, save_index
 
     if not _DB.exists():
         return {"ok": False, "error": "proj_tasks.db not found"}
@@ -1283,7 +1283,7 @@ def handle_neighbors(task_id: str) -> list:
         task_id: Seed task id to find neighbours for.
     """
     import turbovec
-    from tools.rag_core import load_index, query_index
+    from src.tools.rag_core import load_index, query_index
 
     if not _DB.exists():
         return []
