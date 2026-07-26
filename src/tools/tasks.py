@@ -913,7 +913,13 @@ def handle_finish(task_id: str, session_id: str, reason: str = "") -> dict:
             import re as _re
             # Matches both "Resolution:\nTBD" and "## Resolution\nTBD" styles.
             # Stops at a blank line, next section heading, or end of string.
-            res_match = _re.search(r"(?i)(?:##[ \t]*)?resolution[: \t]*\n?(.*?)(?=\n\n|\n(?:##|\w[\w ]*:)|\Z)", body, _re.DOTALL)
+            # Anchored to line start (^ + MULTILINE) — an unanchored search would
+            # match the word "resolution" anywhere in prose (e.g. a Motivation
+            # section mentioning "...namespaced by skill (meta, resolution, ...)")
+            # before ever reaching the real heading, silently validating the wrong
+            # span and letting a genuinely unfilled Resolution: section through
+            # (found via epic:f42b6958, filed as epic:3792ba68).
+            res_match = _re.search(r"(?im)^(?:##[ \t]*)?resolution[: \t]*\n?(.*?)(?=\n\n|\n(?:##|\w[\w ]*:)|\Z)", body, _re.DOTALL)
             if res_match:
                 res_text = res_match.group(1).strip()
                 _UNFILLED = {"tbd", "<to be filled on completion>", "pending", "n/a", ""}
