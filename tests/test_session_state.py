@@ -1,7 +1,7 @@
-"""Tests for hooks/ui/deps.py — get_current_session."""
+"""Tests for hooks/session_state.py — get_current_session."""
 from unittest.mock import MagicMock, patch
 
-from hooks.ui.deps import get_current_session
+from hooks.session_state import get_current_session
 
 
 def _mock_checkpointer(latest):

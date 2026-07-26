@@ -25,10 +25,9 @@ for _p in (str(_PROJECT_ROOT), str(_HOOKS_DIR)):
 
 import time
 
-from fastapi import FastAPI, Form, Request
+from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse, HTMLResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from src.logger import get_logger, setup
@@ -57,26 +56,17 @@ async def lifespan(app: FastAPI):
     sg._graph = None
 
 
-from hooks.ui.deps import render as _render, error_partial as _error_partial, JINJA_ENV as _JINJA_ENV
-from hooks.ui.routes import ui_router
-
 app = FastAPI(lifespan=lifespan)
-app.mount("/ui/static", StaticFiles(directory=str(_HOOKS_DIR / "static")), name="ui-static")
-app.include_router(ui_router)
 
 
 @app.exception_handler(StarletteHTTPException)
 async def http_exception_handler(request: Request, exc: StarletteHTTPException):
-    if request.url.path.startswith("/ui"):
-        return _error_partial(f"HTTP {exc.status_code}", str(exc.detail))
     return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
 
 
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception):
     log.error("unhandled exception: %s", exc, exc_info=True)
-    if request.url.path.startswith("/ui"):
-        return _error_partial("Something went wrong", str(exc))
     return JSONResponse({"detail": "Internal server error"}, status_code=500)
 
 
@@ -197,7 +187,7 @@ async def session_active():
     Returns {task_id, title, session_id, turn} if a task is active, or {} if none.
     Source is the in-memory MemorySaver (not the DB) so reflects real-time state.
     """
-    from hooks.ui.deps import get_active_session
+    from hooks.session_state import get_active_session
     return JSONResponse(content=get_active_session())
 
 
@@ -208,7 +198,7 @@ async def session_current():
     yet — that's the case /session/active can't answer, since it only returns a
     session_id when active_task_id is set. Returns {} if no checkpoint exists yet.
     """
-    from hooks.ui.deps import get_current_session
+    from hooks.session_state import get_current_session
     return JSONResponse(content=get_current_session())
 
 
