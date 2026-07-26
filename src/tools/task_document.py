@@ -3,12 +3,12 @@
 Plain dataclasses with to_json()/from_json(), not pydantic — matches this
 repo's existing convention (concept_store.store.ConceptStore uses plain
 dicts, no model-validation layer) rather than introducing new machinery for
-a shape this experimental epic may still change. See task:74dad096 for the
-design rationale behind each field.
+a shape that may still evolve. See task:74dad096 for the design rationale
+behind each field.
 
-EXPERIMENTAL (epic:f42b6958): lives only in the task-document-experiment
-worktree until task:2f275e17 concludes the document approach is worth
-adopting. Not wired into src/tools/tasks.py yet — that's task:544a21c0.
+Adopted (epic:f42b6958): wired into src/tools/tasks.py's tasks__update_document
+(task:544a21c0), deployed to test, and in active use by /task-grooming and
+/task-introspection.
 """
 from __future__ import annotations
 
