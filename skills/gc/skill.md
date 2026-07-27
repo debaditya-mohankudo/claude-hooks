@@ -2,8 +2,10 @@
 name: gc
 description: Git commit wrapper — stage all changes and commit with a derived message. Works on any git repo. Use when you need to commit code changes.
 user-invocable: true
-updated: 2026-06-22
+updated: 2026-07-27
 wiki: "[[Documentation/Tools/SKILLS_WIKI#Developer Workflow Skills]]"
+repo: ~/workspace/claude-hooks/skills/gc/skill.md
+deployed: ~/.claude/skills/gc/skill.md
 ---
 
 Git commit operations via `git_local.sh`.
@@ -50,6 +52,18 @@ Use the repo where the relevant changes were made — this is not always the pri
 - If the user just edited vault files → use `--repo ~/workspace/claude_documents`
 - If changes are in the current project → omit `--repo` (uses CWD)
 - If the user specifies a path explicitly → use `--repo <that path>`
+
+## Sync with main before committing (claude-hooks-dev/-test only)
+
+If the target repo is `~/workspace/claude-hooks-dev` or `~/workspace/claude-hooks-test`, merge `main` into it before committing new work — not just at `/deploy` time (task:701215e2):
+
+```bash
+git -C <repo-path> merge main --no-edit
+```
+
+Why: main can drift ahead via direct edits (has happened more than once — see CLAUDE.md's Development Workflow section) since dev/test only pull it in at `/deploy`. Catching that drift here, before adding a new commit on top, means any conflict is small and obvious to resolve — instead of surfacing later as a real merge conflict during `/deploy --ship`, tangled up with unrelated new work. If the merge itself conflicts, resolve it before proceeding (read each hunk, confirm which side is current, commit the resolution) — don't commit new work on top of an unmerged state.
+
+Skip silently for every other repo — this is specific to claude-hooks' dev→test→main worktree structure.
 
 ## Running tests before commit
 
@@ -122,29 +136,66 @@ If the script errors:
 - Check the error message (e.g., "not in a git repository", merge conflicts)
 - Suggest the user resolve any conflicts or check branch state
 
-## Docs and memory update
+## Memory audit on changed files
 
-After the code graph refresh, check if the commit changes anything that has a corresponding knowledge memory or doc section.
+After the code graph refresh, run a targeted memory audit against files touched by this commit. This is the same signal logic as `/memory-audit` but scoped to the commit rather than the full 10-per-run batch.
 
-**Step 1 — identify affected concepts:**
-From the changed files and commit message, extract the key concepts (node names, tool names, config keys, architectural patterns). Examples:
-- `load_memories.py` changed → check memory `claude-hooks-load-memories-node` or similar
-- `gates.py` changed → check `claude-hooks-current-gates`, `claude-hooks-gate-framework`
-- `src/tools/memory.py` changed → check any `memory__*` related memories
-
-**Step 2 — search for stale memories:**
-```python
-mcp__claude-hooks__memory__search(query="<key concept from commit>")
+**Step 1 — get changed files:**
+```bash
+git diff --name-only HEAD~1 HEAD
 ```
-If a memory describes how something worked *before* this commit, flag it to the user: "Memory `<slug>` may be stale — describe the new behavior?"
 
-**Step 3 — check docs:**
-If the commit touches a file that has a corresponding section in `docs/` (e.g. `load_memories.py` → `docs/arch/graph_pipeline.md`), note it: "Consider updating `<doc section>` to reflect this change."
+**Step 2 — find memories whose `files` field overlaps:**
+For each changed file path, search for memories that reference it:
+```python
+mcp__claude-hooks__memory__search(query="<changed_filename_stem>", domain="claude-hooks")
+# e.g. for "hooks/gates.py" → search "gates"
+# e.g. for "src/tools/memory.py" → search "memory tools"
+```
+Keep only hits where the memory's `files` field actually contains the changed path (partial match is fine: `gates.py` matches `hooks/gates.py`).
+
+**Step 3 — check git signal on each matching memory:**
+For each matching memory, get its full body via `memory__get` and run:
+```bash
+git -C ~/workspace/claude-hooks-dev log --since="{memory.updated}" --oneline -- {memory.files}
+```
+If commits exist since `memory.updated` → the memory may be stale.
+
+**Step 4 — surface stale candidates:**
+Flag each stale hit to the user:
+```
+Memory `<slug>` may be stale — changed files: <files>, last updated: <updated>
+Body: <first 100 chars>
+```
+Ask: "Update, validate, or skip?"
+- **update** → user provides new body → `memory__add(name, body=<new>, ...)`
+- **validate** → `memory__add(name, body=<same body>, ...)` — stamps `last_validated`
+- **skip** → leave as-is
 
 **Guidelines:**
-- Only flag memories/docs that describe *behavior or architecture* — not process or feedback memories
-- Don't update automatically — surface to user and let them decide
-- Skip this step for trivial commits (test fixes, formatting, config tweaks)
+- Only surface memories with `type=project` or `type=reference` — skip `feedback` and `user` type memories (they describe behavior, not code facts)
+- Skip this step if no memories match the changed files
+- Skip for trivial commits (test fixes, formatting, config tweaks with no logic change)
+- If no `files` field on a memory → skip it (it's in the backfill queue for `/memory-audit`)
+
+**Check docs:**
+If the commit touches a file that has a corresponding section in `docs/`, note it: "Consider updating `<doc section>` to reflect this change."
+
+## Memory graph snapshot (claude-hooks repo only)
+
+After the memory audit step, if the committed repo is `claude-hooks`, regenerate the memory graph files so the snapshot stays current with any memory changes made this session:
+
+```bash
+cd ~/workspace/claude-hooks-dev && uv run python scripts/populate_related.py && uv run python scripts/export_memory_graph.py
+```
+
+Then stage and commit the updated `docs/memory/` files as a follow-up commit:
+
+```bash
+git -C ~/workspace/claude-hooks-dev add docs/memory/ && git -C ~/workspace/claude-hooks-dev commit -m "chore(memory): regenerate docs/memory graph snapshot"
+```
+
+Only run if `scripts/export_memory_graph.py` exists. Skip silently for non-claude-hooks repos.
 
 ## Hook server restart (claude-hooks repo only)
 

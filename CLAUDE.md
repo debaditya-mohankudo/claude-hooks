@@ -47,15 +47,23 @@ Returns `{error}` if the server is down — check `launchctl list | grep claude-
 
 ## Development Workflow (git worktree)
 
-The hook server runs from `~/workspace/claude-hooks-test` (test branch) with a
-**SqliteSaver** checkpoint at `~/.claude/langgraph_checkpoints.db`. State persists to
-disk. It runs on port **8766**. `/deploy` restarts it after each merge.
+The hook server runs from `~/workspace/claude-hooks-test` (test branch) with
+**MemorySaver** (in-process, in-memory — task:b3964f85 retired SqliteSaver after
+two corruption incidents). Checkpoint state does NOT survive server restarts;
+`~/.claude/langgraph_checkpoints.db` is a retired file nothing writes to anymore.
+Server runs on port **8766**. `/deploy` restarts it after each merge.
 
 Develop in the isolated worktree at `~/workspace/claude-hooks-dev` (dev branch):
 
 ```bash
-# 1. Edit in dev worktree
+# 0. Merge main into dev first (task:701215e2) — catches any commits main has
+#    that dev doesn't (e.g. an out-of-band direct-to-main edit) before they can
+#    cause a real conflict at /deploy --ship time instead of here, where it's
+#    cheap and obvious to resolve.
 cd ~/workspace/claude-hooks-dev
+git merge main --no-edit
+
+# 1. Edit in dev worktree
 
 # 2. Quick unit tests (no server needed)
 uv run python -m pytest tests/ -q -m "not integration"
@@ -70,6 +78,7 @@ uv run python -m pytest tests/ -q -m "not integration"
 **Key rules:**
 
 - Edits go in `~/workspace/claude-hooks-dev` (dev branch) — never touch main or test directly
+- **Merge main into dev before committing new work**, not just before `/deploy` — main can drift ahead via direct edits (it has, more than once), and catching that early avoids a conflict resolution during `/deploy --ship`
 - `/gc` commits target `--repo ~/workspace/claude-hooks-dev`
 - Server runs from `claude-hooks-test` — dev edits never disrupt live Claude Code hooks
 - main is never touched except by `/deploy`
