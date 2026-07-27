@@ -21,12 +21,26 @@ echo "=== claude-hooks deploy ==="
 
 if $SHIP; then
     # --- Phase 2: test → main (ship) ---
+    cd "$MAIN_DIR"
+
+    # Pre-merge divergence check (task:5e2a3216) — main should only ever
+    # advance via this script's own merge below, so any commit unique to
+    # main means something bypassed the pipeline (e.g. a direct edit) and
+    # this merge may hit real conflicts instead of the usual clean
+    # fast-forward-shaped merge. Warn loudly before attempting it rather
+    # than surfacing as a bare "CONFLICT" mid-merge with no context.
+    MAIN_ONLY=$(git log test..main --oneline)
+    if [ -n "$MAIN_ONLY" ]; then
+        echo "WARNING: main has commits that test does not — main may have been edited out-of-band:" >&2
+        echo "$MAIN_ONLY" >&2
+        echo "This merge may hit real conflicts. Review the commits above before proceeding." >&2
+    fi
+
     # --no-ff forces an explicit merge commit even when a fast-forward is
     # possible (main/test rarely diverge otherwise) — without it, main's log
     # is indistinguishable from a direct commit and the "this batch cleared
     # the test gate" checkpoint disappears from history entirely.
     echo "Merging test → main..."
-    cd "$MAIN_DIR"
     git merge test --no-ff --no-edit -m "Merge branch 'test' into main (deploy.sh --ship)"
     echo "=== Shipped to main. ==="
     exit 0
