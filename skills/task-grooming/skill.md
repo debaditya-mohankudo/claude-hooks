@@ -2,7 +2,7 @@
 name: task-grooming
 description: Pre-implementation grooming pass. Reduce uncertainty before implementation by activating the task, gathering related context, identifying hidden assumptions, and improving task readiness. Use before starting a task or sprint. Invoke with /task-grooming, /task-grooming task:<id>, or /task-grooming epic:<id>.
 user-invocable: true
-updated: 2026-07-26
+updated: 2026-07-27
 repo: ~/workspace/claude-hooks/skills/task-grooming/skill.md
 deployed: ~/.claude/skills/task-grooming/skill.md
 ---
@@ -90,15 +90,9 @@ test -f "<repo>/concepts.db" -a -f "<repo>/concept_store.py" && echo sqlite
 
 **JSON format** (claude-hooks-dev pattern):
 
-```python
-import json
-from pathlib import Path
-concepts = json.loads(Path("<repo>/concept_store/concepts.json").read_text())
-```
+**Always use `concept__list(repo="<repo>")`/`concept__get(repo="<repo>", name=...)` (task:2813ece5) — never hand-parse `concept_store/concepts.json` directly.** Its top-level shape is `{"concepts": [...], "meta": {...}}` — a list under a `concepts` key, not a flat name-keyed map. A `json.loads(...).values()` script silently matches nothing against this shape. This bug independently missed a real, badly-stale match twice in one session (task:da29c842's own grooming/introspection pass, and `/deploy`'s concept audit step) before being caught by chance — don't repeat it. This applies to claude-hooks-dev's own store too, not just non-Java target repos.
 
-Or, for a non-Java target repo (not claude-hooks-dev's own store), `concept__list(repo="<repo>")`/`concept__get(repo="<repo>", name=...)` (task:2813ece5, added 2026-07-24) do the same read without hand-writing this snippet each time — prefer these when grooming a task in a repo other than claude-hooks-dev itself.
-
-Prefer a `Concepts:` section in the task body if present — look those slugs up directly. Otherwise match the task's `Files:` section against `concept["module"]`.
+Prefer a `Concepts:` section in the task body if present — look those slugs up directly via `concept__get`. Otherwise match the task's `Files:` section against each concept's `module` field from `concept__list`'s output.
 
 **SQLite format** (SeniorDevAgent pattern):
 

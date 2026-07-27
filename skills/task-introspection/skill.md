@@ -2,7 +2,7 @@
 name: task-introspection
 description: Post-task retrospective that improves the engineering system. Review completed work, capture unlogged decisions, identify surprises, evolve memories, concepts, skills, and workflows so future executions become easier. Use when the user says /task-introspection or "retrospect on task:<id>".
 user-invocable: true
-updated: 2026-07-26
+updated: 2026-07-27
 repo: ~/workspace/claude-hooks/skills/task-introspection/skill.md
 deployed: ~/.claude/skills/task-introspection/skill.md
 ---
@@ -155,30 +155,51 @@ Include `task:<id>` as the last tag for traceability. Avoid recording task-speci
 
 ## Step 5 — Concept store review
 
-Ask: *did this task change how the system should think about this domain?* If yes:
+The concept store is a **live body meant to grow, not just get corrected** — a task can leave behind either a CHANGE (an existing concept was wrong or incomplete) or GROWTH (a module had zero concept coverage and this task is the first to understand it well enough to write one down). Do both checks; don't stop at "did anything change."
 
-```
-Skill(skill="update-concept-store", args="repo=<repo> touched_files=<files> context=<resolution and decisions>")
-```
+**Always use the MCP tools to look up concepts — never hand-parse `concept_store/concepts.json`.** Its top-level shape is `{"concepts": [...], "meta": {...}}` — a list under a `concepts` key, not a flat name-keyed map. A hand-written `json.loads(...).values()` script silently matches nothing against this shape (it iterates over `"concepts"`/`"meta"` as if they were concept dicts). This exact bug independently missed a real, badly-stale match twice in one session (task:da29c842's own introspection pass, and `/deploy`'s concept audit step) before being caught by chance via `concept__list`. Use `concept__list(repo="<repo>")` / `concept__get(repo="<repo>", name="<slug>")` for the JSON format; for SQLite-format repos, `ConceptStore.list_concepts()`/`get_evidence(concept_id)` as before.
 
-If no concept store exists, silently continue — don't note it as a gap. Only evolve concepts when the task genuinely changes domain understanding, not on every task.
-
-**Regardless of whether concepts changed**, match the task's `Files:` (or a grooming pass's earlier `## Concept context` block, if present in the body) against the repo's concept store and record which concept slugs/names this task touched — this is bookkeeping, not evolution, so do it even when Step 5's update-concept-store call above was skipped. Detect format first (corrected 2026-07-24 — this step previously only checked `concept_store/concepts.json` and silently produced nothing for SQLite-format repos like SeniorDevAgent):
+Detect format first (corrected 2026-07-24 — this step previously only checked `concept_store/concepts.json` and silently produced nothing for SQLite-format repos like SeniorDevAgent):
 
 ```bash
 test -f "<repo>/concept_store/concepts.json" -a -f "<repo>/concept_store/store.py" && echo json
 test -f "<repo>/concepts.db" -a -f "<repo>/concept_store.py" && echo sqlite
 ```
 
-JSON format: match `Files:` against `concept["module"]` in `concept_store/concepts.json` — or, for a non-Java target repo, `concept__list(repo="<repo>")` (task:2813ece5) instead of reading the file directly. SQLite format: match `Files:` against each concept's evidence `source_ref` values (`ConceptStore.get_evidence(concept_id)`) or against `domain`/`name` for the touched subsystem — same lookup `/update-concept-store` Step 2b and `/task-grooming` Step 2 already use.
+For each file in the task's `Files:` (or a grooming pass's earlier `## Concept context` block, if present):
 
-Write the matched concept slugs to `document.related.concepts` — this is additive/deduped (task:74dad096's `Related.merge()`), so it's safe to call even if `/task-grooming` already added some of the same slugs earlier:
+- **A concept already exists for that module** — this is the CHANGE path. Ask: *did this task change how the system should think about this domain?* If yes, delegate the reconciliation:
+  ```
+  Skill(skill="update-concept-store", args="repo=<repo> touched_files=<files> context=<resolution and decisions>")
+  ```
+  Either way (updated or not), record the slug in `document.related.concepts` below — bookkeeping happens regardless of whether the concept content changed.
+
+- **No concept exists for that module, and this task established or clarified a real architectural fact worth remembering** (an invariant, a contract, a "how this actually works" that a future task would otherwise have to re-derive from scratch) — this is the GROWTH path. Create it directly, don't defer to `update-concept-store` (that skill reconciles *known* changes to *existing* concepts; a module's first concept is a net-new addition, cheapest to write while the module's behavior is fresh in context this turn):
+  ```python
+  mcp__claude-hooks__concept__upsert(
+      repo="<repo>",
+      concept={
+          "name": "<new-kebab-slug>",
+          "module": "<file>",
+          "description": "...",
+          "contracts": ["..."],
+          "invariants": ["..."],
+          "evidence": ["<file>:<line-or-function>", "..."],
+          "confidence": 0.8,
+      },
+  )
+  ```
+  Skip only if the task's `Files:` are trivial (test-only or doc-only changes with no new behavior to capture) — don't create a concept for every task, only where a real gap in stored knowledge was found.
+
+If no concept store exists at all, silently continue — don't note it as a gap.
+
+Write every matched-or-created concept slug to `document.related.concepts` — additive/deduped (task:74dad096's `Related.merge()`), so it's safe to call even if `/task-grooming` already added some of the same slugs earlier:
 
 ```python
-mcp__claude-hooks__tasks__update_document(id="<task_id>", related={"concepts": ["gates-prereq-chain-enforcement", "..."]})
+mcp__claude-hooks__tasks__update_document(id="<task_id>", related={"concepts": ["gates-prereq-chain-enforcement", "<new-slug-if-any>", "..."]})
 ```
 
-(SQLite-format target repos: use the matched concept's `name`/`domain` in place of a JSON `module` slug — same value, just sourced differently.)
+(SQLite-format target repos: use the matched/created concept's `name`/`domain` in place of a JSON `module` slug — same value, just sourced differently.)
 
 This gives future grooming/introspection passes a direct link from task → concept without re-deriving the file-to-concept match each time.
 
