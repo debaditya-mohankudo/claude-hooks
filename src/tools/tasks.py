@@ -560,6 +560,7 @@ def handle_update_document(
     graded_risks: Optional[dict] = None,
     introspection_report: Optional[dict] = None,
     related: Optional[dict] = None,
+    mark_groomed: bool = False,
 ) -> dict:
     """Merge-update a task's structured document (epic:f42b6958, task:dd87e9f0/3c46c40d).
 
@@ -605,9 +606,18 @@ def handle_update_document(
                                deduplicated against the existing document, never
                                overwritten — both /task-grooming and
                                /task-introspection add to this independently.
+        mark_groomed:          If True, sets the plain `groomed_at` column to now —
+                               the structured signal that /task-grooming ran
+                               (task:46634a19), folded in here (task:5e2a3216) so
+                               grooming's structured writes go through one tool
+                               instead of two. Mirrors how introspected_at is
+                               already auto-set above when introspection_report
+                               is passed — same pattern, now available as an
+                               explicit flag since grooming has no equivalent
+                               single always-present signal to key off of.
     """
-    if grooming is None and graded_risks is None and introspection_report is None and related is None:
-        return {"error": "at least one of grooming/graded_risks/introspection_report/related is required"}
+    if grooming is None and graded_risks is None and introspection_report is None and related is None and not mark_groomed:
+        return {"error": "at least one of grooming/graded_risks/introspection_report/related/mark_groomed is required"}
     with _connect() as conn:
         row = conn.execute("SELECT id FROM open_tasks WHERE id = ?", (id,)).fetchone()
         if row is None:
@@ -636,11 +646,16 @@ def handle_update_document(
                 "UPDATE open_tasks SET introspected_at=datetime('now') WHERE id=?", (id,),
             )
 
+        if mark_groomed:
+            conn.execute(
+                "UPDATE open_tasks SET groomed_at=datetime('now') WHERE id=?", (id,),
+            )
+
     _log.info(
-        "[tasks__update_document] id=%s grooming=%s graded_risks=%s introspection_report=%s related=%s",
-        id, grooming is not None, graded_risks is not None, introspection_report is not None, related is not None,
+        "[tasks__update_document] id=%s grooming=%s graded_risks=%s introspection_report=%s related=%s mark_groomed=%s",
+        id, grooming is not None, graded_risks is not None, introspection_report is not None, related is not None, mark_groomed,
     )
-    result = {"ok": True, "id": id, "document": doc.to_dict()}
+    result = {"ok": True, "id": id, "document": doc.to_dict(), "groomed": mark_groomed}
     if unmatched_risk_grades:
         result["unmatched_risk_grades"] = unmatched_risk_grades
     return result
@@ -659,7 +674,7 @@ def handle_get(id: str) -> dict:
         return _task_row_full(row)
 
 
-def handle_update(id: str, title: str = "", body: str = "", status: str = "", issue_type: str = "", tags: str = "", mark_groomed: bool = False) -> dict:
+def handle_update(id: str, title: str = "", body: str = "", status: str = "", issue_type: str = "", tags: str = "") -> dict:
     """Update task fields. Only provided fields are changed.
 
     Args:
@@ -669,10 +684,10 @@ def handle_update(id: str, title: str = "", body: str = "", status: str = "", is
         status:       New status: open, done, abandoned, blocked (optional). Transitions enforced.
         issue_type:   New issue type: epic, story, task, bug, subtask (optional).
         tags:         Comma-separated tags to append to existing tags (optional).
-        mark_groomed: If True, sets groomed_at to now — the structured signal that
-                      /task-grooming ran on this task. Compare against updated_at to
-                      detect staleness: if updated_at is later than groomed_at, the
-                      body changed since the last groom.
+
+    mark_groomed moved to tasks__update_document (task:5e2a3216) — grooming's
+    structured writes (grooming/related/mark_groomed) now go through one tool
+    instead of splitting the groomed_at flag off into this one.
     """
     if issue_type and issue_type not in _ISSUE_TYPES:
         return {"error": f"Invalid issue_type '{issue_type}'. Valid: {sorted(_ISSUE_TYPES)}"}
@@ -698,17 +713,10 @@ def handle_update(id: str, title: str = "", body: str = "", status: str = "", is
         else:
             new_tags = existing_tags
         new_keywords = _extract_keywords(new_title, new_body)
-        if mark_groomed:
-            conn.execute(
-                """UPDATE open_tasks SET title=?, body=?, status=?, issue_type=?, tags=?, keywords=?,
-                   updated_at=datetime('now'), groomed_at=datetime('now') WHERE id=?""",
-                (new_title, new_body, new_status, new_issue_type, new_tags, new_keywords, id),
-            )
-        else:
-            conn.execute(
-                """UPDATE open_tasks SET title=?, body=?, status=?, issue_type=?, tags=?, keywords=?, updated_at=datetime('now') WHERE id=?""",
-                (new_title, new_body, new_status, new_issue_type, new_tags, new_keywords, id),
-            )
+        conn.execute(
+            """UPDATE open_tasks SET title=?, body=?, status=?, issue_type=?, tags=?, keywords=?, updated_at=datetime('now') WHERE id=?""",
+            (new_title, new_body, new_status, new_issue_type, new_tags, new_keywords, id),
+        )
         # Quantified deliverable for /task-implementation (task:4d3a6fc5) — recomputed
         # unconditionally from whatever body ends up stored (cheap, idempotent parse),
         # not gated on whether `body` was passed this call. Reuses the row already
@@ -719,8 +727,8 @@ def handle_update(id: str, title: str = "", body: str = "", status: str = "", is
         total, done = _count_checklist(new_body)
         doc.implementation = Implementation(total=total, done=done)
         _set_document(conn, id, doc)
-    _log.info("[tasks__update] id=%s status=%s issue_type=%s mark_groomed=%s", id, new_status, new_issue_type, mark_groomed)
-    return {"ok": True, "id": id, "status": new_status, "issue_type": new_issue_type, "tags": new_tags, "groomed": mark_groomed}
+    _log.info("[tasks__update] id=%s status=%s issue_type=%s", id, new_status, new_issue_type)
+    return {"ok": True, "id": id, "status": new_status, "issue_type": new_issue_type, "tags": new_tags}
 
 
 def handle_pause(task_id: str, pending: list[str], session_id: str = "") -> dict:

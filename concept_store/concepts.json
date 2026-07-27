@@ -484,11 +484,11 @@
     "tasks-db-schema-and-migration": {
       "confidence": 0.93,
       "contracts": [
-        "handle_update(id, ..., mark_groomed=False) -> {ok, id, status, issue_type, tags, groomed: bool}",
+        "handle_update(id, title='', body='', status='', issue_type='', tags='') -> {ok, id, status, issue_type, tags} — no groomed/document-adjacent flags as of task:5e2a3216 (mark_groomed moved to handle_update_document)",
         "_task_row(row)/_task_row_full(row) include groomed_at and introspected_at (None if never run)",
         "handle_list's TOON/json output includes groomed_at and introspected_at in the uniform row schema",
         "_ensure_db() creates open_tasks, task_events, commit_task_map, AND task_edges by executing schema.py's DDL constants — all four tables production code depends on",
-        "handle_update_document(id, grooming=None, graded_risks=None, introspection_report=None, related=None) -> {ok, id, document: dict, unmatched_risk_grades?: list[str]} — only touches the namespaces passed; also sets introspected_at when introspection_report is not None",
+        "handle_update_document(id, grooming=None, graded_risks=None, introspection_report=None, related=None, mark_groomed=False) -> {ok, id, document: dict, groomed: bool, unmatched_risk_grades?: list[str]} — only touches the namespaces/flags passed; sets introspected_at when introspection_report is not None, sets groomed_at when mark_groomed is True (task:5e2a3216, folded in from handle_update to remove a two-tool ambiguity during /task-grooming)",
         "_task_row_full(row) additionally includes document: dict — handle_get is the only reader of the full document",
         "handle_update recomputes and writes document.implementation on every call via _count_checklist(new_body) — a side effect of handle_update, not a separate MCP param"
       ],
@@ -497,7 +497,7 @@
       "evidence": [
         "src/tools/tasks.py: _ensure_db() — imports and executes OPEN_TASKS_DDL/TASK_EVENTS_DDL/TASK_EDGES_DDL/COMMIT_TASK_MAP_DDL from src.db.schema, calls schema.migrate_tasks_db(conn)",
         "src/db/schema.py: OPEN_TASKS_DDL, TASK_EVENTS_DDL, TASK_EDGES_DDL, COMMIT_TASK_MAP_DDL, migrate_tasks_db() — the actual production structural path now, not test-fixture-only",
-        "tests/test_task_issue_type.py: TestSchemaParity (column-equality now true by construction, kept as cheap drift guard), TestBackfillAndNormalization (real regression coverage for what stays tasks.py-only), TestIntrospectedAt",
+        "tests/test_task_issue_type.py: TestSchemaParity (column-equality now true by construction, kept as cheap drift guard), TestBackfillAndNormalization (real regression coverage for what stays tasks.py-only), TestIntrospectedAt, TestGroomedAt (mark_groomed tests now call handle_update_document, task:5e2a3216)",
         "src/tools/tasks.py: _get_document(), _set_document(), handle_update_document() — document column read/write, uses TaskDocument.from_json/to_json",
         "src/tools/tasks.py: _count_checklist(), Implementation import — handle_update recomputes document.implementation.progress on every call (task:4d3a6fc5)"
       ],
@@ -506,13 +506,13 @@
         "What does NOT move to schema.py: BACKFILL (computing values for newly-added columns — keywords via _extract_keywords, parent_id via _extract_parent_id) and the wip/active→open status normalization. These depend on tasks.py's own helpers; moving them into schema.py would create a circular import (schema.py would need to import from tasks.py, which already imports schema.py's DDL). _ensure_db() snapshots open_tasks/task_events columns BEFORE calling migrate_tasks_db(), so it knows which columns were newly-added and only backfills those.",
         "Any new open_tasks/task_events/task_edges/commit_task_map column or table now needs to be added to schema.py ONLY (single source) — tasks.py picks it up automatically via the DDL constants + migrate_tasks_db() it already calls. Only add tasks.py-side code if the new column also needs a VALUE backfill (like keywords/parent_id did).",
         "task_edges was missing entirely from tasks.py's self-healing _ensure_db() until task:9d3acbef; commit_task_map had no schema.py DDL constant at all until task:1310d3a3 added COMMIT_TASK_MAP_DDL as part of this consolidation.",
-        "groomed_at is set via handle_update(id, mark_groomed=True) — reuses the existing tasks__update MCP action. Staleness detected by comparing groomed_at against updated_at.",
+        "groomed_at is set via handle_update_document(id, mark_groomed=True) as of task:5e2a3216 (2026-07-27) — moved off handle_update, which previously carried this flag alongside unrelated title/body/status/tags edits, causing a two-tool ambiguity during /task-grooming's structured-write steps. Staleness still detected by comparing groomed_at against updated_at.",
         "groomed_at is added inside _task_row() unconditionally, always present for TOON's uniform-header requirement. introspected_at follows the same unconditional-presence pattern.",
         "document follows the same NULL-safe contract as every other column here: TaskDocument.from_json(None) returns a fresh empty TaskDocument, no migration/backfill needed. document is excluded from _task_row() (list/search) — only _task_row_full() (handle_get) decodes and includes it.",
-        "handle_update UNCONDITIONALLY recomputes document.implementation.progress on every call (task:4d3a6fc5). This is the ONE document namespace written from handle_update rather than handle_update_document; grooming/introspection/related still go exclusively through handle_update_document.",
-        "introspected_at (task:e3a0233b) is set AUTOMATICALLY inside handle_update_document whenever introspection_report is passed — unlike groomed_at, deliberately no separate mark_introspected flag, since passing introspection_report already is the definitive signal /task-introspection ran."
+        "handle_update UNCONDITIONALLY recomputes document.implementation.progress on every call (task:4d3a6fc5). This is the ONE document-adjacent write left on handle_update rather than handle_update_document — it's a derived tally from the body handle_update already owns, not a caller-supplied flag like mark_groomed was.",
+        "introspected_at (task:e3a0233b) and groomed_at (task:5e2a3216) are both now set from inside handle_update_document — introspected_at automatically whenever introspection_report is passed (no separate flag, since passing the report already is the definitive signal), groomed_at via the explicit mark_groomed flag (no report-shaped payload exists for grooming to key off of the same way)."
       ],
-      "last_validated": "2026-07-26T16:25:53.663490+00:00",
+      "last_validated": "2026-07-27T07:44:29.196620+00:00",
       "module": "src/tools/tasks.py",
       "name": "tasks-db-schema-and-migration"
     },

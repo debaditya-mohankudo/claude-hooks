@@ -205,21 +205,21 @@ mcp__claude-hooks__tasks__update_document(
         "suggested_improvements": ["..."],
     },
     related={"concepts": ["<concept-slug>", "..."]},  # only if Step 2 found concept matches
+    mark_groomed=True,
 )
-mcp__claude-hooks__tasks__update(id="<task_id>", mark_groomed=True)
 ```
 
 `grooming` REPLACES `document.grooming` wholesale — only the latest pass is kept, `last_run_at` is set server-side. This is intentional (task:74dad096, confirmed 2026-07-26: no version history is wanted for grooming passes). The wholesale replace is about STORAGE, not AUTHORING: the `grooming` object you pass here should be built by editing the existing `document.grooming` you read in Step 1 as a draft (carry forward, revise, or drop each field), not written fresh while ignoring it. If something from the prior pass is worth keeping verbatim as historical context rather than as a live finding, put it in `prior_art` explicitly — that field is the one place a prior pass's content survives unedited across re-groomings.
 
 `related.concepts` is additive (extended + deduped, never overwritten) — pass only the concept slugs *this* grooming pass found; `/task-introspection`'s Step 5 adds its own findings to the same list independently, without erasing what grooming wrote.
 
-`mark_groomed=True` (via the existing `tasks__update`, unchanged — `groomed_at` stays a plain column, not part of the document) sets the task's `groomed_at` timestamp — the structured signal that grooming ran (task:46634a19). Always pass it, even when the grooming findings are minimal, so `tasks__list`/`tasks__get` can surface "groomed" without a body substring search. Compare `groomed_at` against `updated_at` to detect staleness: if the body was edited after the last groom, treat the task as no longer confidently groomed.
+`mark_groomed=True` (task:5e2a3216 — folded into `tasks__update_document` itself, no longer a separate `tasks__update` call) sets the task's `groomed_at` timestamp — the structured signal that grooming ran (task:46634a19). Always pass it, even when the grooming findings are minimal, so `tasks__list`/`tasks__get` can surface "groomed" without a body substring search. Compare `groomed_at` against `updated_at` to detect staleness: if the body was edited after the last groom, treat the task as no longer confidently groomed.
 
 If a duplicate/ownership consolidation was found, also call `tasks__link_tasks(from_id, to_id, relation_type="duplicates"|"depends_on"|"relates_to")` to record it structurally, not just in prose.
 
 If a task looks like a duplicate/orphan warranting `abandoned` status rather than a note, don't decide unilaterally — surface it to the user (e.g. via a clarifying question) before changing status.
 
-If no changes are required, still call `tasks__update_document(id="<task_id>", grooming={...})` with the (possibly near-empty) findings and `tasks__update(id="<task_id>", mark_groomed=True)` to record that grooming ran, and note "ready as-is" in the report.
+If no changes are required, still call `tasks__update_document(id="<task_id>", grooming={...}, mark_groomed=True)` with the (possibly near-empty) findings to record that grooming ran, and note "ready as-is" in the report.
 
 ---
 

@@ -263,7 +263,7 @@ class TestGroomedAt:
 
     def test_mark_groomed_sets_timestamp(self):
         tid = self._mk()
-        result = handle_update(id=tid, mark_groomed=True)
+        result = tasks_module.handle_update_document(id=tid, mark_groomed=True)
         assert result["groomed"] is True
         row = handle_get(id=tid)
         assert row["groomed_at"] is not None
@@ -276,12 +276,12 @@ class TestGroomedAt:
 
     def test_mark_groomed_does_not_require_other_fields(self):
         tid = self._mk()
-        result = handle_update(id=tid, mark_groomed=True)
+        result = tasks_module.handle_update_document(id=tid, mark_groomed=True)
         assert "error" not in result
 
     def test_list_json_surfaces_groomed_at(self):
         tid = self._mk()
-        handle_update(id=tid, mark_groomed=True)
+        tasks_module.handle_update_document(id=tid, mark_groomed=True)
         rows = handle_list(format="json")
         row = next(r for r in rows if r["id"] == tid)
         assert row["groomed_at"] is not None
