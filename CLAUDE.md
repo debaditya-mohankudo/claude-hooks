@@ -95,3 +95,20 @@ mcp__claude-hooks__hooks__read_logs_sqlite
 
 ## Memory Store
 MEMORY.sqlite - Use memory__ mcp tools
+
+## UserPromptSubmit Flow
+
+`hooks/client.py` → `hooks/server.py` (FastAPI) → `hooks/dispatcher.py:_handle_user_prompt_submit()`,
+which invokes `langchain_learning/session_graph.py:run_session()` — a LangGraph
+`StateGraph`, **not** an LCEL chain (no LCEL usage exists anywhere in this repo).
+Graph shape is documented in `session_graph.py`'s module docstring:
+`load_turn` → `load_active_task`/`load_related_tasks` → fan-out loaders →
+`summarize_task_context` → fan-out (`cwd_domain_detect`, `load_memories`,
+`score_tools`) → `set_prompt_id` → `log_task_events` → END. After the graph
+returns, the dispatcher (not a graph node) adds `vault_context`, enforces the
+context budget, and formats `additionalSystemPrompt` via `_format_system_prompt()`.
+
+**Do not confuse this with `hooks/memory_loader_lc.py`** — that file, described
+in the user's global `~/.claude/CLAUDE.md` as an "LCEL pipeline," does not exist
+in this repo (confirmed via filesystem search) and belongs to a separate, global
+`~/.claude/` memory system, unrelated to this repo's architecture.

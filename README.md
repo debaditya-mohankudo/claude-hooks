@@ -89,8 +89,6 @@ epic:4a1b closed — Migrate auth module to new token schema  ✓
 
 And when it's closed, the retrospective isn't optional busywork — it's Claude asking itself what would make the *next* task like this one easier: were there decisions worth logging that got missed, is any memory now stale, is there a pattern worth remembering next time.
 
-**How tasks are actually processed** — the checkpoint fields, the PostToolUse bridge that wires `tasks__set_active` into context injection, the Execution Contract, exactly what each of the three skills does — is written up in full: [Task Framework](docs/arch/task_framework.md).
-
 ---
 
 ## Gates — hard stops before anything irreversible
@@ -127,8 +125,6 @@ mail__delete(message_ids=[...])
 ```
 
 Both of these are declared entirely in a YAML config, not Python — adding a gate for some other tool in another repo is a config edit, not a code change. Task and git-commit gates work the same underlying way but need database access, so they stay as small Python classes instead.
-
-**How the gate mechanism actually works** — the config schema, the internal-vs-external split, the full current gate list, how to add your own — is written up in full: [Gates](docs/arch/gates.md).
 
 ---
 
@@ -223,7 +219,5 @@ Skills are listed in the order you'd use them across a real session.
 ## Docs
 
 - [Architecture](docs/ARCHITECTURE.md) — how the pipeline is structured and why
-- [Task Framework](docs/arch/task_framework.md) — task lifecycle, the grooming/implementation/introspection skill trio, Execution Contract
-- [Gates](docs/arch/gates.md) — internal + external gate mechanism, worked examples, how to add one
 - [Setup](docs/setup.md) — installation and configuration
 - [Skills](docs/skills.md) — full skill reference

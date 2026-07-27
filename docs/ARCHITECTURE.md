@@ -1,9 +1,9 @@
 ---
-tags: architecture overview, claude-hooks, hook server, MCP tools, LangGraph, session graph, memory system, gate framework, task framework, observability, FastAPI, uvicorn, system overview, components
+tags: architecture overview, claude-hooks, hook server, MCP tools, LangGraph, session graph, memory system, gate framework, task framework, observability, FastAPI, uvicorn, system overview, components, SysML, formal model
 ---
 # claude-hooks Architecture
 
-> This document describes the system as built — the decisions made, why they were made, and the constraints that shaped the design.
+> This document describes the system as built — the decisions made, why they were made, and the constraints that shaped the design. The structural/behavioral claims below are backed by a validated SysML v2 model in `docs/models/` (source of truth for structure/state/requirements/sequence — this page explains it, it doesn't restate it informally).
 
 ---
 
@@ -19,17 +19,46 @@ tags: architecture overview, claude-hooks, hook server, MCP tools, LangGraph, se
 
 ---
 
-## Major Components
+## Formal Model (SysML v2)
 
-| Component | Responsibility |
-| --- | --- |
-| FastAPI Server | Persistent hook endpoint — resident for the lifetime of Claude Code |
-| LangGraph StateGraph | Orchestrates hook pipelines (UPS, PreToolUse, PostToolUse, Stop) |
-| Memory System | Retrieves and injects relevant long-term memories per prompt |
-| Task Framework | Maintains persistent work context across sessions |
-| Gate Framework | Prevents unsafe / irreversible tool execution |
-| Tool Hint Engine | Recommends relevant MCP tools based on prompt intent and domain |
-| Observability | Records tool latency, keywords, and structured logs |
+Validated via `jupyter console --kernel=sysml` (the SysML v2 Pilot Implementation's kernel — see the MBSE learning epic that produced these, task:7af08b6b). Each `.sysml` file below parses and validates with zero errors against the real SysML v2 metamodel — not diagrams-as-illustration, a checked model.
+
+### Subsystems (Block Definition Diagram equivalent)
+
+Five subsystems, each composing a shared `Foundation` (config, DB schema, logging — cross-cutting, not a peer subsystem), composed into a top-level `System` part: `HookServer` (FastAPI server, event dispatcher, 3 gates, session memory timeline — owns the LangGraph checkpointer lifecycle), `MCPTools` (FastMCP dispatcher, 8 domains / 51 actions), `TaskGraph` (Jira-style issue tracking backed by `proj_tasks.db`), `MemoryConceptRAGStores` (three distinct persistent stores: memory/`MEMORY.sqlite`/BM25, concept/`concepts.json`, RAG/code_rag+diff_rag on a shared TurboVec core), and `LangGraphPipeline` (`StateGraph(SessionState)`, ~28 nodes, `MemorySaver` checkpointer after a prior `SqliteSaver` corrupted).
+
+Full source with all `doc` comments and provenance: [`docs/models/claude_hooks_system.sysml`](models/claude_hooks_system.sysml), [`docs/models/foundation.sysml`](models/foundation.sysml).
+
+### Task lifecycle (state machine)
+
+Transcribed directly from `src/tools/tasks.py`'s `_VALID_STATUSES`/`_TRANSITIONS`/`is_valid_transition` — not inferred. New tasks always start `openState`; `doneState`/`abandonedState` are terminal; any non-terminal state can transition to `abandonedState` (special-cased in code rather than listed per-state, modeled here as explicit transitions for clarity). Not modeled: parent auto-close-on-all-subtasks-done is a cross-task side effect (`handle_finish`), not a same-task transition.
+
+Full source: [`docs/models/task_lifecycle.sysml`](models/task_lifecycle.sysml).
+
+### Requirements traceability
+
+Six requirements, each `satisfy`'d by a subsystem part, sourced from a mix of this document's own prose and `concept_store/concepts.json` invariants (see the file for full sourcing citations per requirement — every one cites its origin, none invented):
+
+| Requirement | Source | Satisfied by |
+| --- | --- | --- |
+| `CommitTaskTraceabilityRequirement` | concepts: `gates-commit-traceability`, `commit-task-traceability-capture` | `hookServer`, `taskGraph` |
+| `AdditiveOnlyMigrationRequirement` | concept: `db-schema-ddl-and-migrations` invariant | `foundation` |
+| `LogReadViaMCPOnlyRequirement` | this doc's "Observability" section | `mcpTools` |
+| `CheckpointNonPersistenceRequirement` | this doc's "Development Workflow" section | `pipeline` |
+| `MemoryScoringPerDomainRequirement` | concept: `memory-scoring-per-domain-batch-limit` | `stores` |
+| `JiraHierarchyRequirement` | concept: `gates-jira-hierarchy` | `taskGraph`, `hookServer` |
+
+Full source: [`docs/models/requirements.sysml`](models/requirements.sysml).
+
+### UserPromptSubmit sequence
+
+SysML v2's textual notation has no distinct sequence-diagram keyword — an `action def` with explicit `first`/`then` successions is the closest fit. Ground truth: `hooks/dispatcher.py:_handle_user_prompt_submit()` and `langchain_learning/session_graph.py:build_session_graph()`. Eight ordered actions: client forwards the payload → server routes to the dispatcher → dispatcher reads existing checkpoint state → the StateGraph runs (`load_turn` → task loaders → fan-out `cwd_domain_detect`/`load_memories`/`score_tools` → `set_prompt_id` → `log_task_events`) → dispatcher adds `vault_context` → trims to the token/char budget → assembles `additionalSystemPrompt` → response flows back through server → client → Claude Code.
+
+Full source: [`docs/models/user_prompt_submit_flow.sysml`](models/user_prompt_submit_flow.sysml).
+
+**A prior version of this section named `hooks/memory_loader_lc.py` as an "LCEL pipeline."** That file does not exist anywhere in this repo — it belongs to a separate, global `~/.claude/` memory system unrelated to claude-hooks. The graph above (a LangGraph `StateGraph`, not LCEL — no LCEL usage exists anywhere in this repo) is the real mechanism.
+
+**Reading the models yourself:** these are plain text — readable without tooling for the structure/names/comments — but full parse/semantic validation requires the SysML v2 Pilot Implementation's Jupyter kernel (`jupyter console --kernel=sysml`; setup notes in the MBSE epic, task:7af08b6b) or a SysML v2-capable IDE (Eclipse Papyrus).
 
 ---
 
@@ -110,13 +139,7 @@ flowchart TD
 
 ## Sections
 
-- [State Architecture](arch/state.md) — FastAPI persistent server, SqliteSaver as the checkpoint store, SessionState fields
-- [Graph & Pipeline](arch/graph_pipeline.md) — Graph topology, UPS pipeline, domain classification, anti-hallucination gate, tool tracking
-- [System Prompt](arch/system_prompt.md) — All `additionalSystemPrompt` sections and what populates them
-- [Task Framework](arch/task_framework.md) — Task lifecycle, the `/task-grooming` → `/task-implementation` → `/task-introspection` skill trio, Execution Contract, mid-task decision tracking
-- [Databases, MCP & Observability](arch/databases.md) — Database files, MCP tool hosting, logging architecture
-- [Gates](arch/gates.md) — Internal gate classes + external `gate_rules.yaml` gates (iMessage, Mail), worked examples, how to add a new one
-- [MCP / Hooks Boundary](arch/mcp_hooks_boundary.md) — Ownership rule: MCP owns domain DBs, hooks own checkpoint; PostToolUse bridge nodes
-- [Design Decisions](arch/design_decisions.md) — Key choices and rationale; what this system is not
 - [New Repo Onboarding](new_repo_onboarding.md) — How to register a new project into `cwd_domains.json` and seed memories
 - [Setup Guide](setup.md) — Getting claude-hooks running from scratch; database creation, hook registration, env vars
+
+**Caveat on staleness:** unlike `concept_store/concepts.json` (auto drift-checked on every Edit/Write), the SysML models in `docs/models/` have no drift detection — they're a snapshot as of task:7af08b6b's epic, not automatically kept in sync with code changes. Treat them as "validated at time of writing," and re-derive if this section's subsystem/requirement/transition claims look stale against current code.
