@@ -122,4 +122,4 @@ The repo is the source of truth — `~/.claude/skills/` is the deployed copy.
 
 ---
 
-← [Architecture](ARCHITECTURE.md) · [Task Framework](arch/task_framework.md) · [Setup](setup.md)
+← [Architecture](ARCHITECTURE.md) · [Setup](setup.md)

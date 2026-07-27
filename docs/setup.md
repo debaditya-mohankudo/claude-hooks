@@ -272,4 +272,4 @@ Add further memories (feedback, reference) as the project evolves.
 
 ---
 
-← [Architecture](ARCHITECTURE.md) · [Databases](arch/databases.md)
+← [Architecture](ARCHITECTURE.md)

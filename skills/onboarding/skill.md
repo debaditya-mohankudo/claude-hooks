@@ -195,7 +195,7 @@ On restart, the MCP server will:
 - Auto-start Ollama if it isn't running
 - Rebuild the task embeddings index if it's missing
 
-> **Reference:** `docs/setup.md` — Section 4 · `docs/arch/graph_pipeline.md` — Bootstrap
+> **Reference:** `docs/setup.md` — Section 4
 
 ---
 
@@ -260,8 +260,6 @@ Say:
 > You're all set! Here's what to read next:
 >
 > - `docs/ARCHITECTURE.md` — how everything fits together (start here)
-> - `docs/arch/task_framework.md` — task lifecycle, how to create and track work
-> - `docs/arch/graph_pipeline.md` — how context gets injected each turn
 > - `docs/setup.md` — full reference if you need to revisit any step
 >
 > To check hook logs at any time:
