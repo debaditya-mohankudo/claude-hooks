@@ -2,7 +2,7 @@
 name: task-grooming
 description: Pre-implementation grooming pass. Reduce uncertainty before implementation by activating the task, gathering related context, identifying hidden assumptions, and improving task readiness. Use before starting a task or sprint. Invoke with /task-grooming, /task-grooming task:<id>, or /task-grooming epic:<id>.
 user-invocable: true
-updated: 2026-07-14
+updated: 2026-07-27
 repo: ~/workspace/claude-hooks/skills/task-grooming/skill.md
 deployed: ~/.claude/skills/task-grooming/skill.md
 ---
@@ -73,6 +73,8 @@ Activation is mandatory because it retrieves:
 
 These are the primary inputs to grooming — reading the body in isolation without activating is not grooming.
 
+**Read the existing `document.grooming` as your starting draft, not a blank page.** `tasks__get`'s response already includes `document.grooming` (clarifications/hidden_assumptions/risks/prior_art/suggested_improvements from the *last* pass, if any). Re-grooming still overwrites this namespace wholesale (task:74dad096 — no version history is kept, and the user has confirmed that's the intended design), but the CONTENT you write in Step 6 should be an edited revision of what's already there: carry forward items that are still accurate, revise ones that have changed since, drop ones now resolved or irrelevant, and add this pass's new findings. Writing a fresh grooming block from scratch while ignoring an existing one throws away real signal (e.g. a risk graded `avoided` or `materialized` at a prior introspection is evidence about what actually held up) and risks re-flagging something already settled.
+
 **Grooming a large batch (>5–10 tasks, e.g. a big epic):** the literal per-task activate → wait-a-turn → read-injected-context loop doesn't scale — each activation's related-context only lands on the *next* turn, so 20+ tasks means 20+ turns. When batch size crosses that threshold, it's acceptable to substitute direct lookups for equivalent signal instead: `tasks__get` on all candidates up front, `tasks__neighbors`/`diff_rag__query`/`code_rag__smart_search` called directly rather than waiting for injection, and grepping the actual repo for files named in each task's `Files:` section to verify claims. State plainly in the report that this substitution was made and why — it's a disclosed deviation, not silent corner-cutting.
 
 ---
@@ -88,15 +90,9 @@ test -f "<repo>/concepts.db" -a -f "<repo>/concept_store.py" && echo sqlite
 
 **JSON format** (claude-hooks-dev pattern):
 
-```python
-import json
-from pathlib import Path
-concepts = json.loads(Path("<repo>/concept_store/concepts.json").read_text())
-```
+**Always use `concept__list(repo="<repo>")`/`concept__get(repo="<repo>", name=...)` (task:2813ece5) — never hand-parse `concept_store/concepts.json` directly.** Its top-level shape is `{"concepts": [...], "meta": {...}}` — a list under a `concepts` key, not a flat name-keyed map. A `json.loads(...).values()` script silently matches nothing against this shape. This bug independently missed a real, badly-stale match twice in one session (task:da29c842's own grooming/introspection pass, and `/deploy`'s concept audit step) before being caught by chance — don't repeat it. This applies to claude-hooks-dev's own store too, not just non-Java target repos.
 
-Or, for a non-Java target repo (not claude-hooks-dev's own store), `concept__list(repo="<repo>")`/`concept__get(repo="<repo>", name=...)` (task:2813ece5, added 2026-07-24) do the same read without hand-writing this snippet each time — prefer these when grooming a task in a repo other than claude-hooks-dev itself.
-
-Prefer a `Concepts:` section in the task body if present — look those slugs up directly. Otherwise match the task's `Files:` section against `concept["module"]`.
+Prefer a `Concepts:` section in the task body if present — look those slugs up directly via `concept__get`. Otherwise match the task's `Files:` section against each concept's `module` field from `concept__list`'s output.
 
 **SQLite format** (SeniorDevAgent pattern):
 
@@ -194,38 +190,36 @@ Duplicate ownership is distinct from a contradiction: two tasks can agree on *wh
 
 ## Step 6 — Update the task
 
-Do **not** rewrite the body. Append a dated section:
+Grooming output is written through `tasks__update_document` as structured data (epic:f42b6958, adopted per task:2f275e17) — not appended as a `## Grooming Notes` markdown section to the body.
 
-```markdown
-## Grooming Notes (YYYY-MM-DD)
-
-### Clarifications
-- ...
-
-### Hidden Assumptions
-- ...
-
-### Risks
-- ...
-
-### Prior Art
-- ...
-
-### Suggested Improvements
-- ...
-```
+Do **not** rewrite the body. Instead:
 
 ```python
-mcp__claude-hooks__tasks__update(id="<task_id>", body="<existing body>\n\n## Grooming Notes (...)\n...", mark_groomed=True)
+mcp__claude-hooks__tasks__update_document(
+    id="<task_id>",
+    grooming={
+        "clarifications": ["..."],
+        "hidden_assumptions": ["..."],
+        "risks": [{"text": "...", "graded": None}],
+        "prior_art": ["..."],
+        "suggested_improvements": ["..."],
+    },
+    related={"concepts": ["<concept-slug>", "..."]},  # only if Step 2 found concept matches
+)
+mcp__claude-hooks__tasks__update(id="<task_id>", mark_groomed=True)
 ```
 
-`mark_groomed=True` sets the task's `groomed_at` timestamp — the structured signal that grooming ran (task:46634a19), distinct from the `## Grooming Notes` prose section. Always pass it on the update call that appends the notes, even when the notes are minimal, so `tasks__list`/`tasks__get` can surface "groomed" without a body substring search. Compare `groomed_at` against `updated_at` to detect staleness: if the body was edited after the last groom, treat the task as no longer confidently groomed.
+`grooming` REPLACES `document.grooming` wholesale — only the latest pass is kept, `last_run_at` is set server-side. This is intentional (task:74dad096, confirmed 2026-07-26: no version history is wanted for grooming passes). The wholesale replace is about STORAGE, not AUTHORING: the `grooming` object you pass here should be built by editing the existing `document.grooming` you read in Step 1 as a draft (carry forward, revise, or drop each field), not written fresh while ignoring it. If something from the prior pass is worth keeping verbatim as historical context rather than as a live finding, put it in `prior_art` explicitly — that field is the one place a prior pass's content survives unedited across re-groomings.
+
+`related.concepts` is additive (extended + deduped, never overwritten) — pass only the concept slugs *this* grooming pass found; `/task-introspection`'s Step 5 adds its own findings to the same list independently, without erasing what grooming wrote.
+
+`mark_groomed=True` (via the existing `tasks__update`, unchanged — `groomed_at` stays a plain column, not part of the document) sets the task's `groomed_at` timestamp — the structured signal that grooming ran (task:46634a19). Always pass it, even when the grooming findings are minimal, so `tasks__list`/`tasks__get` can surface "groomed" without a body substring search. Compare `groomed_at` against `updated_at` to detect staleness: if the body was edited after the last groom, treat the task as no longer confidently groomed.
 
 If a duplicate/ownership consolidation was found, also call `tasks__link_tasks(from_id, to_id, relation_type="duplicates"|"depends_on"|"relates_to")` to record it structurally, not just in prose.
 
 If a task looks like a duplicate/orphan warranting `abandoned` status rather than a note, don't decide unilaterally — surface it to the user (e.g. via a clarifying question) before changing status.
 
-If no changes are required, leave the body untouched but still call `mcp__claude-hooks__tasks__update(id="<task_id>", mark_groomed=True)` to record that grooming ran, and note "ready as-is" in the report.
+If no changes are required, still call `tasks__update_document(id="<task_id>", grooming={...})` with the (possibly near-empty) findings and `tasks__update(id="<task_id>", mark_groomed=True)` to record that grooming ran, and note "ready as-is" in the report.
 
 ---
 
@@ -265,7 +259,8 @@ If gaps were found: "Fix the flagged items and re-run `/task-grooming` before ac
 
 - **Activation is mandatory** for anything below batch-size threshold (see Step 1). Related-task and diff-RAG context is only injected when a task is active — reading the body in isolation is not grooming.
 - **Reset to open after grooming.** A groomed task is not a started task.
-- **Don't rewrite the body — append.** Preserve the original task intent; add grooming notes as a dated section at the bottom.
+- **Don't rewrite the body for grooming notes — they live in `document.grooming`, not the body.** Body edits are still fine for fixing the checklist/Files/Motivation itself (Step 5's structural fixes), just not for appending findings.
+- **Treat the existing `document.grooming` as a draft to revise, not a blank page.** Read it in Step 1, edit it in Step 6. See Step 1's note.
 - **Never guess the session_id.** Read from `## Turn state`, or use `hooks__session_id` if it isn't visible.
 - **One task at a time below the batch threshold; disclose substitutions above it.** Don't silently skip activation for convenience — either do it, or say plainly that you didn't and why.
 
