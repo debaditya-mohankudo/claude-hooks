@@ -72,7 +72,7 @@ This context is used to understand what changed and what the system now knows �
 
 This is the feedback loop that tells us whether grooming works — without it, grooming's predictions are write-only.
 
-Check `groomed_at` on the task (via `tasks__get`) — this is the structured signal that grooming ran (set by `/task-grooming`'s Step 6 via `tasks__update(mark_groomed=True)`, task:46634a19). **If `groomed_at` is unset, skip this step silently** — same escape hatch as Step 1's no-turn-history case.
+Check `groomed_at` on the task (via `tasks__get`) — this is the structured signal that grooming ran (set by `/task-grooming`'s Step 6 via `tasks__update_document(..., mark_groomed=True)`, task:46634a19, folded into `tasks__update_document` itself by task:5e2a3216). **If `groomed_at` is unset, skip this step silently** — same escape hatch as Step 1's no-turn-history case.
 
 Grade against `document.grooming.risks` from that same `tasks__get` response (already included — `_task_row_full` returns `document` alongside `groomed_at`), not a `## Grooming Notes` body section (that pre-adoption convention is gone; epic:f42b6958 was adopted per task:2f275e17). `tasks__get`'s `document.grooming` holds only the *most recent* grooming pass (task:74dad096) — that's exactly what should be graded, so no extra lookup is needed.
 
