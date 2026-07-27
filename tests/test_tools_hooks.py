@@ -1,40 +1,18 @@
-"""Tests for src/tools/hooks.py — server_memory, _decode, read_logs_sqlite, checkpoint_query."""
+"""Tests for src/tools/hooks.py — server_memory, read_logs_sqlite, checkpoint_query."""
 import json
 import sqlite3
 import threading
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import msgpack
 import pytest
 
 from src.tools.hooks import (
-    _decode,
     handle_checkpoint_query,
     handle_read_logs_sqlite,
     handle_server_memory,
     handle_session_id,
 )
-
-
-# ---------------------------------------------------------------------------
-# _decode
-# ---------------------------------------------------------------------------
-
-class TestDecode:
-    def test_none_returns_none(self):
-        assert _decode(None) is None
-
-    def test_valid_msgpack(self):
-        packed = msgpack.packb({"key": "val"}, use_bin_type=True)
-        assert _decode(packed) == {"key": "val"}
-
-    def test_fallback_to_utf8_on_bad_msgpack(self):
-        assert _decode(b"plain text") == "plain text"
-
-    def test_list_roundtrip(self):
-        packed = msgpack.packb([1, 2, 3], use_bin_type=True)
-        assert _decode(packed) == [1, 2, 3]
 
 
 # ---------------------------------------------------------------------------
@@ -227,72 +205,70 @@ class TestHandleReadLogsSqlite:
 # handle_checkpoint_query
 # ---------------------------------------------------------------------------
 
-def _make_checkpoint_db(path: Path, with_memories: bool = True) -> None:
-    with sqlite3.connect(str(path)) as conn:
-        conn.executescript("""
-            CREATE TABLE checkpoints (
-                thread_id TEXT,
-                checkpoint_id TEXT,
-                PRIMARY KEY (thread_id, checkpoint_id)
-            );
-            CREATE TABLE writes (
-                thread_id TEXT,
-                checkpoint_id TEXT,
-                channel TEXT,
-                value BLOB
-            );
-        """)
-        if with_memories:
-            memories = [{"name": "test", "type": "feedback", "domain": "global",
-                         "priority": 20, "tags": "foo", "body": "body text"}]
-            packed = msgpack.packb(memories, use_bin_type=True)
-            conn.execute(
-                "INSERT INTO checkpoints VALUES ('t1', 'c1')"
-            )
-            conn.execute(
-                "INSERT INTO writes VALUES ('t1', 'c1', 'memories', ?)", (packed,)
-            )
-            conn.execute(
-                "INSERT INTO writes VALUES ('t1', 'c1', 'domains', ?)",
-                (msgpack.packb(["global"], use_bin_type=True),)
-            )
+def _urlopen_router(routes: dict):
+    """Return a side_effect fn for urllib.request.urlopen keyed by URL substring."""
+    def _side_effect(url, timeout=5):
+        for key, response in routes.items():
+            if key in url:
+                if isinstance(response, Exception):
+                    raise response
+                return response
+        raise AssertionError(f"unexpected URL: {url}")
+    return _side_effect
 
 
 class TestHandleCheckpointQuery:
-    def test_missing_db_returns_error(self, tmp_path):
-        with patch("src.tools.hooks._DB_PATH", tmp_path / "missing.db"):
+    def test_explicit_thread_id_queries_session_directly(self):
+        state = {"memories": [], "domains": ["global"], "turn": 3}
+        routes = {"/session/t1": _mock_response({"session_id": "t1", "turn_count": 1, "state": state})}
+        with patch("urllib.request.urlopen", side_effect=_urlopen_router(routes)) as urlopen:
+            result = handle_checkpoint_query(thread_id="t1")
+        assert result["thread_id"] == "t1"
+        assert result["domains"] == ["global"]
+        assert urlopen.call_count == 1  # no /session/current lookup needed
+
+    def test_no_thread_id_resolves_current_session_first(self):
+        state = {"memories": [], "turn": 7}
+        routes = {
+            "/session/current": _mock_response({"session_id": "sess1", "turn": 7}),
+            "/session/sess1": _mock_response({"session_id": "sess1", "turn_count": 2, "state": state}),
+        }
+        with patch("urllib.request.urlopen", side_effect=_urlopen_router(routes)):
+            result = handle_checkpoint_query()
+        assert result["thread_id"] == "sess1"
+        assert result["turn"] == 7
+
+    def test_no_current_session_returns_error(self):
+        routes = {"/session/current": _mock_response({})}
+        with patch("urllib.request.urlopen", side_effect=_urlopen_router(routes)):
             result = handle_checkpoint_query()
         assert "error" in result
 
-    def test_no_checkpoints_returns_error(self, tmp_path):
-        db = tmp_path / "cp.db"
-        _make_checkpoint_db(db, with_memories=False)
-        with patch("src.tools.hooks._DB_PATH", db):
-            result = handle_checkpoint_query()
+    def test_404_returns_no_checkpoints_error(self):
+        import urllib.error
+        routes = {"/session/nonexistent": urllib.error.HTTPError("url", 404, "not found", {}, None)}
+        with patch("urllib.request.urlopen", side_effect=_urlopen_router(routes)):
+            result = handle_checkpoint_query(thread_id="nonexistent")
         assert "error" in result
 
-    def test_returns_memories(self, tmp_path):
-        db = tmp_path / "cp.db"
-        _make_checkpoint_db(db)
-        with patch("src.tools.hooks._DB_PATH", db):
-            result = handle_checkpoint_query()
+    def test_unreachable_server_returns_error(self):
+        routes = {"/session/t1": OSError("refused")}
+        with patch("urllib.request.urlopen", side_effect=_urlopen_router(routes)):
+            result = handle_checkpoint_query(thread_id="t1")
+        assert "error" in result
+
+    def test_returns_memories(self):
+        state = {
+            "memories": [{"name": "test", "type": "feedback", "domain": "global",
+                          "tags": "foo", "body": "body text"}],
+            "domains": ["global"],
+        }
+        routes = {"/session/t1": _mock_response({"session_id": "t1", "turn_count": 1, "state": state})}
+        with patch("urllib.request.urlopen", side_effect=_urlopen_router(routes)):
+            result = handle_checkpoint_query(thread_id="t1")
         assert result["thread_id"] == "t1"
         assert len(result["memories"]) == 1
         assert result["memories"][0]["name"] == "test"
-
-    def test_filter_by_thread_id(self, tmp_path):
-        db = tmp_path / "cp.db"
-        _make_checkpoint_db(db)
-        with patch("src.tools.hooks._DB_PATH", db):
-            result = handle_checkpoint_query(thread_id="t1")
-        assert result["thread_id"] == "t1"
-
-    def test_filter_by_wrong_thread_id_returns_error(self, tmp_path):
-        db = tmp_path / "cp.db"
-        _make_checkpoint_db(db)
-        with patch("src.tools.hooks._DB_PATH", db):
-            result = handle_checkpoint_query(thread_id="nonexistent")
-        assert "error" in result
 
 
 # ---------------------------------------------------------------------------
