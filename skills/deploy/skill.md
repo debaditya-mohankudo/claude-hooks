@@ -2,7 +2,9 @@
 name: deploy
 description: Deploy claude-hooks dev→test→main. Runs unit gate in dev, merges to test, runs full suite (unit + integration) from test, then ships to main. Use when ready to ship a feature branch to production.
 user-invocable: true
-updated: 2026-06-24
+updated: 2026-07-27
+repo: ~/workspace/claude-hooks/skills/deploy/skill.md
+deployed: ~/.claude/skills/deploy/skill.md
 ---
 
 Deploy `claude-hooks` through the full pipeline: dev → test → main.
@@ -17,14 +19,12 @@ Read the diff between dev and test to find changed files:
 git -C ~/workspace/claude-hooks-dev diff origin/test --name-only | grep '\.py$'
 ```
 
-For each changed `.py` file, look up stored concepts whose `module` matches (this repo always uses the JSON format — `concept_store/concepts.json`):
+For each changed `.py` file, look up stored concepts whose `module` matches. **Use the `concept__list` MCP tool — never hand-parse `concept_store/concepts.json` directly.** Its top-level shape is `{"concepts": [...], "meta": {...}}`, not a flat name-keyed map; a `json.loads(...).values()` script silently matches nothing (this exact bug let task:da29c842 ship without its concept-store update caught here — found by chance afterward):
 
 ```python
-import json
-from pathlib import Path
-concepts = json.loads(Path("/Users/debaditya/workspace/claude-hooks-dev/concept_store/concepts.json").read_text())
+concepts = mcp__claude-hooks__concept__list(repo="/Users/debaditya/workspace/claude-hooks-dev")["concepts"]
 changed = [...]  # from git diff above
-hits = [c for c in concepts.values() if c["module"] in changed]
+hits = [c for c in concepts if c["module"] in changed]
 ```
 
 For each hit, print:
@@ -72,7 +72,7 @@ If any step fails, stop and report the failure. Do not proceed to step 3.
 ~/workspace/claude-hooks/scripts/deploy.sh --ship
 ```
 
-This merges test → main. No tests run here — they already passed in step 2.
+This merges test → main. No tests run here — they already passed in step 2. The script first checks `git log test..main` and warns if main has commits test doesn't (task:5e2a3216 — a sign main was edited out-of-band, e.g. skills committed direct-to-main; that once caused a real merge conflict here). A warning doesn't block the merge — it just gives context before a possible conflict instead of a bare "CONFLICT" with none. If a conflict does occur, resolve it the same way as any merge: read each hunk, confirm which side is the real update, then stage and commit.
 
 ### 4. Done
 
