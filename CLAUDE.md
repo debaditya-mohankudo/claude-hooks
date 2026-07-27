@@ -18,11 +18,11 @@ To re-seed after major refactors, delete `concept_store/concepts.json` and re-ru
 
 ## Task Tracking
 
-Use `/task-framework` to create, activate, and manage tasks for all multi-step work. Use `/task-create` when creating tasks that need the full body template with motivation, files, and design decisions.
+`/task-framework` is the entry point for all multi-step work — start here to create, activate, and manage a task. Use `/task-create` when creating tasks that need the full body template with motivation, files, and design decisions.
 
-Before starting work on subtasks, run `/task-grooming epic:<id>` (or `/task-grooming task:<id>`) — activates each task, audits the body for gaps, and reports readiness.
+Before starting work on subtasks, run `/task-grooming epic:<id>` (or `/task-grooming task:<id>`) — activates each task, audits the body for gaps, and reports readiness. Findings are read from and written to the task's structured **document** (`document.grooming`, via `tasks__get`/`tasks__update_document`) — not appended into the body.
 
-After closing a task, run `/task-introspection` — surfaces unlogged decisions, checks for stale memories, and encodes learnings.
+After closing a task, run `/task-introspection` — surfaces unlogged decisions, grades the prior grooming pass's `document.grooming.risks`, checks for stale memories, and writes its own findings to `document.introspection`.
 
 Tasks persist across sessions, surface automatically when referenced, and build a development trail. Use TodoWrite only for ephemeral within-session sub-steps.
 

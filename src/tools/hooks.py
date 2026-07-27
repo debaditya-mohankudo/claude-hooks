@@ -1,26 +1,25 @@
 """MCP tools for querying hook state and logs.
 
-Production uses SqliteSaver (~/.claude/langgraph_checkpoints.db), opened by
-hooks/server.py's lifespan() and passed into build_session_graph(checkpointer=...).
-MemorySaver only appears as a fallback in langchain_learning/session_graph.py's
-get_session_graph(), for standalone/test invocations where the server never set
-_graph. checkpoint_query reads that same live SqliteSaver DB directly via raw
-sqlite3 — it is NOT deprecated; a prior version of this comment incorrectly
-claimed MemorySaver had replaced it in production, which was never verified
-against hooks/server.py and was wrong (confirmed 2026-07-05, task:61703ef7).
+Production runs on MemorySaver (in-process, in-memory) — task:b3964f85 retired
+SqliteSaver (~/.claude/langgraph_checkpoints.db) after two corruption incidents
+(a 1.7GB .old-bloated file, then a "database disk image is malformed" failure
+that silently broke every Stop-hook write; see hooks/server.py's module
+docstring). checkpoint_query reads live state over HTTP from the running hook
+server (GET /session/{session_id}), not from that retired sqlite file — a
+prior version of this comment claimed the opposite (that SqliteSaver was still
+the live production DB), which was true when confirmed 2026-07-05
+(task:61703ef7) but stale after task:b3964f85's later migration.
 """
 import json
 import sqlite3
 import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Optional
 
-import msgpack
-
 from src.toon import rows_to_toon
 
-_DB_PATH = Path.home() / ".claude" / "langgraph_checkpoints.db"
 _HOOKS_LOG_DB = Path.home() / "Library" / "Mobile Documents" / "com~apple~CloudDocs" / "Databases" / "claude_hooks.sqlite"
 _SERVER_URL = "http://127.0.0.1:8766"
 
@@ -110,61 +109,38 @@ def handle_session_id() -> dict:
     return result
 
 
-def _decode(value: bytes | None) -> object:
-    if value is None:
-        return None
-    try:
-        return msgpack.unpackb(value, raw=False)
-    except Exception:
-        return value.decode("utf-8", errors="replace")
-
-
 def handle_checkpoint_query(thread_id: str = "") -> dict:
-    """Query the latest LangGraph checkpoint for injected memories, tool hints, session context, domains, and keywords.
+    """Query the live LangGraph checkpoint for injected memories, tool hints, session context, domains, and keywords.
 
-    If thread_id is omitted, returns the most recent checkpoint across all threads.
+    thread_id is the session_id to look up; if omitted, uses the current session
+    (same resolution as handle_session_id).
 
-    Reads langgraph_checkpoints.db directly via raw sqlite3, bypassing the SqliteSaver
-    API — this is the same DB the live production server actually writes to (confirmed
-    2026-07-05, task:61703ef7; a prior version of this docstring incorrectly claimed it
-    was deprecated/no longer written). GET /session and hooks__session_id are lighter-weight
-    alternatives when only the session_id itself is needed.
+    Thin wrapper over the hook server's GET /session/{session_id}, which reads
+    channel_values straight from the live in-process MemorySaver — checkpoint_query
+    no longer reads ~/.claude/langgraph_checkpoints.db directly, since production
+    stopped writing that file after task:b3964f85. hooks__session_id is a lighter-weight
+    alternative when only the session_id itself is needed.
     """
-    if not _DB_PATH.exists():
-        return {"error": f"DB not found: {_DB_PATH}"}
+    session_id = thread_id
+    if not session_id:
+        current = _fetch_current_session()
+        session_id = current.get("session_id", "")
+        if not session_id:
+            return {"error": "No session_id available — hook server unreachable, or no checkpoint written yet"}
 
-    with sqlite3.connect(_DB_PATH) as conn:
-        conn.row_factory = sqlite3.Row
+    try:
+        with urllib.request.urlopen(f"{_SERVER_URL}/session/{session_id}", timeout=5) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            return {"error": f"No checkpoints found for session_id: {session_id}"}
+        return {"error": f"hook server error ({exc})"}
+    except Exception as exc:
+        return {"error": f"hook server unreachable ({exc})"}
 
-        # Find the latest checkpoint that has a 'memories' write (skip stop/output events)
-        if thread_id:
-            row = conn.execute(
-                """SELECT c.thread_id, c.checkpoint_id FROM checkpoints c
-                   JOIN writes w ON c.thread_id = w.thread_id AND c.checkpoint_id = w.checkpoint_id
-                   WHERE c.thread_id = ? AND w.channel = 'memories'
-                   ORDER BY c.checkpoint_id DESC LIMIT 1""",
-                (thread_id,),
-            ).fetchone()
-        else:
-            row = conn.execute(
-                """SELECT c.thread_id, c.checkpoint_id FROM checkpoints c
-                   JOIN writes w ON c.thread_id = w.thread_id AND c.checkpoint_id = w.checkpoint_id
-                   WHERE w.channel = 'memories'
-                   ORDER BY c.checkpoint_id DESC LIMIT 1"""
-            ).fetchone()
-
-        if not row:
-            return {"error": "No checkpoints found"}
-
-        tid = row["thread_id"]
-        cid = row["checkpoint_id"]
-
-        writes = conn.execute(
-            "SELECT channel, value FROM writes WHERE thread_id = ? AND checkpoint_id = ?",
-            (tid, cid),
-        ).fetchall()
-
-    channels = {w["channel"]: _decode(w["value"]) for w in writes}
+    channels = data.get("state", {})
+    if not channels:
+        return {"error": f"No checkpoints found for session_id: {session_id}"}
 
     memories_raw = channels.get("memories", [])
     memories = []
@@ -198,8 +174,8 @@ def handle_checkpoint_query(thread_id: str = "") -> dict:
             session_context.append(str(s)[:300] if s else "")
 
     return {
-        "thread_id": tid,
-        "checkpoint_id": cid,
+        "thread_id": session_id,
+        "turn_count": data.get("turn_count"),
         "prompt_id": channels.get("prompt_id"),
         "domains": channels.get("domains", []),
         "keywords": channels.get("keywords", []),
