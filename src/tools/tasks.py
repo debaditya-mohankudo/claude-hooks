@@ -259,13 +259,15 @@ def _connect() -> sqlite3.Connection:
 # ---------------------------------------------------------------------------
 
 def handle_create(title: str, body: str = "", task_type: str = "", cwd: str = "", domain: str = "", parent_id: str = "", session_id: str = "", issue_type: str = "task") -> dict:
-    """Create a new open task with auto-generated tags. Returns the task id.
+    """DEPRECATED — prefer tasks__create_scaffolded. Create a new open task with
+    auto-generated tags. Returns the task id.
 
-    If `body` is omitted, it is auto-filled from task_templates/<task_type>.md (default
-    "misc") with `title` dropped into the first section — guarantees a gate-valid body,
-    so callers never need to hand-copy a template. Pass `body` explicitly for full custom
-    detail (still validated by the create gate); pass `task_type` to pick a richer
-    template (feature, bug, research, epic) when auto-filling.
+    Kept only for callers that need a fully custom, non-templated `body`. If `body` is
+    omitted, this delegates entirely to handle_create_scaffolded (which also enforces
+    Jira hierarchy rules on the parent_id/issue_type pair) — pass `body` explicitly only
+    when you need content that doesn't fit the template's fixed section labels; that path
+    still requires a gate-valid body but does not itself enforce hierarchy (the external
+    tasks__create PreToolUse gate does, for direct MCP calls).
 
     For subtasks: create a parent task first, then pass parent_id=<parent_task_id> for
     each subtask — tags them as parent:<id>, groups them in tasks__list, and auto-closes
@@ -290,14 +292,14 @@ def handle_create(title: str, body: str = "", task_type: str = "", cwd: str = ""
     if issue_type not in _ISSUE_TYPES:
         return {"error": f"Invalid issue_type '{issue_type}'. Valid: {sorted(_ISSUE_TYPES)}"}
     if not body.strip():
-        labels = _load_template_sections(task_type or "misc")
-        if not labels:
-            return {"error": f"Unknown task_type '{task_type}' — no task_templates/{task_type}.md found."}
-        parts = [f"Type: {task_type or 'misc'}"]
-        for label in labels:
-            content = title if label == "Task" else ("(pending)" if label in ("Resolution", "Finding") else "TBD")
-            parts.append(f"{label}:\n{content}")
-        body = "\n\n".join(parts)
+        # Thin wrapper: delegate template-filling + hierarchy validation to
+        # handle_create_scaffolded rather than duplicating that logic here.
+        # Scaffolded builds a body and calls back into this function with it
+        # non-empty, landing in the explicit-body branch below.
+        return handle_create_scaffolded(
+            title=title, task_type=task_type or "misc", cwd=cwd, domain=domain,
+            parent_id=parent_id, session_id=session_id, issue_type=issue_type,
+        )
     task_id = uuid.uuid4().hex[:8]
     tags = _auto_tags(title, body)
     resolved_domain = domain.strip() if domain else (_domain_from_cwd(cwd) if cwd else None)
@@ -388,6 +390,10 @@ def handle_create_scaffolded(
         session_id: Current Claude session id.
         issue_type: Jira-style issue type: epic, story, task, bug, subtask. Default: task.
     """
+    from hooks.gates import validate_jira_hierarchy
+    hierarchy_error = validate_jira_hierarchy(issue_type, parent_id)
+    if hierarchy_error:
+        return {"error": hierarchy_error}
     labels = _load_template_sections(task_type)
     if not labels:
         return {"error": f"Unknown task_type '{task_type}' — no task_templates/{task_type}.md found."}

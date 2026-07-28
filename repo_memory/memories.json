@@ -461,13 +461,13 @@
       "type": "project"
     },
     "claude-hooks-task-body-gate": {
-      "body": "task body MUST start with `Type: <kind>` and contain that kind's required sections — else tasks__create rejects it.\n\n**Why:** Gate is enforced in hooks/dispatcher.py _TASK_BODY_SECTIONS.\n\n**How to apply:** Copy scaffold from repo `task_templates/<kind>.md`. Kinds and required sections:\n- feature → Task, Motivation, Resolution, Files\n- bug → Task, Cause, Resolution, Files\n- research → Task, Finding, Context, Files\n- misc → Task, Resolution, Notes, Files\n- epic → use tasks__create_epic(title, motivation) — builds body internally, skips the gate",
+      "body": "task body MUST start with `Type: <kind>` and contain that kind's required sections — else tasks__create rejects it.\n\n**Why:** Gate is enforced in hooks/dispatcher.py _TASK_BODY_SECTIONS.\n\n**How to apply:** Prefer `tasks__create_scaffolded(title, task_type, sections={...})` — it builds a gate-valid body from structured sections automatically, so you never need to hand-copy a template. Only fall back to a hand-written body via raw tasks__create if content doesn't fit the template's fixed section labels. Kinds and required sections:\n- feature → Task, Motivation, Resolution, Files\n- bug → Task, Cause, Resolution, Files\n- research → Task, Finding, Context, Files\n- misc → Task, Resolution, Notes, Files\n- epic → use tasks__create_epic(title, motivation) — builds body internally, skips the gate\n\n**Update (2026-07-28):** see [[prefer-tasks-create-scaffolded]] — tasks__create_scaffolded now supersedes hand-composing bodies for this gate entirely.",
       "created_at": "2026-07-28T03:31:38.774115+00:00",
       "files": "",
-      "last_validated": "2026-07-28T03:31:38.774115+00:00",
+      "last_validated": "2026-07-28T15:39:56.066547+00:00",
       "name": "claude-hooks-task-body-gate",
       "related": "",
-      "tags": "task, gate, dispatcher, scaffold, sections, reject, create",
+      "tags": "task, gate, dispatcher, scaffold, sections, reject, create, create_scaffolded",
       "type": "project"
     },
     "claude-hooks-task-state-machine": {
@@ -551,13 +551,13 @@
       "type": "project"
     },
     "copy-task-template-verbatim-before-create": {
-      "body": "tasks__create now auto-fills the body from task_templates/<task_type>.md when body is omitted (task:5ee3b106) — pass task_type (feature/bug/research/misc/epic, default misc) instead of hand-composing the Type:/section-header body from memory.\n\nWhy: hand-composing bodies from memory of other types' formats caused repeated create-gate failures (wrong section headers per type) before this fix landed.\n\nHow to apply: for a lightweight task, just call tasks__create(title=..., task_type=<kind>) with no body. Only pass an explicit body when you need custom section content beyond the title — it's still gate-validated in that case, so still check task_templates/<type>.md first if writing one by hand.",
+      "body": "**Superseded (2026-07-28) — see [[prefer-tasks-create-scaffolded]].** tasks__create_scaffolded now fully replaces the auto-fill workaround this memory originally documented.\n\nOriginal (task:5ee3b106): tasks__create auto-fills the body from task_templates/<task_type>.md when body is omitted — pass task_type (feature/bug/research/misc/epic, default misc) instead of hand-composing the Type:/section-header body from memory.\n\nWhy this was needed: hand-composing bodies from memory of other types' formats caused repeated create-gate failures (wrong section headers per type).\n\n**Current guidance:** call `tasks__create_scaffolded(title=..., task_type=<kind>, sections={...})` directly — it builds a guaranteed gate-valid body from the sections dict, covering the same cases (and more, including custom section content) that the old auto-fill-on-omitted-body trick handled. Don't rely on tasks__create's auto-fill path going forward.",
       "created_at": "2026-07-28T03:30:06.115349+00:00",
       "files": "",
-      "last_validated": "2026-07-28T03:30:06.115349+00:00",
+      "last_validated": "2026-07-28T15:40:03.122567+00:00",
       "name": "copy-task-template-verbatim-before-create",
       "related": "",
-      "tags": "task template create body format gate validation scaffold research feature bug misc epic tasks__create auto-fill task:5ee3b106",
+      "tags": "task template create body format gate validation scaffold research feature bug misc epic tasks__create create_scaffolded auto-fill superseded task:5ee3b106",
       "type": "project"
     },
     "cwd-first-fallback-default-repo-pattern": {
@@ -1150,6 +1150,16 @@
       "tags": "diff_rag, commit-rag, git, search, workflow,claude-hooks",
       "type": "project"
     },
+    "prefer-tasks-create-scaffolded": {
+      "body": "`tasks__create` (handle_create in src/tools/tasks.py) is now a thin wrapper: when `body` is omitted it delegates entirely to `handle_create_scaffolded`, which builds the template body AND validates Jira hierarchy (validate_jira_hierarchy from hooks/gates.py) before creating. It only keeps its own insert logic for the explicit-custom-body case, which create_scaffolded can't express (fixed section labels).\n\nWhy: create_scaffolded previously bypassed JiraHierarchyGate entirely — it calls handle_create as a plain in-process Python function, not via MCP dispatch, so the PreToolUse-hook-based gate (keyed on the external tool name \"tasks__create\") never fired for it. A story/subtask created via create_scaffolded with a missing/wrong parent went through silently. Fixed by adding validate_jira_hierarchy() directly inside handle_create_scaffolded, and making handle_create's omitted-body path delegate to it (single source of truth, no duplicated logic).\n\nHow to apply: default to tasks__create_scaffolded for all new tasks (title, task_type, sections dict) — it's the primary path now. handle_create's docstring marks it deprecated; only use a hand-written body via raw tasks__create for genuinely free-text content outside the template schema (that path still relies on the external gate for hierarchy enforcement, not an inline check). 3 tests in tests/test_task_issue_type.py (TestAutoFillFromTemplate) were updated to pass issue_type=\"epic\" since they exercised the now-closed no-parent loophole. See [[claude-hooks-task-body-gate]], [[copy-task-template-verbatim-before-create]], [[task-create-templates-vary-by-issue-type]] for the gate-mechanics detail this supersedes.",
+      "created_at": "2026-07-28T15:40:16.135794+00:00",
+      "files": "",
+      "last_validated": "2026-07-28T15:47:24.884374+00:00",
+      "name": "prefer-tasks-create-scaffolded",
+      "related": "",
+      "tags": "task creation, tasks__create, tasks__create_scaffolded, JiraHierarchyGate, hierarchy validation, gate failure, body format, thin wrapper, task-create skill, task-framework skill",
+      "type": "project"
+    },
     "protocol-as-pipe-joint": {
       "body": "Protocols in claude-hooks mark the joints in the memory injection pipe where behavioral substitution is needed:\n  prompt → tokenise → MemoryRetriever → LoadMemoriesNode → additionalSystemPrompt\n\nThe three protocol joints are:\n  1. MemoryRetriever — how memories are scored and fetched (langchain_learning/nodes/load_memories.py)\n  2. ToolScorer     — how tool hints are ranked (langchain_learning/nodes/score_tools.py)\n  3. GatePolicy     — how tool gates are dispatched (hooks/gate_check.py)\n\nNot every node gets a Protocol — only nodes that are genuine substitution points (where a different implementation could exist and be useful).\n\n**Why:** Mirrors LCEL Runnable | Runnable composition but in pure Python with no framework overhead. Same idea as ACME POC NodeCallable Protocol (Principle 13).\n\n**How to apply:** When adding a new node, ask: is this a substitution point? If no, skip the Protocol. If yes, add it to retrievers.py and keep the implementation in nodes/ or hooks/.",
       "created_at": "2026-07-28T00:46:10.043445+00:00",
@@ -1411,13 +1421,13 @@
       "type": "project"
     },
     "task-create-templates-vary-by-issue-type": {
-      "body": "tasks__create's required body sections differ by issue_type, and the create gate error message includes the exact missing section name and a full template to copy — e.g. issue_type=misc requires a \"Notes:\" section (not \"Motivation:\", which is the feature template's field). Why: guessing the template from memory of a different issue_type causes an avoidable round-trip. How to apply: on the first create-gate rejection for an issue_type you haven't used yet this session, just copy the template verbatim from the error message rather than guessing again.",
+      "body": "tasks__create's required body sections differ by issue_type, and the create gate error message includes the exact missing section name and a full template to copy — e.g. issue_type=misc requires a \"Notes:\" section (not \"Motivation:\", which is the feature template's field).\n\nWhy: guessing the template from memory of a different issue_type causes an avoidable round-trip.\n\nHow to apply: prefer `tasks__create_scaffolded(title, task_type, sections={...})` so you never need to guess or copy a template — it assembles the correct section set for the given task_type internally. See [[prefer-tasks-create-scaffolded]]. If still using raw tasks__create for a one-off custom body, copy the template verbatim from the gate's rejection error rather than guessing again.",
       "created_at": "2026-07-28T03:34:08.343422+00:00",
       "files": "",
-      "last_validated": "2026-07-28T03:34:08.343422+00:00",
+      "last_validated": "2026-07-28T15:40:08.897399+00:00",
       "name": "task-create-templates-vary-by-issue-type",
       "related": "",
-      "tags": "tasks create, issue_type, template, misc, feature, body format, create gate rejects, task:d89a8445",
+      "tags": "tasks create, issue_type, template, misc, feature, body format, create gate rejects, create_scaffolded, task:d89a8445",
       "type": "project"
     },
     "task-deletion-safety-tied-to-concept-store": {
