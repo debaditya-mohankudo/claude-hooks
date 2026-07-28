@@ -6,6 +6,12 @@ only test that would have caught task:da29c842's bug (handle_checkpoint_query si
 reading a retired, empty sqlite file while the live server had moved to MemorySaver years
 apart from what the mocked unit tests exercised).
 
+Uses a TEST_SESSION_PREFIX session_id (task:b63088a1) so this test's checkpoint writes
+route to the isolated test graph instead of the shared production one — this fixture
+used to post a hardcoded literal session_id straight into production's MemorySaver,
+which (since it never got evicted) became the direct root cause of task:a4531510's
+stale-cross-thread bug.
+
 Excluded from the default pytest run (marked `integration`). Requires a live hook server:
     uv run python -m pytest tests/test_checkpoint_query_integration.py -v
 Skips cleanly if no server is reachable at src.tools.hooks._SERVER_URL.
@@ -14,6 +20,7 @@ import urllib.request
 
 import pytest
 
+from langchain_learning.session_graph import TEST_SESSION_PREFIX
 from src.tools.hooks import _SERVER_URL, handle_checkpoint_query
 
 pytestmark = pytest.mark.integration
@@ -34,7 +41,7 @@ def live_session(live_server):
     """Post a real UserPromptSubmit to the live server, returning its session_id."""
     import json
 
-    sid = "checkpoint-query-integration-test-session"
+    sid = f"{TEST_SESSION_PREFIX}checkpoint-query-integration-test-session"
     payload = json.dumps({"session_id": sid, "cwd": "/tmp", "prompt": "integration smoke test"}).encode()
     req = urllib.request.Request(
         f"{_SERVER_URL}/hook/UserPromptSubmit", data=payload, headers={"Content-Type": "application/json"}

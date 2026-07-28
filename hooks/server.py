@@ -237,11 +237,13 @@ async def session_detail(session_id: str):
     Returns {session_id, turn_count, state} where state is the checkpoint's channel_values
     dict (active_task_id, turn, domains, etc.) as of the most recent write for this thread.
     Returns {"detail": "not found"} (404) if no checkpoint exists for session_id.
+
+    Routes through get_session_graph(session_id) (task:b63088a1) so a
+    TEST_SESSION_PREFIX'd session_id resolves against the isolated test graph
+    it was actually written to, not the production one.
     """
     import langchain_learning.session_graph as sg
-    checkpointer = sg._graph.checkpointer if sg._graph else None
-    if not checkpointer:
-        return JSONResponse(content={"detail": "not found"}, status_code=404)
+    checkpointer = sg.get_session_graph(session_id).checkpointer
 
     turn_count = 0
     latest_state: dict = {}

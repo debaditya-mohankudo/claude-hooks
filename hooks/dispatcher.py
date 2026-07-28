@@ -843,11 +843,16 @@ def _handle_pre_tool_use(hook_input: dict) -> dict | None:
 def _handle_session_end(hook_input: dict) -> dict | None:
     session_id = hook_input.get("session_id", "")
     import langchain_learning.session_graph as sg
-    if not session_id or not sg._graph:
+    # Check the already-built graph for this session's routing (test-prefixed
+    # sessions route to sg._test_graph, task:b63088a1) without lazily creating
+    # one just to immediately delete from it.
+    is_test = session_id.startswith(sg.TEST_SESSION_PREFIX)
+    graph = sg._test_graph if is_test else sg._graph
+    if not session_id or not graph:
         log.info("SessionEnd: session=%s status=skipped", (session_id or "?")[:8])
         return None
     try:
-        sg._graph.checkpointer.delete_thread(session_id)
+        graph.checkpointer.delete_thread(session_id)
         status = "evicted"
     except Exception:
         status = "not_found"
