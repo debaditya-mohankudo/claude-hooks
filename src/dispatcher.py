@@ -52,6 +52,7 @@ DOMAIN_MAP: dict[str, tuple[str, list[str]]] = {
     "think":    ("tools.think",    ["think"]),
     "scratch":  ("tools.scratch",  ["set", "get", "list", "delete", "clear"]),
     "concept":  ("tools.concept",  ["get", "list", "upsert", "delete", "modules", "search"]),
+    "repo_memory": ("tools.repo_memory", ["get", "list", "upsert", "delete", "search"]),
 }
 
 

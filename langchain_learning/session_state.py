@@ -25,6 +25,7 @@ class SessionState(TypedDict):
     active_parent_task_id: str       # parent task id (epic), if the active task has one
     active_parent_task_title: str    # parent task title for context injection
     task_memories: list[dict]        # memories scored against task tags+title (task_activate branch)
+    repo_task_memories: list[dict]   # repo_memory/memories.json entries for the active task's cwd, filtered by task_files overlap; emitted by ActivateTaskNode
     task_context: list[dict]         # prior turn events for active task (current session only)
     task_rag_chunks: list[dict]      # top-3 code modules from TurboVec semantic search over .code_embeddings.tvim
     task_body: str                    # body of the active task (goal, motivation, resolution) — injected into system prompt

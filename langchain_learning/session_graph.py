@@ -177,16 +177,38 @@ def build_session_graph(checkpointer=None):
 # ---------------------------------------------------------------------------
 
 _graph = None
+_test_graph = None
+
+# Integration tests use a session_id with this prefix so their checkpoint
+# writes route to an isolated in-process graph/checkpointer instead of the
+# shared production one (task:b63088a1). Before this, integration tests wrote
+# real, permanently-unevicted threads straight into production's MemorySaver —
+# the direct root cause of task:a4531510's stale-cross-thread bug. Both graphs
+# reset on every server restart regardless (MemorySaver has no persistence and
+# none is intended), so the test graph needs no separate eviction/cleanup —
+# it's isolated by construction, not by a cleanup pass.
+TEST_SESSION_PREFIX = "integration-test-"
 
 
-def get_session_graph():
-    """Return the module-level graph.
+def get_session_graph(session_id: str = ""):
+    """Return the module-level graph for this session_id.
 
-    In production, _graph is set by the FastAPI server lifespan (SqliteSaver).
+    Test-prefixed session_ids (TEST_SESSION_PREFIX) route to an isolated
+    _test_graph, keeping integration-test traffic out of the real production
+    checkpoint store entirely — same endpoints, same code path, isolated
+    storage only (task:b63088a1).
+
+    In production, _graph is set by the FastAPI server lifespan (MemorySaver).
     In tests, callers may inject _graph directly, or this falls back to a
-    fresh MemorySaver graph per process (no disk needed, no teardown).
+    fresh MemorySaver graph per process (no disk needed, no teardown). The
+    same lazy-fallback pattern applies to _test_graph.
     """
-    global _graph
+    global _graph, _test_graph
+    if session_id.startswith(TEST_SESSION_PREFIX):
+        if _test_graph is None:
+            from langgraph.checkpoint.memory import MemorySaver
+            _test_graph = build_session_graph(checkpointer=MemorySaver())
+        return _test_graph
     if _graph is None:
         from langgraph.checkpoint.memory import MemorySaver
         _graph = build_session_graph(checkpointer=MemorySaver())
@@ -225,7 +247,7 @@ def _config(session_id: str) -> RunnableConfig:
 def _base_state(session_id: str) -> SessionState:
     """Return checkpoint state for session_id, or a fresh state if none exists."""
     cfg = _config(session_id)
-    existing = get_session_graph().get_state(cfg)  # type: ignore[arg-type]
+    existing = get_session_graph(session_id).get_state(cfg)  # type: ignore[arg-type]
     return existing.values if existing and existing.values else _fresh_state(session_id)  # type: ignore[return-value]
 
 
@@ -239,13 +261,13 @@ def run_session(prompt: str, session_id: str = "", cwd: str = "") -> SessionStat
     import time as _time
     t0 = _time.monotonic()
     state: SessionState = _base_state(session_id) | {"event_type": "user_prompt_submit", "prompt": prompt, "cwd": cwd, "session_id": session_id, "stop_alert_sent": False, "sound_played": False}  # type: ignore[operator]
-    result = get_session_graph().invoke(state, config=_config(session_id))  # type: ignore[arg-type]
+    result = get_session_graph(session_id).invoke(state, config=_config(session_id))  # type: ignore[arg-type]
     # Surface-and-clear pending_hook_output (mirrors run_post_tool/run_stop):
     # the returned result keeps it for the UPS dispatcher to render this turn,
     # but the checkpoint copy is zeroed so it cannot leak into the next
     # PostToolUse response.
     if result.get("pending_hook_output"):
-        get_session_graph().update_state(_config(session_id), {"pending_hook_output": {}})
+        get_session_graph(session_id).update_state(_config(session_id), {"pending_hook_output": {}})
     _log.info("UPS phase=done session=%s elapsed_ms=%.0f", (session_id or "")[:8], ((_time.monotonic() - t0) * 1000))
     return result
 
@@ -262,7 +284,7 @@ def run_gate(tool_name: str, tool_input: dict, session_id: str = "") -> dict:
 
     cfg = _config(session_id)
     try:
-        saved = get_session_graph().get_state(cfg)
+        saved = get_session_graph(session_id).get_state(cfg)
         prompt = (saved.values.get("prompt") or "") if saved and saved.values else ""
     except Exception:
         prompt = ""
@@ -274,8 +296,8 @@ def run_gate(tool_name: str, tool_input: dict, session_id: str = "") -> dict:
         _log.info("run_gate session=%s generated fallback prompt_id=%s (no UPS checkpoint)",
                   (session_id or "")[:8] or "?", prompt_id)
     state: SessionState = base | {"event_type": "pre_tool_use", "tool_name": tool_name, "tool_input": tool_input, "session_id": session_id, "prompt": prompt, "prompt_id": prompt_id}  # type: ignore[operator]
-    result = get_session_graph().invoke(state, config=cfg)  # type: ignore[arg-type]
-    get_session_graph().update_state(cfg, {"gate_denied": False, "gate_reason": "", "tool_name": "", "tool_input": {}})
+    result = get_session_graph(session_id).invoke(state, config=cfg)  # type: ignore[arg-type]
+    get_session_graph(session_id).update_state(cfg, {"gate_denied": False, "gate_reason": "", "tool_name": "", "tool_input": {}})
     return {"gate_denied": result["gate_denied"], "gate_reason": result["gate_reason"]}
 
 
@@ -292,8 +314,8 @@ def run_post_tool(tool_name: str, tool_input: dict, session_id: str,
     state: SessionState = _base_state(session_id) | {"event_type": "post_tool_use", "tool_name": tool_name, "tool_input": tool_input, "tool_result": tool_result or {}, "session_id": session_id, "duration_ms": duration_ms}  # type: ignore[operator]
     if prompt:
         state = state | {"prompt": prompt}  # type: ignore[operator]
-    get_session_graph().invoke(state, config=cfg)  # type: ignore[arg-type]
-    final = get_session_graph().get_state(cfg)
+    get_session_graph(session_id).invoke(state, config=cfg)  # type: ignore[arg-type]
+    final = get_session_graph(session_id).get_state(cfg)
     if final is None or not final.values:
         _log.warning("[run_post_tool] session=%s tool=%s — get_state returned empty, no hook_output", session_id[:8], tool_name)
         hook_output: dict = {}
@@ -301,7 +323,7 @@ def run_post_tool(tool_name: str, tool_input: dict, session_id: str,
         hook_output = final.values.get("pending_hook_output") or {}
         if hook_output:
             _log.info("[run_post_tool] session=%s tool=%s — returning hook_output keys=%s", session_id[:8], tool_name, list(hook_output.keys()))
-    get_session_graph().update_state(cfg, {"tool_name": "", "tool_input": {}, "tool_result": {}, "duration_ms": 0.0, "pending_hook_output": {}})
+    get_session_graph(session_id).update_state(cfg, {"tool_name": "", "tool_input": {}, "tool_result": {}, "duration_ms": 0.0, "pending_hook_output": {}})
     return hook_output
 
 
@@ -313,11 +335,11 @@ def prewarm_session(session_id: str) -> bool:
     the checkpointer write overhead, no memory/tool/RAG nodes execute.
     """
     cfg = _config(session_id)
-    existing = get_session_graph().get_state(cfg)
+    existing = get_session_graph(session_id).get_state(cfg)
     if existing and existing.metadata is not None:
         return False
     state: SessionState = _fresh_state(session_id) | {"event_type": ""}  # type: ignore[operator]
-    get_session_graph().invoke(state, config=cfg)  # type: ignore[arg-type]
+    get_session_graph(session_id).invoke(state, config=cfg)  # type: ignore[arg-type]
     return True
 
 
@@ -329,10 +351,10 @@ def run_stop(session_id: str) -> dict:
     """
     cfg = _config(session_id)
     state: SessionState = _base_state(session_id) | {"event_type": "stop", "session_id": session_id}  # type: ignore[operator]
-    get_session_graph().invoke(state, config=cfg)  # type: ignore[arg-type]
-    final = get_session_graph().get_state(cfg)
+    get_session_graph(session_id).invoke(state, config=cfg)  # type: ignore[arg-type]
+    final = get_session_graph(session_id).get_state(cfg)
     hook_output: dict = (final.values.get("pending_hook_output") or {}) if final and final.values else {}
-    get_session_graph().update_state(cfg, {
+    get_session_graph(session_id).update_state(cfg, {
         "event_type": "",
         "prompt": "", "prompt_id": "", "prompt_tools": [],
         "tool_name": "", "tool_input": {}, "tool_result": {}, "duration_ms": 0.0,

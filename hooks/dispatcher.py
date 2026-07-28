@@ -77,14 +77,19 @@ _TASK_BODY_CHAR_CAP = 3000
 def _enforce_context_budget(ctx: dict) -> None:
     """Trim ctx["memories"] (lowest-scored last, since the list is pre-sorted
     descending by score) until the combined context fits _CONTEXT_TOKEN_BUDGET
-    tokens, or the list is empty. Mutates ctx in place. related_tasks/related_commits/
-    task_rag_chunks are left untouched — they're already small and capped.
+    tokens, or the list is empty. Mutates ctx in place. task_memories/
+    repo_task_memories/related_tasks/related_commits/task_rag_chunks are
+    counted toward the budget but never trimmed themselves — they're already
+    small/capped (repo_task_memories is filtered by Files: overlap at
+    activation time, see activate_task.py), so memories is the only source
+    with a meaningful relevance ordering to evict from.
     """
     from src.tools.tokens import count_tokens
 
     def _combined_tokens() -> int:
         return count_tokens("".join(
-            m.get("body", "") for m in ctx.get("memories", []) + ctx.get("task_memories", [])
+            m.get("body", "")
+            for m in ctx.get("memories", []) + ctx.get("task_memories", []) + ctx.get("repo_task_memories", [])
         )) + count_tokens("".join(
             t.get("body_snippet", "") for t in ctx.get("related_tasks", [])
         )) + count_tokens("".join(
@@ -205,6 +210,19 @@ def _format_system_prompt(ctx: dict) -> str:
             domain = mem.get("domain", "")
             body   = mem.get("body", "").strip()
             lines.append(f"### {name} [{domain}]")
+            if body:
+                lines.append(body)
+            lines.append("")
+
+    if ctx.get("repo_task_memories"):
+        # Repo-local project/reference memories (repo_memory/memories.json) matched
+        # to the active task's Files: section — task:850ddd65's activation-time
+        # consumer. No [domain] tag (repo IS the domain now, see repo_memory/store.py).
+        lines.append("## Repo memories")
+        for mem in ctx["repo_task_memories"]:
+            name = mem.get("name", "?")
+            body = mem.get("body", "").strip()
+            lines.append(f"### {name} [{mem.get('type', '')}]")
             if body:
                 lines.append(body)
             lines.append("")
@@ -825,11 +843,16 @@ def _handle_pre_tool_use(hook_input: dict) -> dict | None:
 def _handle_session_end(hook_input: dict) -> dict | None:
     session_id = hook_input.get("session_id", "")
     import langchain_learning.session_graph as sg
-    if not session_id or not sg._graph:
+    # Check the already-built graph for this session's routing (test-prefixed
+    # sessions route to sg._test_graph, task:b63088a1) without lazily creating
+    # one just to immediately delete from it.
+    is_test = session_id.startswith(sg.TEST_SESSION_PREFIX)
+    graph = sg._test_graph if is_test else sg._graph
+    if not session_id or not graph:
         log.info("SessionEnd: session=%s status=skipped", (session_id or "?")[:8])
         return None
     try:
-        sg._graph.checkpointer.delete_thread(session_id)
+        graph.checkpointer.delete_thread(session_id)
         status = "evicted"
     except Exception:
         status = "not_found"

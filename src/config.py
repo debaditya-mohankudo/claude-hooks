@@ -63,7 +63,7 @@ class _Config(BaseSettings):
     tasks_db: Path = Field(default=Path.home() / ".claude" / "proj_tasks.db")
 
     # Memory scoring tunables (override via CLAUDE_HOOKS_MEMORY_* env vars)
-    memory_top_n: int = Field(default=10)
+    memory_top_n: int = Field(default=3)
     memory_batch_limit: int = Field(default=500)
     memory_tag_weight: float = Field(default=3.0)
     memory_body_weight: float = Field(default=1.0)

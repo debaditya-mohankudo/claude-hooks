@@ -65,6 +65,19 @@ class LogTaskEventsNode:
             _log.info("[log_task_events] no active task — skipping")
             return {}
 
+        # Lazy import — session_graph imports the node registry, which imports
+        # this module, so a top-level import here would be circular.
+        from langchain_learning.session_graph import TEST_SESSION_PREFIX
+        session_id_check = state.get("session_id", "")
+        if session_id_check.startswith(TEST_SESSION_PREFIX):
+            # replay_harness.py (task:a10a6638) deliberately seeds active_task_id
+            # to exercise task-aware nodes during replay, but that must not write
+            # real rows into proj_tasks.db's task_events table — a persistent,
+            # cross-process store, unlike the in-memory checkpoint this prefix
+            # already isolates (task:b63088a1). Skip the DB write, not the node.
+            _log.debug("[log_task_events] session=%s is test-prefixed — skipping task_events write", session_id_check[:8])
+            return {}
+
         if not _cfg.tasks_db.exists():
             _log.warning("[log_task_events] proj_tasks.db not found")
             return {}

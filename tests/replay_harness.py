@@ -160,8 +160,13 @@ def replay_event(sg, event: dict) -> dict:
     if cwd_str and not cwd_str.startswith("/"):
         cwd_str = str(Path("~/workspace").expanduser() / cwd_str)
 
-    # Fresh session per event (no checkpoint bleed between replays)
-    session_id = f"replay-{event['session'][:8]}"
+    # Fresh session per event (no checkpoint bleed between replays). Prefixed
+    # with TEST_SESSION_PREFIX (task:a10a6638) so this routes to the isolated
+    # test graph (task:b63088a1) instead of writing into the shared production
+    # MemorySaver — replay runs used to leave permanent 'replay-<session>'
+    # threads sitting in production forever (MemorySaver never evicts).
+    from langchain_learning.session_graph import TEST_SESSION_PREFIX
+    session_id = f"{TEST_SESSION_PREFIX}replay-{event['session'][:8]}"
 
     # Seed active_task_id into checkpoint before invoking — mirrors what MemorySaver
     # holds from the previous turn in production. Without this, task-aware nodes
@@ -169,7 +174,7 @@ def replay_event(sg, event: dict) -> dict:
     active_task = event.get("active_task", "")
     if active_task:
         from langchain_learning.session_graph import _config
-        sg.get_session_graph().update_state(
+        sg.get_session_graph(session_id).update_state(
             _config(session_id),
             {"active_task_id": active_task, "active_task_title": "", "active_parent_task_id": "", "active_parent_task_title": ""},
         )

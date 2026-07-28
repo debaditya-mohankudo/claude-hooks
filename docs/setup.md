@@ -215,16 +215,41 @@ A successful run exits 0 and emits JSON with `additionalSystemPrompt`.
 
 ## 8. Seed initial memories (optional but recommended)
 
-The system works without any memories, but seeding a few project-level facts immediately improves context quality. For each repo, create at least these two memories:
+The system works without any memories, but seeding a few facts immediately improves context quality. **Since task:850ddd65's memory split, which store you seed into depends on what kind of fact it is** — this replaces an earlier version of this section that recommended seeding `type=project` facts via `memory__add` with a nonexistent `priority` param; that per-memory priority field never existed in the schema (`src/db/schema.py`'s `memories` table has no such column), and project-level architecture facts belong in the per-repo store below, not the always-injected global one.
 
-### Goals memory (priority 1 — always injected)
+### Repo-specific architecture facts → `repo_memory__upsert` (lifecycle-scoped, not per-turn injected)
+
+Facts about *this repo's* code/architecture — stack, key files, invariants — go to the committed per-repo store, mirroring `concept_store`'s pattern. This is consulted during task-grooming/task-introspection/task-activation, **not** injected into every UPS turn:
 
 ```python
-mcp__local-mac__memory__add(
+mcp__claude-hooks__repo_memory__upsert(
+    repo="<absolute path to repo>",
+    memory={
+        "name": "<repo>-arch",
+        "type": "project",  # or "reference"
+        "body": """Stack: <language, frameworks>
+
+Key files:
+- <file1> — <purpose>
+- <file2> — <purpose>
+
+Databases / external deps:
+- <db or service> — <purpose>""",
+        "tags": "<domain>,architecture,files,stack",
+        "files": "<file1>, <file2>",
+    },
+)
+```
+
+### Cross-cutting mission/goals note → `memory__add` (global, per-turn injected)
+
+A short "what this project is trying to do and what distracts from it" note is genuinely useful on every turn, so it stays in the global store (`type="project"`, tagged with the repo's `domain` from `cwd_domains.json`):
+
+```python
+mcp__claude-hooks__memory__add(
     name="<repo>-goals",
     type="project",
     domain="<domain>",
-    priority=1,
     tags="<domain>,goals,mission,direction",
     body="""Most important goal: <one-line mission statement>
 
@@ -238,25 +263,7 @@ The test: at the end of a session, did the work move the mission forward?"""
 )
 ```
 
-### Architecture memory (priority 10)
-
-```python
-mcp__local-mac__memory__add(
-    name="<repo>-arch",
-    type="project",
-    domain="<domain>",
-    priority=10,
-    tags="<domain>,architecture,files,stack",
-    body="""Stack: <language, frameworks>
-
-Key files:
-- <file1> — <purpose>
-- <file2> — <purpose>
-
-Databases / external deps:
-- <db or service> — <purpose>"""
-)
-```
+See [ARCHITECTURE.md](ARCHITECTURE.md)'s subsystem section for why this split exists and which consumer (task activation, task-grooming, task-introspection) reads `repo_memory` vs. the always-on UPS retrieval pipeline.
 
 Add further memories (feedback, reference) as the project evolves.
 

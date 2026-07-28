@@ -181,22 +181,6 @@ Ask: "Update, validate, or skip?"
 **Check docs:**
 If the commit touches a file that has a corresponding section in `docs/`, note it: "Consider updating `<doc section>` to reflect this change."
 
-## Memory graph snapshot (claude-hooks repo only)
-
-After the memory audit step, if the committed repo is `claude-hooks`, regenerate the memory graph files so the snapshot stays current with any memory changes made this session:
-
-```bash
-cd ~/workspace/claude-hooks-dev && uv run python scripts/populate_related.py && uv run python scripts/export_memory_graph.py
-```
-
-Then stage and commit the updated `docs/memory/` files as a follow-up commit:
-
-```bash
-git -C ~/workspace/claude-hooks-dev add docs/memory/ && git -C ~/workspace/claude-hooks-dev commit -m "chore(memory): regenerate docs/memory graph snapshot"
-```
-
-Only run if `scripts/export_memory_graph.py` exists. Skip silently for non-claude-hooks repos.
-
 ## Hook server restart (claude-hooks repo only)
 
 After code/diff RAG updates, if the committed repo is `claude-hooks`, restart the uvicorn hook server so it picks up the new code:

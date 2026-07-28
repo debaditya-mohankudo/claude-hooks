@@ -274,6 +274,74 @@ def test_search_filters_by_domain(mem_db):
     assert all(r["domain"] == "market-intel" for r in result["results"])
 
 
+def test_search_tags_source_global(mem_db):
+    with patch("tools.memory.MEMORY_DB", str(mem_db)):
+        result = handle_search(query="developer")
+    assert all(r["source"] == "global" for r in result["results"])
+
+
+def test_search_without_repo_param_ignores_repo_memory(mem_db, tmp_path):
+    """No repo param → behavior identical to before repo_memory existed,
+    even if a repo_memory store happens to exist somewhere."""
+    store_dir = tmp_path / "repo_memory"
+    store_dir.mkdir()
+    (store_dir / "memories.json").write_text(json.dumps({
+        "meta": {}, "memories": {"dev-fact": {"name": "dev-fact", "type": "project", "body": "developer fact", "tags": "", "files": "", "related": ""}},
+    }))
+    with patch("tools.memory.MEMORY_DB", str(mem_db)):
+        result = handle_search(query="developer")
+    names = [r["name"] for r in result["results"]]
+    assert "dev-fact" not in names
+
+
+def test_search_with_repo_param_merges_repo_memory_results(mem_db, tmp_path):
+    store_dir = tmp_path / "repo_memory"
+    store_dir.mkdir()
+    (store_dir / "memories.json").write_text(json.dumps({
+        "meta": {},
+        "memories": {
+            "dispatcher-fact": {"name": "dispatcher-fact", "type": "project", "body": "How the dispatcher routes", "tags": "dispatcher", "files": "", "related": ""},
+        },
+    }))
+    with patch("tools.memory.MEMORY_DB", str(mem_db)):
+        result = handle_search(query="dispatcher", repo=str(tmp_path))
+    names = [r["name"] for r in result["results"]]
+    assert "dispatcher-fact" in names
+    repo_result = next(r for r in result["results"] if r["name"] == "dispatcher-fact")
+    assert repo_result["source"] == "repo_memory"
+
+
+def test_search_with_repo_param_no_store_yet_returns_only_global(mem_db, tmp_path):
+    # tmp_path has no repo_memory/ at all — repo not migrated, should not error.
+    with patch("tools.memory.MEMORY_DB", str(mem_db)):
+        result = handle_search(query="developer", repo=str(tmp_path))
+    assert result["count"] >= 1
+    assert all(r["source"] == "global" for r in result["results"])
+
+
+def test_search_with_repo_param_filters_repo_results_by_type(mem_db, tmp_path):
+    store_dir = tmp_path / "repo_memory"
+    store_dir.mkdir()
+    (store_dir / "memories.json").write_text(json.dumps({
+        "meta": {},
+        "memories": {
+            "a-project-fact": {"name": "a-project-fact", "type": "project", "body": "dispatcher project fact", "tags": "", "files": "", "related": ""},
+            "a-reference-fact": {"name": "a-reference-fact", "type": "reference", "body": "dispatcher reference fact", "tags": "", "files": "", "related": ""},
+        },
+    }))
+    with patch("tools.memory.MEMORY_DB", str(mem_db)):
+        result = handle_search(query="dispatcher", type="reference", repo=str(tmp_path))
+    names = [r["name"] for r in result["results"]]
+    assert "a-reference-fact" in names
+    assert "a-project-fact" not in names
+
+
+def test_search_with_repo_param_nonexistent_path_does_not_error(mem_db):
+    with patch("tools.memory.MEMORY_DB", str(mem_db)):
+        result = handle_search(query="developer", repo="/no/such/path/at/all")
+    assert result["count"] >= 1  # global results still returned
+
+
 # ---------------------------------------------------------------------------
 # handle_list_domains
 # ---------------------------------------------------------------------------

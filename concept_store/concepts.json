@@ -1,5 +1,28 @@
 {
   "concepts": {
+    "activate-task-memory-source-selection": {
+      "confidence": 0.85,
+      "contracts": [
+        "_activate() returns repo_task_memories: list[dict] in its state-update dict alongside the existing task_memories",
+        "hooks/dispatcher.py's _format_system_prompt renders repo_task_memories under a separate '## Repo memories' section, and _enforce_context_budget counts its tokens toward the shared budget (added after a concept-audit catch, see dispatcher-system-prompt-assembly)"
+      ],
+      "created_at": "2026-07-28T01:24:25.586506+00:00",
+      "description": "On task activation (tasks__set_active/tasks__pop_active), ActivateTaskNode selects the source of task-context memories based on whether the active task's cwd has migrated to the repo_memory split (task:850ddd65): if <cwd>/repo_memory/memories.json exists, the global _score_memories() scorer is skipped entirely and repo_task_memories (filtered by the task's Files: section overlap via backfill_memory_files.py's _file_tokens stem-matching) is used instead. If no repo_memory store exists for that cwd, falls back to the pre-split behavior (global MEMORY.sqlite scoring, unfiltered by Files:). The two sources are mutually exclusive per activation, never both populated for the same task. This concept only covers the memory-source-selection behavior, not activate_task.py's other responsibilities (execution_contract building, task_stack push/pop, task lookup).",
+      "evidence": [
+        "langchain_learning/nodes/activate_task.py:_repo_memory_store_path",
+        "langchain_learning/nodes/activate_task.py:_load_repo_task_memories",
+        "langchain_learning/nodes/activate_task.py:_activate"
+      ],
+      "invariants": [
+        "repo_store_path presence (not emptiness) is the switch — an existing-but-empty repo_memory/memories.json still skips the global scorer, it doesn't fall back",
+        "task_memories and repo_task_memories are never both non-empty for the same activation",
+        "Absence of a Files: section on the task means ALL repo_memory entries are returned unfiltered (intentional — the store is small/curated, unlike the global table, so no-filter is not noise)",
+        "tasks__pop_active on an empty stack clears both task_memories and repo_task_memories alongside the other active-task fields"
+      ],
+      "last_validated": "2026-07-28T01:24:25.586506+00:00",
+      "module": "langchain_learning/nodes/activate_task.py",
+      "name": "activate-task-memory-source-selection"
+    },
     "commit-task-traceability-capture": {
       "confidence": 0.9,
       "contracts": [
@@ -95,28 +118,24 @@
         "All sections are markdown-formatted"
       ],
       "created_at": "2026-06-29T09:47:25.284960+00:00",
-      "description": "Assembles the injected additionalSystemPrompt from SessionState context: Turn state, soul/vault context, active domains, injected memories, tool hints, active task body, task history, related commits, and active review checklist. Also emits a one-time \"New project detected\" note (from CwdDomainDetectNode's cwd_unmapped) when the session's cwd matches no cwd_domains.json entry. Also renders execution_contract (added 2026-07-05, task:380140fa) as its own \"### Execution contract\" section, verbatim, distinct from task_body.",
+      "description": "Assembles the UserPromptSubmit additionalSystemPrompt from SessionState context (memories, task context, repo memories, related tasks/commits, rag chunks) into markdown sections, applying a token budget before rendering.",
       "evidence": [
-        "hooks/dispatcher.py:66",
-        "hooks/dispatcher.py:184",
-        "hooks/dispatcher.py:96",
-        "hooks/dispatcher.py: def _enforce_context_budget(ctx: dict) -> None: ... while memories and _combined_tokens() > _CONTEXT_TOKEN_BUDGET: memories.pop()",
-        "hooks/dispatcher.py: if len(body) > _TASK_BODY_CHAR_CAP: body = body[:_TASK_BODY_CHAR_CAP] + \"\\n...[truncated]\"",
-        "langchain_learning/nodes/decision_task.py: if len(current) > _MAX_DECISIONS: current = current[-_MAX_DECISIONS:]",
-        "hooks/dispatcher.py: contract = (ctx.get(\"execution_contract\") or \"\").strip(); if contract: lines.append(\"### Execution contract\")"
+        "hooks/dispatcher.py:_format_system_prompt",
+        "hooks/dispatcher.py:_enforce_context_budget"
       ],
       "invariants": [
         "Sections are only emitted when their data is non-empty",
         "Related tasks section is populated when LoadRelatedTasksNode finds semantically similar done tasks via TurboVec neighbor search (capped at 3); empty when no active task, no rag index, or no matching done neighbors",
         "Task context summary takes precedence over raw task history when both exist",
         "New-project note is emitted when ctx['cwd_unmapped'] is true (set by CwdDomainDetectNode only on the first turn a session's cwd is unmapped, tracked via cwd_domain_reminder_sent in checkpoint state so it fires once per session, not every turn)",
-        "Before assembly, _enforce_context_budget(ctx) trims ctx['memories'] from the tail (lowest-scored, since the list is pre-sorted descending) until the combined token count of memories+task_memories+related_tasks+related_commits+task_rag_chunks fits _CONTEXT_TOKEN_BUDGET (4000 tokens), or memories is empty. related_tasks/related_commits/task_rag_chunks are never trimmed here — they're already capped at top-3 by their nodes.",
+        "Before assembly, _enforce_context_budget(ctx) trims ctx['memories'] from the tail (lowest-scored, since the list is pre-sorted descending) until the combined token count of memories+task_memories+repo_task_memories+related_tasks+related_commits+task_rag_chunks fits _CONTEXT_TOKEN_BUDGET (4000 tokens), or memories is empty. task_memories/repo_task_memories/related_tasks/related_commits/task_rag_chunks are counted toward the budget but never trimmed themselves — they're already small/capped by their producing nodes (repo_task_memories is filtered by Files: overlap at task-activation time, task:850ddd65).",
         "task_body is hard-truncated to _TASK_BODY_CHAR_CAP (3000 chars) at render time, appending an \"...[truncated]\" marker when cut — it has no upstream length cap (a task's body can be arbitrarily long, e.g. a large epic scaffold).",
         "mid_task_decisions (Task decisions section) is capped to the most recent _MAX_DECISIONS (15) entries by langchain_learning/nodes/decision_task.py, sliced on every tasks__add_decision append — not trimmed in dispatcher.py itself. This checkpoint state exists solely for prompt injection; the durable decision history lives in the task's DB record, unaffected by the slice.",
         "execution_contract is rendered as its own section, independent of task_body and _enforce_context_budget — it is NOT subject to _TASK_BODY_CHAR_CAP truncation or memories-budget eviction, by design (a fixed north-star template built once at task activation by activate_task.py._build_execution_contract, must stay byte-identical every turn). Cleared alongside the other active-task fields at all three deactivation sites: DeactivateTaskNode (tasks__clear_active/tasks__finish), ActivateTaskNode's pop-to-empty-stack, and LogTaskEventsNode's \"task:<id> done\" auto-close (task:eb46ac47 — this third site was originally missed).",
-        "After _format_system_prompt, the UPS handler appends one-shot node output: if ctx['pending_hook_output'].hookSpecificOutput has hookEventName == 'UserPromptSubmit', its additionalContext is appended to the assembled system prompt (e.g. LogTaskEventsNode's /task-introspection nudge after a \"task:<id> done\" auto-close, task:eb46ac47). run_session() surfaces-and-clears the checkpoint copy (mirroring run_post_tool/run_stop), so the payload renders exactly once and cannot leak into the next PostToolUse response; the hookEventName gate prevents a stale cross-event payload from ever being rendered here."
+        "After _format_system_prompt, the UPS handler appends one-shot node output: if ctx['pending_hook_output'].hookSpecificOutput has hookEventName == 'UserPromptSubmit', its additionalContext is appended to the assembled system prompt (e.g. LogTaskEventsNode's /task-introspection nudge after a \"task:<id> done\" auto-close, task:eb46ac47). run_session() surfaces-and-clears the checkpoint copy (mirroring run_post_tool/run_stop), so the payload renders exactly once and cannot leak into the next PostToolUse response; the hookEventName gate prevents a stale cross-event payload from ever being rendered here.",
+        "repo_task_memories (## Repo memories section) is emitted alongside task_memories (## Task memories) but the two are mutually exclusive in practice per-repo: activate_task.py sources task_memories from either the global scorer OR repo_memory, never both, depending on whether the active task's repo has migrated to repo_memory/memories.json (task:850ddd65)."
       ],
-      "last_validated": "2026-07-23T12:34:17.828250+00:00",
+      "last_validated": "2026-07-28T00:50:53.572861+00:00",
       "module": "hooks/dispatcher.py",
       "name": "dispatcher-system-prompt-assembly"
     },
@@ -275,6 +294,26 @@
       "module": "src/tools/hooks.py",
       "name": "hooks-mcp-tools-observability"
     },
+    "log-task-events-test-prefix-skip": {
+      "confidence": 0.9,
+      "contracts": [
+        "__call__(state) returns {} (no-op) for any state['session_id'] matching TEST_SESSION_PREFIX, identical to the existing no-active-task-id and missing-DB no-op paths"
+      ],
+      "created_at": "2026-07-28T02:07:45.324984+00:00",
+      "description": "LogTaskEventsNode writes one task_events row per UPS turn to proj_tasks.db whenever an active_task_id is set in state. Since task:a10a6638, it skips this DB write entirely for any session_id starting with TEST_SESSION_PREFIX (langchain_learning.session_graph.TEST_SESSION_PREFIX) — added because tests/replay_harness.py deliberately seeds active_task_id to exercise task-aware nodes during replay, which was writing real, permanent rows into the persistent, cross-process proj_tasks.db under session_id='replay-<session>', cluttering real task history (tasks__history).",
+      "evidence": [
+        "langchain_learning/nodes/log_task_events.py:LogTaskEventsNode.__call__",
+        "tests/test_log_task_events_node.py:test_skips_db_write_for_test_prefixed_session"
+      ],
+      "invariants": [
+        "The skip check happens AFTER the no-active-task-id early return but BEFORE any DB connection is opened — no proj_tasks.db access at all occurs for test-prefixed sessions, not just a rollback or filtered read later.",
+        "The prefix check is imported lazily inside __call__, not at module level — langchain_learning.session_graph imports the node registry, which imports this module, so a top-level import would be circular.",
+        "This guard only affects THIS node's DB write — it does not affect whether other nodes run, or whether the checkpoint/state itself gets test-graph routing (that's session_graph.get_session_graph's separate, unrelated job, task:b63088a1)."
+      ],
+      "last_validated": "2026-07-28T02:07:45.324984+00:00",
+      "module": "langchain_learning/nodes/log_task_events.py",
+      "name": "log-task-events-test-prefix-skip"
+    },
     "logger-sqlite-handler": {
       "confidence": 0.97,
       "contracts": [
@@ -378,6 +417,32 @@
       "module": "src/tools/rag_core.py",
       "name": "rag-core-turbovec-index"
     },
+    "repo-memory-store-pattern": {
+      "confidence": 0.9,
+      "contracts": [
+        "get(name) -> dict | None",
+        "list(type=None) -> list[dict], filtered by type when given",
+        "upsert(memory: dict) -> None, requires memory['name'] and valid memory['type']",
+        "search(query) -> list[dict], case-insensitive substring match across name/body/tags, ranked by match count"
+      ],
+      "created_at": "2026-07-28T01:24:17.644376+00:00",
+      "description": "RepoMemoryStore is a JSON-backed, per-repo committed store for project/reference memories about that repo's own code/architecture, sibling to concept_store's ConceptStore (same wrapper shape, same tolerant-missing-file behavior) but an independently-evolvable class, not a shared base. Unlike the global MEMORY.sqlite table, this store is never scored per-turn by UPS — it's consulted only during task lifecycle events (task activation, task-grooming, task-introspection) via src/tools/repo_memory.py's MCP handlers (get/list/upsert/delete/search, repo required no default, mirrors concept.py's _resolve_repo convention).",
+      "evidence": [
+        "repo_memory/store.py",
+        "src/tools/repo_memory.py",
+        "src/tools/_repo_resolve.py"
+      ],
+      "invariants": [
+        "Entries have no `domain` field — the repo filesystem path itself is the domain, since the file lives inside that repo",
+        "Entries have no `hit_count`/`last_hit` — nothing scores this store per-turn, so nothing needs hit tracking",
+        "upsert() validates type is 'project' or 'reference' only, raising ValueError otherwise — the one behavioral difference from ConceptStore, which has no type enum constraint",
+        "Missing file -> empty dict, no mkdir in __init__ (mkdir only happens in handle_upsert, mirroring concept.py's gap-cover for the same reason)",
+        "save() rewrites the whole file (json.dumps indent=2 sort_keys=True) on every write — no partial/incremental writes"
+      ],
+      "last_validated": "2026-07-28T01:24:17.644376+00:00",
+      "module": "repo_memory/store.py",
+      "name": "repo-memory-store-pattern"
+    },
     "server-fastapi-hook-server": {
       "confidence": 0.95,
       "contracts": [
@@ -451,6 +516,54 @@
       "last_validated": "2026-06-29T09:47:25.289140+00:00",
       "module": "hooks/server_memory.py",
       "name": "server-memory-tool-recording"
+    },
+    "session-graph-test-production-routing": {
+      "confidence": 0.9,
+      "contracts": [
+        "get_session_graph(session_id: str = '') -> a compiled, checkpointer-backed StateGraph, production or test depending on session_id prefix"
+      ],
+      "created_at": "2026-07-28T01:58:19.215098+00:00",
+      "description": "get_session_graph(session_id) is the single chokepoint every hook entry point (run_session, run_gate, run_post_tool, run_stop, prewarm_session) already calls to obtain the compiled LangGraph StateGraph. Since task:b63088a1, it also decides WHICH of two graph instances to return based on session_id's prefix, isolating integration-test checkpoint traffic from the shared production MemorySaver without changing any endpoint URL or code path.",
+      "evidence": [
+        "langchain_learning/session_graph.py:get_session_graph",
+        "langchain_learning/session_graph.py:TEST_SESSION_PREFIX",
+        "hooks/server.py:session_detail",
+        "hooks/dispatcher.py:_handle_session_end",
+        "tests/test_session_graph_test_isolation.py"
+      ],
+      "invariants": [
+        "Any session_id starting with TEST_SESSION_PREFIX ('integration-test-') routes to _test_graph, a separate lazily-built graph/MemorySaver instance; every other session_id (including '') routes to the production _graph, exactly as before this routing existed.",
+        "Both _graph and _test_graph are built lazily on first use via the identical build_session_graph(checkpointer=MemorySaver()) pattern — no special-casing between them except which module-level global gets populated.",
+        "A checkpoint written under a test-prefixed session_id is genuinely invisible to the production graph, not just conventionally separated — they are two distinct MemorySaver instances with independent .storage dicts.",
+        "No eviction/cleanup logic exists for _test_graph and none is needed: both graphs reset to empty on every server restart, since MemorySaver has no persistence and none is intended for either.",
+        "Callers that reference the underlying singleton directly (sg._graph) rather than through get_session_graph(session_id) will NOT get isolation-aware routing — hooks/server.py's session_detail endpoint and hooks/dispatcher.py's _handle_session_end both had to be updated to route through get_session_graph(session_id) (or check the correct global explicitly) for the isolation guarantee to hold end-to-end."
+      ],
+      "last_validated": "2026-07-28T01:58:19.215098+00:00",
+      "module": "langchain_learning/session_graph.py",
+      "name": "session-graph-test-production-routing"
+    },
+    "session-state-latest-checkpoint-lookup": {
+      "confidence": 0.9,
+      "contracts": [
+        "get_current_session() -> {session_id, turn} or {} if no checkpoint exists anywhere",
+        "get_active_session() -> {task_id, title, session_id, turn} or {} if no active task on the latest checkpoint, or that task is done/abandoned"
+      ],
+      "created_at": "2026-07-28T01:58:12.018834+00:00",
+      "description": "get_current_session/get_active_session back GET /session/current and GET /session/active — the only signals available for 'what session am I in' before any thread_id is known. Both use _latest_checkpoint_tuple() to find the single most-recently-written checkpoint ACROSS ALL THREADS in a MemorySaver instance.",
+      "evidence": [
+        "hooks/session_state.py:_latest_checkpoint_tuple",
+        "hooks/session_state.py:get_current_session",
+        "hooks/session_state.py:get_active_session",
+        "tests/test_session_state.py"
+      ],
+      "invariants": [
+        "MemorySaver.list(None) (no config) iterates checkpointer.storage's thread_ids in Python dict-insertion order, then yields that FIRST thread's own checkpoint history before ever considering other threads — next(iter(checkpointer.list(None))) is NOT 'the most recent checkpoint globally', it's 'thread_ids[0]'s own most recent checkpoint', where thread_ids[0] never changes once set (dict insertion order is stable across key updates). This was task:a4531510's root cause: a long-lived thread (from a test fixture posting a hardcoded session_id every run) permanently occupied thread_ids[0], so get_current_session got stuck returning it forever regardless of real traffic.",
+        "_latest_checkpoint_tuple() fixes this by enumerating checkpointer.storage.keys() and calling get_tuple() per thread (O(1) latest-checkpoint lookup, not full-history iteration), comparing each thread's checkpoint['ts'] ISO timestamp to find the true global latest.",
+        "get_active_session additionally filters out done/abandoned tasks even when the checkpoint itself is stale — a checkpoint with an active_task_id pointing at a closed task still yields {} from this function."
+      ],
+      "last_validated": "2026-07-28T01:58:12.018834+00:00",
+      "module": "hooks/session_state.py",
+      "name": "session-state-latest-checkpoint-lookup"
     },
     "task-document-schema": {
       "confidence": 0.9,
