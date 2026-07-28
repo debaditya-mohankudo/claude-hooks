@@ -1,5 +1,626 @@
 {
-  "memories": {},
+  "memories": {
+    "behavioral-steering-lives-in-skills-not-langgraph": {
+      "body": "Epic 2f0fb672 (standing Execution Contract + per-tool Reflection loop, mechanical LangGraph/PostToolUse wiring) was abandoned 2026-07-05 — only its first prototype (task:380140fa, static Execution Contract injection at activation) shipped and stays.\n\nWhy: per-tool Reflection injection and a mechanical loop-detector would have required new PostToolUse/session_graph wiring for a problem that's really about behavioral steering, not state machinery. Decision: this class of guidance belongs in skill prose (improved /task-grooming, /task-introspection, and a new /task-implementation skill with behavioral guidelines), not in the LangGraph session design.\n\nHow to apply: future ideas for steering agent behavior mid-task (anti-drift, anti-looping, confidence checks, \"when to stop exploring\") should default to skill-prose additions first. Only reach for LangGraph/checkpoint/hook wiring if the mechanism genuinely requires cross-turn state that skill instructions can't carry on their own (the Execution Contract qualified because it needed to be injected identically every turn from the checkpoint; a reflection prompt doesn't need that).",
+      "created_at": "2026-07-28T00:46:10.013430+00:00",
+      "files": "",
+      "last_validated": "2026-07-28T00:46:10.013430+00:00",
+      "name": "behavioral-steering-lives-in-skills-not-langgraph",
+      "related": "",
+      "tags": "task framework, execution philosophy, skills vs langgraph, task-grooming, task-introspection, task-implementation, reflection loop, abandoned epic",
+      "type": "project"
+    },
+    "checkpoint-session-cap-eviction-thrash": {
+      "body": "`hooks__session_id` / `GET /session/current` returning \"no checkpoint written yet\" for a session that is clearly active and mid-conversation is usually NOT the hook server failing to fire for that session's cwd — it's checkpoint eviction. `_trim_checkpoints()` (hooks/server.py) keeps only the top `_CHECKPOINT_SESSION_CAP` most-recently-written thread_ids in `~/.claude/langgraph_checkpoints.db`, and runs on EVERY `UserPromptSubmit` across ALL concurrent Claude Code windows/cwds sharing the one hook server — not just at server startup. So a long-running session in e.g. SeniorDevAgent's cwd can have its checkpoint wiped mid-conversation whenever sibling sessions in other cwds (claude-hooks-dev, vault, market-intel, etc.) each submit prompts and push it out of the top-N.\n\nRaised cap from 2 → 5 on 2026-07-05 to reduce thrash with 3+ concurrent windows open. If `hooks__session_id` starts failing \"most of the time\" again, check how many Claude Code windows are open concurrently before assuming a code regression — it may just mean the cap needs raising further.\n\n**Why:** Cost real confusion this session — looked like a bug/misconfiguration for a SeniorDevAgent-cwd session, was actually eviction thrash from other concurrent sessions.\n\n**How to apply:** When `hooks__session_id` fails, check `_CHECKPOINT_SESSION_CAP` in hooks/server.py against how many Claude Code windows are typically open at once, rather than assuming the session/cwd isn't being tracked. The concept store entry `server-fastapi-hook-server` (module hooks/server.py) previously had a stale/wrong invariant claiming eviction happens at SessionEnd, not on every UserPromptSubmit — corrected 2026-07-05.",
+      "created_at": "2026-07-28T00:46:10.013932+00:00",
+      "files": "",
+      "last_validated": "2026-07-28T00:46:10.013932+00:00",
+      "name": "checkpoint-session-cap-eviction-thrash",
+      "related": "",
+      "tags": "session cap, checkpoint eviction, hooks__session_id, GET /session/current, SqliteSaver, trim_checkpoints, concurrent sessions, multi-window",
+      "type": "project"
+    },
+    "classify-domain-node-design": {
+      "body": "ClassifyDomainNode (langchain_learning/nodes/classify_domain.py) loads domain_classifier.json from iCloud (src.config.domain_classifier_json) and uses full weighted scoring: strong/weak keyword signals, combination bigrams/trigrams, negative signals, and CWD map. Result feeds domains + skip_tools back into SessionState. Matched keywords from scoring are merged into state[\"keywords\"] to enrich downstream BM25 in ScoreToolsNode. Score logging at INFO level shows top matched signals per domain. CWD signal comes from SessionState[\"cwd\"] (threaded from hook input), not os.getcwd(). _DC_CACHE is module-level for one-load-per-process; invalidation via mtime check is a known TODO.\n\nWhy: Flat vocab set (_DOMAIN_VOCAB) was too coarse — no weighting, no phrases, no negative signals. The JSON config (externalized, iCloud-synced) is the authoritative source.\nHow to apply: When editing ClassifyDomainNode or domain_classifier.json, remember the CWD field must be in SessionState and passed from hook input. Keywords enrichment feeds score_tools — changes here affect tool hint retrieval.",
+      "created_at": "2026-07-28T00:46:10.014123+00:00",
+      "files": "",
+      "last_validated": "2026-07-28T00:46:10.014123+00:00",
+      "name": "classify-domain-node-design",
+      "related": "claude-hooks-domain-detection,claude-hooks-node-design,domain-classifier-llm-when",
+      "tags": "classify-domain, domain-classifier, langgraph, node, weighted-scoring, json-config, icloud,claude-hooks",
+      "type": "project"
+    },
+    "claude-hooks-checkpointer-migration-pending": {
+      "body": "task:b3964f85 SHIPPED 2026-07-09 (commit 4bcb560, dev→test via deploy.sh, live server confirmed running with \"graph built with MemorySaver\" in logs). hooks/server.py's lifespan now opens `MemorySaver()` instead of `SqliteSaver.from_conn_string(...)`. The old sqlite-specific `_trim_checkpoints`/`_compact_checkpoint_db` functions and `_CHECKPOINT_DB`/`_CHECKPOINT_SESSION_CAP`/`_CHECKPOINT_ROW_CAP` constants are DELETED from hooks/server.py — don't reference them, they no longer exist.\n\nPer-thread checkpoint history is now capped at 5000 rows, enforced in `NoopNode.__call__` (langchain_learning/nodes/noop.py) on every Stop event via `_trim_thread_checkpoints()`, which reaches into `MemorySaver.storage`/`.writes` directly (checkpoint_ids are monotonically sortable strings, oldest evicted first). This mirrors the old cross-session sqlite trim's reliability rationale (run on an event that reliably fires every turn) but now bounds *per-thread* history in RAM, not *cross-thread* count in a sqlite file.\n\n**Known follow-up gap, not yet addressed**: nothing currently caps the *number of distinct threads* MemorySaver keeps in RAM across the server's uptime — the old SqliteSaver-era `_CHECKPOINT_SESSION_CAP=5` cross-session eviction has no MemorySaver equivalent yet. Every session that has ever connected during this server's uptime stays in RAM until the next crash/restart. Low urgency today (KeepAlive crash-restarts and deploy.sh redeploys periodically clear everything anyway), but worth a task if the server ever runs stable for a very long time with many distinct sessions.\n\n~/.claude/langgraph_checkpoints.db (the corrupted file) renamed to langgraph_checkpoints.db.retired-2026-07-09 (not deleted, reversible) — alongside the pre-existing langgraph_checkpoints.db.old-bloated (1.7GB, from 2026-07-05). Neither is read by anything anymore; both are safe to hard-delete if reclaiming ~2.2GB matters, left for the user to decide.\n\n**Confirmed drift caught and fixed by task:da29c842 (2026-07-27):** src/tools/hooks.py's `handle_checkpoint_query` was still reading raw sqlite3 from `~/.claude/langgraph_checkpoints.db` — a leftover consumer of the retired file, throwing an unhandled \"no such table: checkpoints\" error since the file is now a 0-byte empty stub. Its docstring made the same now-false \"SqliteSaver is production\" claim this memory already warned about, dated with a since-superseded confirmation (task:61703ef7, 2026-07-05, predates this migration). Fixed: now a thin wrapper over `GET /session/{session_id}`, reading live MemorySaver state the same way hooks/server.py's own endpoints do. Lesson: a docstring/comment's \"confirmed on <date>\" claim is only as fresh as the last re-check against the code it describes — always grep for other direct `langgraph_checkpoints.db`/sqlite3 readers when touching checkpointer internals again, since this proves at least one straggler consumer can survive a migration undetected.\n\nAny memory still asserting \"production uses SqliteSaver\" (langgraph-checkpointer-pattern, checkpoint-is-ipc, claude-hooks-session-lifecycle, claude-hooks-hook-delivery, claude-hooks-databases, claude-hooks-server-identity, session-id-how-to, checkpoint-session-cap-eviction-thrash, langgraph-sqlitesaver-direct-conn) is now STALE as of this shipped change — treat this memory as the authoritative current state, not those.",
+      "created_at": "2026-07-28T00:46:10.014327+00:00",
+      "files": "",
+      "last_validated": "2026-07-28T00:46:10.014327+00:00",
+      "name": "claude-hooks-checkpointer-migration-pending",
+      "related": "",
+      "tags": "SqliteSaver, MemorySaver, checkpoint, langgraph_checkpoints.db, corruption, migration, task:b3964f85, task:da29c842, shipped, stale docstring, checkpoint_query",
+      "type": "project"
+    },
+    "claude-hooks-constraints": {
+      "body": "Hooks must be fast and fail-open.\n\n**How to apply:**\n- `pre_tool_use` must never exit 2 (block) on error — always degrade gracefully\n- All hooks degrade silently in prod mode if the server is unreachable\n- No hook path should block Claude on a slow DB query, network call, or exception\n- New nodes must be benchmarked — UPS target is under 300ms end-to-end",
+      "created_at": "2026-07-28T00:46:10.014767+00:00",
+      "files": "",
+      "last_validated": "2026-07-28T00:46:10.014767+00:00",
+      "name": "claude-hooks-constraints",
+      "related": "claude-hooks-mission,claude-hooks-observability-principle,hook-dev-mode",
+      "tags": "constraints, fail-open, fast, pre_tool_use, exit code, degradation, prod mode, performance",
+      "type": "project"
+    },
+    "claude-hooks-context-token-budget": {
+      "body": "UPS enforces a 4000-token budget (_CONTEXT_TOKEN_BUDGET in hooks/dispatcher.py) across the 4 task-activation context categories (memories, related_tasks, related_commits, task_rag_chunks) before formatting the system prompt. Only `memories` gets trimmed on overflow — popped from the tail, since load_memories.py already returns it sorted descending by score with no cap. The other 3 categories are pre-capped at top-3 each and left untouched.\n\nWhy: memories was the only uncapped category and thus the only realistic source of a budget blowout; related_tasks/related_commits/task_rag_chunks are already small.\n\nHow to apply: if UPS context still exceeds budget in practice (visible via the ctx_tokens(...) fields in the UPS done sqlite log line), extend trimming to the other categories rather than assuming a bigger memories cap will fix it — see task:3de05199 and task:3369b86a for the logging/budget implementation.",
+      "created_at": "2026-07-28T00:46:10.015201+00:00",
+      "files": "",
+      "last_validated": "2026-07-28T00:46:10.015201+00:00",
+      "name": "claude-hooks-context-token-budget",
+      "related": "",
+      "tags": "token budget context memories trim cap ups dispatcher enforce_context_budget 4000 tiktoken task:3de05199",
+      "type": "project"
+    },
+    "claude-hooks-current-gates": {
+      "body": "Current gates in hooks/gates.py, verified against the actual class list (`grep '^class ' hooks/gates.py`):\n\nInternal (Python classes, need DB access):\n- GitCommitGate (Bash): git commit command must contain task:<id> pattern\n- GitCommitMcpGate (git__commit): task_id param must be non-empty\n- JiraHierarchyGate (tasks__create): story/task must have epic parent; subtask must have bug/story/task parent\n- TaskSetActiveGate (tasks__set_active): enforces open/blocked→active via is_valid_transition\n- TaskUpdateGate (tasks__update): all status changes go through is_valid_transition\n- TaskFinishGate (tasks__finish): enforces →done via is_valid_transition\n\nExternal (YAML-driven, no Python class per tool — see [[gates-config-driven-external-tools]]):\n- Declared in ~/.claude/gate_rules.yaml, loaded by _load_external_gates() into dynamically-built `_ExternalGate_<tool>` instances merged into GATES.\n- Current entries (as of this check): imessage__send (prereq contacts__search + name_arg), mail__compose (prereq contacts__search + input_arg), mail__delete (prereq mail__read). Validated end-to-end 2026-07-05.\n\nNo manual approval bypass, no review check — review system was removed June 2026 (see [[claude-hooks-review-system]]).\n\n**Correction (2026-07-05):** previous version claimed IMessageSendGate/MailComposeGate/MailDeleteGate as concrete Python Gate subclasses — they were refactored into the YAML-driven external gate mechanism and no longer exist as classes in gates.py. Verified by grepping `^class ` in the file directly, not assumed from an older memory.",
+      "created_at": "2026-07-28T00:46:10.015607+00:00",
+      "files": "",
+      "last_validated": "2026-07-28T00:46:10.015607+00:00",
+      "name": "claude-hooks-current-gates",
+      "related": "claude-hooks-gate-framework,claude-hooks-gate-prereq-tracking,dev-gate-removal-task-close-gotcha",
+      "tags": "gates, gate list, current gates, external gates, gate_rules.yaml, jira hierarchy, git commit gate",
+      "type": "reference"
+    },
+    "claude-hooks-databases": {
+      "body": "All SQLite databases used by claude-hooks:\n\n- ~/.claude/MEMORY.sqlite                                                        — long-term memories\n- ~/.claude/proj_tasks.db                                                        — task store\n- ~/.claude/langgraph_checkpoints.db                                             — SqliteSaver checkpoint store\n- ~/.claude/server_memory.sqlite                                                 — ServerMemory durable store (rolling 1000-event window)\n- ~/Library/Mobile Documents/com~apple~CloudDocs/Databases/tool_hints.sqlite    — MCP tool usage hints (iCloud)\n- ~/Library/Mobile Documents/com~apple~CloudDocs/Databases/claude_hooks.sqlite  — hook logs (iCloud)",
+      "created_at": "2026-07-28T00:46:10.015919+00:00",
+      "files": "",
+      "last_validated": "2026-07-28T00:46:10.015919+00:00",
+      "name": "claude-hooks-databases",
+      "related": "claude-hooks-key-files,hooks-paths-module,claude-hooks-server-identity,sqlite-idempotent-column-migration,claude-hooks-mcp-hooks-boundary",
+      "tags": "databases, SQLite, paths, MEMORY.sqlite, proj_tasks, checkpoints, server_memory, tool_hints, claude_hooks, iCloud",
+      "type": "reference"
+    },
+    "claude-hooks-db-ownership": {
+      "body": "DB ownership: claude_for_mac_local has NO access to any claude-hooks DB.\n\nAll tasks__*, memory__*, hooks__*, session__* tools → mcp__claude-hooks__* only.\nsession_id → always read from ## Turn state block, or use hooks__session_id (no active task required, built-in retry).\n\nTask status transitions: see [[claude-hooks-task-state-machine]] — open→{done,blocked}, blocked→open, any→abandoned. 'active' is not a DB status (see [[tasks-active-status-checkpoint-only]]); it exists only in the LangGraph checkpoint.\n\n**Correction (2026-07-05):** removed the stale \"open → active → done\" claim — verified against src/tools/tasks.py's _TRANSITIONS dict directly, which has no 'active' entry at all.",
+      "created_at": "2026-07-28T00:46:10.016211+00:00",
+      "files": "",
+      "last_validated": "2026-07-28T00:46:10.016211+00:00",
+      "name": "claude-hooks-db-ownership",
+      "related": "claude-hooks-mcp-hooks-boundary,claude-hooks-databases",
+      "tags": "db ownership, mcp boundary, task status, session_id, tool prefix",
+      "type": "reference"
+    },
+    "claude-hooks-deploy-workflow": {
+      "body": "Deployment is fully automated via /deploy skill — no need to know server details or run deploy.sh manually.\n\nWorkflow:\n1. Edit in dev worktree (`~/workspace/claude-hooks-dev`)\n2. Unit tests: `uv run python -m pytest tests/ -q -m 'not integration'`\n3. Commit: `/gc`\n4. Ship: `/deploy` — runs unit gate in dev, merges to test, restarts server via `launchctl kickstart -k`, runs full suite (unit + integration), then ships to main\n\nServer log after restart: /tmp/claude-hooks-server.log\n\n**Why:** Streamlined in June 2026 — /deploy skill wraps deploy.sh so no server knowledge required.\n**How to apply:** Always use /deploy instead of running deploy.sh commands directly. To apply plist edits (not just a restart), run bootout + bootstrap instead — see memory: launchd-plist-reload-required.",
+      "created_at": "2026-07-28T00:46:10.016781+00:00",
+      "files": "",
+      "last_validated": "2026-07-28T00:46:10.016781+00:00",
+      "name": "claude-hooks-deploy-workflow",
+      "related": "claude-hooks-worktree-dev,claude-hooks-worktree-test,claude-hooks-server-deploy-restart,feedback-fix-in-dev-first",
+      "tags": "deploy deployment workflow ship test main worktree pipeline skill launchctl kickstart",
+      "type": "project"
+    },
+    "claude-hooks-domain-detection": {
+      "body": "Domain is detected deterministically — no ML, no scoring. cwd_domain_detect matches state[\"cwd\"] against CWD_DOMAIN_MAP in src/config.py (substring match, first key wins). Valid domains declared in VALID_DOMAINS. Map reloaded fresh on every hook invocation so edits take effect without server restart. load_memories and score_tools infer domain directly from cwd (not from state[\"domains\"]) because they run in parallel with cwd_domain_detect.",
+      "created_at": "2026-07-28T00:46:10.017189+00:00",
+      "files": "",
+      "last_validated": "2026-07-28T00:46:10.017189+00:00",
+      "name": "claude-hooks-domain-detection",
+      "related": "classify-domain-node-design,domain-classifier-llm-when",
+      "tags": "domain, cwd, detection, cwd_domain_detect, config, domain map, project domain, classify",
+      "type": "project"
+    },
+    "claude-hooks-gate-framework": {
+      "body": "Gate framework: Gate subclasses in hooks/gates.py, dispatched from GateCheckNode via gates.check(tool_name, ctx). verify() returns (deny, reason). Adding a gate: subclass Gate, set tool_name, implement verify() or use @prereq(tool, window_s, name_arg) decorator, register in GATES dict. GateContext carries prompt_tools, session_tools, prompt_text, and helpers ctx.called_recently(tool, window_s). Fail-open by default; add tool to _FAIL_CLOSED_TOOLS in dispatcher.py for irreversible tools.",
+      "created_at": "2026-07-28T00:46:10.017506+00:00",
+      "files": "",
+      "last_validated": "2026-07-28T00:46:10.017506+00:00",
+      "name": "claude-hooks-gate-framework",
+      "related": "claude-hooks-current-gates,claude-hooks-gate-prereq-tracking,gate-policy-boundary-in-node",
+      "tags": "gates, PreToolUse, gate check, deny, allow, anti-hallucination, Gate ABC, prereq decorator, GATES registry, GateContext, add gate",
+      "type": "project"
+    },
+    "claude-hooks-gate-prereq-tracking": {
+      "body": "Gate prereq checks read prompt_tools and session_tools from the LangGraph checkpoint. Tool names are MCP-prefix-stripped in log_tool_usage so both gate and log see the same short name (e.g. \"contacts__search\" not \"mcp__local-mac__contacts__search\"). ctx.called_recently(tool, window_s) searches both current prompt and session history within the time window. This is the only record of which tools ran this prompt — checkpoint is authoritative.",
+      "created_at": "2026-07-28T00:46:10.017824+00:00",
+      "files": "",
+      "last_validated": "2026-07-28T00:46:10.017824+00:00",
+      "name": "claude-hooks-gate-prereq-tracking",
+      "related": "claude-hooks-gate-framework,claude-hooks-current-gates",
+      "tags": "gates, prereq, prompt_tools, session_tools, tool name, MCP prefix, strip, checkpoint, gate context, called_recently",
+      "type": "project"
+    },
+    "claude-hooks-graph-event-routing": {
+      "body": "Event routing in session_graph.py (one unified StateGraph for all 4 hook events):\n\n- user_prompt_submit → load_turn → (task active?) → load_active_task → [tier-1 parallel] → summarize_task_context → [tier-2 parallel] → set_prompt_id → log_task_events → END\n- pre_tool_use       → gate_check → END\n- post_tool_use      → log_tool_usage → update_tool_keywords → (conditional bridge) → END\n- stop               → noop → play_sound → END\n\nKey files: langchain_learning/session_graph.py (wiring), langchain_learning/nodes/registry.py (NODE_REGISTRY).\n\n**Correction:** post_tool_use previously ended at log_tool_usage → bridge → END; `update_tool_keywords` was added after. stop previously ended at noop → END; `play_sound` (direct subprocess side effect, see [[stop-hook-block-forces-tool-call]]) was added after.",
+      "created_at": "2026-07-28T00:46:10.018139+00:00",
+      "files": "",
+      "last_validated": "2026-07-28T00:46:10.018139+00:00",
+      "name": "claude-hooks-graph-event-routing",
+      "related": "claude-hooks-ups-pipeline,claude-hooks-node-design,claude-hooks-posttooluse-bridge,claude-hooks-hook-delivery",
+      "tags": "session graph, event routing, user_prompt_submit, pre_tool_use, post_tool_use, stop, LangGraph, nodes, summarize_task_context, play_sound, update_tool_keywords",
+      "type": "project"
+    },
+    "claude-hooks-hook-delivery": {
+      "body": "How a Claude Code hook event reaches the graph:\n\nClaude Code fires hook → hooks/client.py <Event>\n  → enriches payload with CLAUDE_CWD\n  → curl POST http://127.0.0.1:8766/hook/<Event>\n  → FastAPI server (hooks/server.py, persistent, launchd-managed)\n  → hooks/dispatcher.py _handle_<event>()\n  → LangGraph session graph (SqliteSaver, in-process)\n\nCheckpoint DB: ~/.claude/langgraph_checkpoints.db (persists across restarts)\nFail-open: client.py exits 0 with {} if server unreachable.",
+      "created_at": "2026-07-28T00:46:10.018500+00:00",
+      "files": "",
+      "last_validated": "2026-07-28T00:46:10.018500+00:00",
+      "name": "claude-hooks-hook-delivery",
+      "related": "claude-hooks-key-files,claude-hooks-ups-pipeline,claude-hooks-graph-event-routing,claude-hooks-hook-payload-shape",
+      "tags": "hook delivery, client.py, curl, FastAPI, dispatcher, LangGraph, pipeline, entry point",
+      "type": "project"
+    },
+    "claude-hooks-hybrid-model-strategy": {
+      "body": "Goal: use Claude + Ollama (qwen2.5:3b) as a hybrid — each at its optimal strength without compromising accuracy.\n\nRule: Ollama for fast/cheap/local tasks (domain classification, signal extraction, lightweight generation). Claude for reasoning, gating decisions, and anything where a wrong answer has real consequences. Never use a local model for safety-critical decisions (gates, send/delete operations).\n\nWhy: zero API cost and low latency for classification-scale tasks; Claude's accuracy preserved where it matters.\n\nHow to apply: when adding a new pipeline node, ask — does this require judgment or is it pattern-matching/extraction? Pattern-matching → Ollama candidate. Judgment/safety → Claude only.",
+      "created_at": "2026-07-28T00:46:10.019179+00:00",
+      "files": "",
+      "last_validated": "2026-07-28T00:46:10.019179+00:00",
+      "name": "claude-hooks-hybrid-model-strategy",
+      "related": "langchain-vs-claude-code-inversion,domain-classifier-llm-when,classify-domain-node-design",
+      "tags": "ollama,claude,hybrid,classification,accuracy,qwen,langchain-ollama,design,claude-hooks",
+      "type": "project"
+    },
+    "claude-hooks-live-server-runs-from-test-worktree": {
+      "body": "The production claude-hooks hook server (launchd job com.debaditya.claude-hooks-pipeline, uvicorn on :8766) runs from ~/workspace/claude-hooks-test's checkout, not ~/workspace/claude-hooks (main) or claude-hooks-dev.\n\nWhy: the repo uses a dev->test->main promotion flow (see /deploy skill) where test is the worktree the live daemon actually serves from — main is just the shipped/tagged endpoint of the pipeline, dev is where feature work happens.\n\nHow to apply: new feature work must start in ~/workspace/claude-hooks-dev (branch dev), never edited directly on ~/workspace/claude-hooks (main) — main edits have zero runtime effect and bypass the unit-gate/full-suite checks. Always land features via /deploy dev->test->main to reach the live server.",
+      "created_at": "2026-07-28T00:46:10.020190+00:00",
+      "files": "",
+      "last_validated": "2026-07-28T00:46:10.020190+00:00",
+      "name": "claude-hooks-live-server-runs-from-test-worktree",
+      "related": "",
+      "tags": "live server, launchd, worktree, deploy, main branch, dev branch, claude-hooks-test, claude-hooks-dev, task:aacf3ef3",
+      "type": "project"
+    },
+    "claude-hooks-load-memories-node": {
+      "body": "LoadMemoriesNode retrieves top-5 memories via combination signal scoring (no embeddings, no external services):\n\nScoring per row:\n  1. Domain weight   — project_domain=2.0 | global=0.5 | other=skip (0)\n  2. Tag overlap     — Jaccard(prompt_tokens ∩ tag_tokens) × 3.0  (primary signal, hand-authored tags)\n  3. Body overlap    — Jaccard(prompt_tokens ∩ body_tokens) × 1.0\n  4. Recency boost   — ×1.2 if updated ≤30d, ×0.8 if ≥180d\n\nAll rows scanned (up to 500) in a single SQL read; scored in Python; top-5 returned.\n\nKey behaviors:\n- Global memories NOT auto-included — must earn a slot via keyword overlap (score 0.5 + overlap)\n- Out-of-domain memories (neither project nor global) skip entirely — score=0\n- No Ollama, no TurboVec, no iCloud read. Pure SQLite.\n\nTuning: when a wrong memory surfaces (visible in sqlite logs), tighten its tags. When a relevant memory is missed, add the right keyword to its tags. Tags are the primary retrieval lever.",
+      "created_at": "2026-07-28T00:46:10.020825+00:00",
+      "files": "",
+      "last_validated": "2026-07-28T00:46:10.020825+00:00",
+      "name": "claude-hooks-load-memories-node",
+      "related": "memory-add-batch-prefer-over-serial,tool-hints-saturation-problem,memory-search-slug-normalization,memory-atomicity-audit-pattern,claude-hooks-load-vault-context,task-framework-memory-delegation",
+      "tags": "load_memories, LoadMemoriesNode, combination signal, tag overlap, BM25, domain weight, recency, memory retrieval, injection, scoring, MEMORY.sqlite",
+      "type": "project"
+    },
+    "claude-hooks-load-vault-context": {
+      "body": "`_load_vault_context()` in `hooks/dispatcher.py` reads three LIFE_OS md files on every UserPromptSubmit turn and injects them as `## Soul context` in `additionalSystemPrompt`.\n\nFiles read (direct filesystem, no MCP):\n- `~/workspace/claude_documents/LIFE_OS/soul.md` → \"### Soul\"\n- `~/workspace/claude_documents/LIFE_OS/Debaditya.md` → \"### Identity\"\n- `~/workspace/claude_documents/LIFE_OS/memory.md` → \"### Memory\"\n\n**Why:** Hermes-style always-on identity layer — complements BM25-scored SQLite memories with human-editable vault files. Always injected regardless of active task. Missing files are silently skipped (no caching, no complexity).\n\n**How to apply:** Edit the three md files in Obsidian to update identity/soul/memory context. Do not add caching or conditional skipping logic — intentionally simple. Append durable notes via `vault__append` to `LIFE_OS/memory.md`.",
+      "created_at": "2026-07-28T00:46:10.021232+00:00",
+      "files": "",
+      "last_validated": "2026-07-28T00:46:10.021232+00:00",
+      "name": "claude-hooks-load-vault-context",
+      "related": "claude-hooks-ups-pipeline,claude-hooks-load-memories-node",
+      "tags": "load_vault_context, LIFE_OS, soul.md, Debaditya.md, memory.md, always-on identity layer, soul context injection, vault files",
+      "type": "project"
+    },
+    "claude-hooks-mcp-hooks-boundary": {
+      "body": "Hard DB ownership boundary between MCP tools and hook nodes:\n\n- MCP tools  → write to their own domain DBs only (proj_tasks.db, MEMORY.sqlite). NEVER write to LangGraph checkpoint.\n- Hook nodes → own the LangGraph checkpoint (SqliteSaver). React to tool calls via PostToolUse bridge nodes.\n- hooks__checkpoint_query is read-only from MCP — the one permitted exception.\n\nDoc: docs/arch/mcp_hooks_boundary.md",
+      "created_at": "2026-07-28T00:46:10.021869+00:00",
+      "files": "",
+      "last_validated": "2026-07-28T00:46:10.021869+00:00",
+      "name": "claude-hooks-mcp-hooks-boundary",
+      "related": "claude-hooks-tool-tracking,claude-hooks-databases,claude-hooks-db-ownership",
+      "tags": "MCP, hooks, boundary, DB ownership, checkpoint, proj_tasks, MEMORY.sqlite, write rule, architecture",
+      "type": "project"
+    },
+    "claude-hooks-mission": {
+      "body": "**Core goal: maintain context across long-running tasks** — Claude should never lose track of where a multi-session task stands, what decisions were made, and what's left. This is the reason the project exists.\n\nclaude-hooks is a LangGraph-based context injection system for Claude Code. It intercepts all four hook events (UserPromptSubmit, PreToolUse, PostToolUse, Stop) to build a persistent memory + session tracking layer around Claude.\n\n**Mission:** make Claude context-aware across sessions — injecting relevant memories, tool hints, and session summaries automatically, without user intervention.",
+      "created_at": "2026-07-28T00:46:10.022298+00:00",
+      "files": "",
+      "last_validated": "2026-07-28T00:46:10.022298+00:00",
+      "name": "claude-hooks-mission",
+      "related": "claude-hooks-constraints,claude-hooks-observability-principle,claude-hooks-recency-pull,langchain-vs-claude-code-inversion",
+      "tags": "mission, goal, purpose, context, long-running tasks, sessions, memory injection, tool hints, session tracking",
+      "type": "project"
+    },
+    "claude-hooks-node-design": {
+      "body": "Each node is a callable class (class FooNode: def __call__(self, state) -> dict). Nodes read only from state, return only fields they modify. Timing instrumentation (→ node_name, ← node_name Xms) applied at graph build time via wrap(name, fn) — not inside node files. NODE_REGISTRY + get_node() factory keeps build_session_graph() as pure wiring. Phase (parallel/sequential) logged via _PARALLEL_NODES frozenset in langchain_learning/nodes/_node_log.py — update this frozenset when graph topology changes.",
+      "created_at": "2026-07-28T00:46:10.022992+00:00",
+      "files": "",
+      "last_validated": "2026-07-28T00:46:10.022992+00:00",
+      "name": "claude-hooks-node-design",
+      "related": "claude-hooks-ups-pipeline,claude-hooks-graph-event-routing,gate-policy-boundary-in-node,protocol-as-pipe-joint",
+      "tags": "node, design, callable class, SessionState, partial dict, timing, wrap, NODE_REGISTRY, observability, phase, parallel, sequential",
+      "type": "project"
+    },
+    "claude-hooks-observability-principle": {
+      "body": "Debug from logs first — never from source code.\n\nAll hook events (UPS, PTU, PreTU, Stop), MCP tool calls, and node execution must be readable from `claude_hooks.sqlite` alone. If a behavior can't be diagnosed from log rows, that's a logging gap to fix.\n\n**How to apply:**\n- Every new node, handler, or MCP tool must emit INFO rows at entry/exit with timing and key state\n- When debugging unexpected behavior: read logs first, grep source second\n- Logging gaps (missing entry/exit rows) are bugs, not cosmetic issues",
+      "created_at": "2026-07-28T00:46:10.023722+00:00",
+      "files": "",
+      "last_validated": "2026-07-28T00:46:10.023722+00:00",
+      "name": "claude-hooks-observability-principle",
+      "related": "claude-hooks-mission,claude-hooks-constraints,logs-read-tool",
+      "tags": "observability, logging, debug, logs, sqlite, claude_hooks.sqlite, INFO, node, MCP tool, timing, diagnosis",
+      "type": "project"
+    },
+    "claude-hooks-posttooluse-bridge": {
+      "body": "PostToolUse conditional bridge nodes react to specific MCP tool calls and write to the LangGraph checkpoint:\n\n- tasks__set_active / tasks__pop_active  → ActivateTaskNode → (conditional) BackfillMemoryFilesNode\n  ActivateTaskNode writes active_task_id, task_memories, task_files, active_task_domain, execution_contract to checkpoint.\n  execution_contract (task:380140fa, 2026-07-05) is a fixed north-star template string built by _build_execution_contract(task_id, title) — rendered verbatim into the system prompt every turn while the task is active, deliberately exempt from _enforce_context_budget eviction and _TASK_BODY_CHAR_CAP truncation (see [[claude-hooks-context-token-budget]]).\n  If task_files is non-empty, BackfillMemoryFilesNode runs after — backfills memories.files=NULL for\n  domain-matched memories using stem-token overlap (LIMIT 5 per activation).\n  BackfillMemoryFilesNode is the default BackfillNodeProtocol slot — swappable by rewiring the graph.\n  Skipped for replay-* and test-* sessions.\n- tasks__clear_active / tasks__finish    → DeactivateTaskNode — zeros active task in checkpoint, including execution_contract\n- tasks__add_decision                    → DecisionTaskNode   — appends to mid_task_decisions in checkpoint\n\nRule: MCP tools never write to checkpoint directly — bridge nodes are the only path.",
+      "created_at": "2026-07-28T00:46:10.024429+00:00",
+      "files": "langchain_learning/nodes/activate_task.py, langchain_learning/nodes/backfill_memory_files.py, langchain_learning/session_graph.py, langchain_learning/nodes/deactivate_task.py",
+      "last_validated": "2026-07-28T00:46:10.024429+00:00",
+      "name": "claude-hooks-posttooluse-bridge",
+      "related": "claude-hooks-task-state-machine,tasks-active-status-checkpoint-only,claude-hooks-graph-event-routing",
+      "tags": "PostToolUse, bridge nodes, ActivateTaskNode, DeactivateTaskNode, DecisionTaskNode, checkpoint, task lifecycle, conditional, backfill, BackfillMemoryFilesNode, pluggable, execution_contract, execution philosophy",
+      "type": "project"
+    },
+    "claude-hooks-recency-pull": {
+      "body": "The system will always be drawn toward the latest task, freshest session, most recent signal. Resist this.\n\n**What recency pull looks like — recognize and resist:**\n- Refining scoring pipeline indefinitely instead of advancing tools.db or task ancestry\n- Cleaning up memories or CLAUDE.md instead of advancing tool saturation (task:4d50496b)\n- Adding observability polish beyond boundary correctness\n- Working on the most recent bug without checking if it serves the mission\n- Any session where no open task from the backlog was advanced\n\n**The test:** at the end of a session, did the work move the mission forward, or did it just service the present moment?\n\nWhen in doubt, re-read [[claude-hooks-mission]] and [[claude-hooks-open-work]] before starting a new task.",
+      "created_at": "2026-07-28T00:46:10.025077+00:00",
+      "files": "",
+      "last_validated": "2026-07-28T00:46:10.025077+00:00",
+      "name": "claude-hooks-recency-pull",
+      "related": "claude-hooks-mission",
+      "tags": "recency, drift, meta-goal, tension, mission, direction, distraction, session review",
+      "type": "project"
+    },
+    "claude-hooks-related-tasks-node": {
+      "body": "load_related_tasks embeds active task title+body via Ollama (nomic-embed-text) and queries .tasks_embeddings.tvim (TurboVec) for top semantically similar tasks filtered to status=done, capped at 3. Index rebuilt automatically on MCP server startup if missing; incrementally upserted on tasks__create, tasks__finish, tasks__set_active. Empty results are normal for novel tasks with no prior done neighbours. Injected as \"## Related past tasks\" in system prompt.",
+      "created_at": "2026-07-28T00:46:10.025542+00:00",
+      "files": "",
+      "last_validated": "2026-07-28T00:46:10.025542+00:00",
+      "name": "claude-hooks-related-tasks-node",
+      "related": "claude-hooks-replay-harness,claude-hooks-load-memories-node,task-title-keyword-quality",
+      "tags": "related tasks, load_related_tasks, neighbors, TurboVec, embeddings, tasks_embeddings, Ollama, nomic-embed-text, semantic search, done tasks",
+      "type": "project"
+    },
+    "claude-hooks-replay-harness": {
+      "body": "Replay harness detects graph regressions against real production UPS events.\n\nWorkflow:\n1. Capture baseline from **main worktree** (`~/workspace/claude-hooks`) — main is the known-good state.\n2. After changes land on test (`deploy.sh`), run `--replay` from **test worktree** to diff against the main baseline.\n3. If all good, `deploy.sh --ship` promotes test→main and update the baseline.\n\nDiffs scored on: domains, memories_count, tools_count, related, rag_chunks.\nBaseline lives at tests/replay_baseline.json (committed to the repo).\n\n**Why capture from main:** main is the stable validated state — baseline must represent known-good behavior, not in-flight dev changes.\n\n**If baseline was captured with broken code:** regenerate from main after the fix is shipped.",
+      "created_at": "2026-07-28T00:46:10.026018+00:00",
+      "files": "",
+      "last_validated": "2026-07-28T00:46:10.026018+00:00",
+      "name": "claude-hooks-replay-harness",
+      "related": "claude-hooks-related-tasks-node,exclude-active-session-from-live-index-baseline,replay-baseline-recapture-after-memory-add,replay-session-ui-filter",
+      "tags": "replay, harness, baseline, regression, capture, test, main, graph stability, replay_baseline.json, claude_hooks.sqlite",
+      "type": "project"
+    },
+    "claude-hooks-server-deploy-restart": {
+      "body": "Server has no --reload. Restart is always via deploy.sh after merging dev→test: `launchctl kickstart -k gui/$(id -u)/<plist-label>`. Never restart manually. Use /deploy skill which runs deploy.sh (dev→test, unit gate + full suite) then deploy.sh --ship (test→main). Deploy is the only path to restart.",
+      "created_at": "2026-07-28T00:46:10.026506+00:00",
+      "files": "",
+      "last_validated": "2026-07-28T00:46:10.026506+00:00",
+      "name": "claude-hooks-server-deploy-restart",
+      "related": "claude-hooks-deploy-workflow,launchd-plist-reload-required,claude-hooks-server-process",
+      "tags": "deploy restart launchctl kickstart server reload worktree dev test main pipeline",
+      "type": "project"
+    },
+    "claude-hooks-server-identity": {
+      "body": "The hook server generates a unique SERVER_SESSION_ID (UUID) on startup, stored in server_memory.py. Logged at startup: `hook-server: started, server_session=<id>`. Exposed via GET /health which returns {status: 'ok'}. The server_session_id distinguishes the running server instance — useful for detecting restarts. Session data is stored in SqliteSaver checkpoints keyed by claude session_id, not server_session_id.",
+      "created_at": "2026-07-28T00:46:10.027060+00:00",
+      "files": "hooks/server.py,hooks/server_memory.py",
+      "last_validated": "2026-07-28T00:46:10.027060+00:00",
+      "name": "claude-hooks-server-identity",
+      "related": "claude-hooks-server-process,claude-hooks-databases,server-memory-no-assistant-turns",
+      "tags": "server-session-id, fastapi, health-endpoint, server-memory, sqlite, cross-session, server-restart",
+      "type": "project"
+    },
+    "claude-hooks-server-process": {
+      "body": "Hook server is a persistent FastAPI process (hooks/server.py) on port 8766, managed by launchd. Plist generated at install time from launchd/com.claude-hooks-pipeline.plist.template — install_server.sh substitutes __HOME__, __UV__, __UV_DIR__, __REPO__ with real values. Runs from the test worktree (~~/workspace/claude-hooks-test). Health check: curl http://127.0.0.1:8766/health → {\"status\":\"ok\"}. Server log: /tmp/claude-hooks-server.log.",
+      "created_at": "2026-07-28T00:46:10.027756+00:00",
+      "files": "",
+      "last_validated": "2026-07-28T00:46:10.027756+00:00",
+      "name": "claude-hooks-server-process",
+      "related": "claude-hooks-worktree-test,claude-hooks-server-deploy-restart,claude-hooks-server-identity,launchd-plist-reload-required",
+      "tags": "server FastAPI persistent launchd port 8766 hook server plist install health check server log",
+      "type": "project"
+    },
+    "claude-hooks-session-lifecycle": {
+      "body": "Session state is stored in SqliteSaver at ~/.claude/langgraph_checkpoints.db keyed by session_id. State survives server restarts.\n\nCheckpoint cap: `_trim_checkpoints()` runs on every UserPromptSubmit — keeps the 5 most recently active sessions (`_CHECKPOINT_SESSION_CAP=5`, raised from 2 on 2026-07-05 — task:d2c347ca — to reduce eviction thrash with 3+ concurrent Claude Code windows), evicts the rest. This ensures stale sessions never accumulate regardless of server uptime.\n\nStop fires every turn and must never evict checkpoints — doing so would wipe cross-turn state like prompt_tools and session_tools needed by gates.\n\n**Why:** SessionEnd is unreliable (not guaranteed on crash/force-quit). UPS is the only hook that fires consistently every turn, so checkpoint hygiene lives there.",
+      "created_at": "2026-07-28T00:46:10.028289+00:00",
+      "files": "",
+      "last_validated": "2026-07-28T00:46:10.028289+00:00",
+      "name": "claude-hooks-session-lifecycle",
+      "related": "langgraph-checkpointer-pattern,claude-hooks-ups-pipeline,claude-hooks-stop-vs-sessionend,checkpoint-is-ipc",
+      "tags": "session, lifecycle, checkpoint, SqliteSaver, evict, session_id, langgraph_checkpoints, UPS, trim, cap",
+      "type": "project"
+    },
+    "claude-hooks-task-state-machine": {
+      "body": "Task status state machine, verified against src/tools/tasks.py (_VALID_STATUSES, _TRANSITIONS, is_valid_transition):\n\n_VALID_STATUSES = {open, done, abandoned, blocked} — 'active' is NOT a DB status, see [[tasks-active-status-checkpoint-only]].\n\n_TRANSITIONS:\n  open    → {done, blocked}\n  done    → {} (terminal)\n  abandoned → {} (terminal)\n  blocked → {open}\n\nAny status → abandoned is always allowed (special-cased in is_valid_transition, not in the _TRANSITIONS dict). Same-status is always a no-op allow.\n\nhandle_update() in src/tools/tasks.py is the ONLY path for status transitions — it calls is_valid_transition() to enforce the machine. Nodes must NEVER run `UPDATE open_tasks SET status=...` directly — bypasses the guard and breaks gate enforcement.\n\n**Correction (2026-07-05):** previous version of this memory claimed \"open → active → done\" and \"active → open (requeue)\" / \"blocked → active (unblock)\" — 'active' has never been a DB status; that was drift from confusing the DB status machine with the LangGraph checkpoint's active_task_id tracking. Verified directly against the _TRANSITIONS dict in code, not against another memory.",
+      "created_at": "2026-07-28T00:46:10.028841+00:00",
+      "files": "",
+      "last_validated": "2026-07-28T00:46:10.028841+00:00",
+      "name": "claude-hooks-task-state-machine",
+      "related": "tasks-active-status-checkpoint-only,claude-hooks-posttooluse-bridge,claude-hooks-task-body-gate,claude-hooks-type-vocabulary",
+      "tags": "task status, state machine, transitions, valid statuses, is_valid_transition, open_tasks",
+      "type": "reference"
+    },
+    "claude-hooks-tool-tracking": {
+      "body": "PostToolUse runs log_tool_usage node which does 3 things concurrently via ThreadPoolExecutor(max_workers=2):\n1. Upserts tool_hints.sqlite — increments count, updates rolling avg latency, appends prompt to recent_prompts (last 10 kept), seeds keywords from tool name tokens + domain if empty\n2. Appends tool name to task_events.tools for current prompt_id in proj_tasks.db\n3. Updates prompt_tools and session_tools in LangGraph checkpoint\n\nGate prereq checks read prompt_tools/session_tools from checkpoint — tool names are MCP-prefix-stripped so both gate and log see the same short name.",
+      "created_at": "2026-07-28T00:46:10.029403+00:00",
+      "files": "",
+      "last_validated": "2026-07-28T00:46:10.029403+00:00",
+      "name": "claude-hooks-tool-tracking",
+      "related": "claude-hooks-mcp-hooks-boundary,tool-hints-saturation-problem,claude-hooks-hook-payload-shape",
+      "tags": "PostToolUse, log_tool_usage, tool hints, tool tracking, tool_hints.sqlite, upsert, latency, keywords, prompt_tools, session_tools, ThreadPoolExecutor, task_events",
+      "type": "project"
+    },
+    "claude-hooks-type-vocabulary": {
+      "body": "Two DIFFERENT type vocabularies in the task system — easy to confuse:\n\n- body `Type:` ∈ {feature, bug, research, misc, epic} — workflow kind, controls required body sections.\n- `issue_type` param ∈ {epic, story, task, bug, subtask, feedback} — DB hierarchy (verified against _ISSUE_TYPES in src/tools/tasks.py).\n\n`issue_type='task'` or `'story'` REQUIRES a parent (JiraHierarchyGate) — a standalone/root task must use `issue_type='epic'`. `issue_type='subtask'` requires a parent of type {bug, story, task} — not epic. `issue_type='feedback'` is created via tasks__create_feedback, always parented to a finished task.\n\n**Correction (2026-07-05):** added missing 'feedback' to the issue_type set — previous version listed only {bug, epic, story, subtask, task}, verified incomplete against _ISSUE_TYPES in code.",
+      "created_at": "2026-07-28T00:46:10.029976+00:00",
+      "files": "",
+      "last_validated": "2026-07-28T00:46:10.029976+00:00",
+      "name": "claude-hooks-type-vocabulary",
+      "related": "claude-hooks-task-state-machine",
+      "tags": "issue_type, task type, body type, vocabulary, feedback, jira hierarchy",
+      "type": "reference"
+    },
+    "claude-hooks-wiki-pattern": {
+      "body": "Wiki structure for claude-hooks docs established in task:80736605 (2026-06-12).\n\nPattern: hub-and-spoke with nav footer on every spoke page:\n  ← [Architecture](../ARCHITECTURE.md) · [RelatedA](relatedA.md) · [RelatedB](relatedB.md)\n\nHub: docs/ARCHITECTURE.md — links to all spokes, no nav footer needed.\n\nSpoke nav map:\n- graph_pipeline.md  → state.md, system_prompt.md\n- state.md           → graph_pipeline.md, task_framework.md\n- system_prompt.md   → graph_pipeline.md, task_framework.md\n- task_framework.md  → system_prompt.md, databases.md\n- databases.md       → task_framework.md, graph_pipeline.md\n- design_decisions.md → graph_pipeline.md, mid_task_decisions.md\n- mid_task_decisions.md → task_framework.md, design_decisions.md\n- setup.md           → new_repo_onboarding.md, databases.md\n- new_repo_onboarding.md → setup.md, databases.md\n- skills.md          → task_framework.md, new_repo_onboarding.md\n\nRules when adding a new doc page:\n1. Pick the two most naturally related existing pages as \"related\" links\n2. Add this page as a \"related\" link on at least one of those pages\n3. Add it to ARCHITECTURE.md Sections list\n\nLint note: ordered list steps containing fenced code blocks cause MD029/MD031 cycle — use bold step labels (**1.** **2.**) instead of actual list items.",
+      "created_at": "2026-07-28T00:46:10.030562+00:00",
+      "files": "",
+      "last_validated": "2026-07-28T00:46:10.030562+00:00",
+      "name": "claude-hooks-wiki-pattern",
+      "related": "claude-hooks-docs-in-repo,claude-hooks-readme-style",
+      "tags": "docs,wiki,hub-and-spoke,nav,architecture,reference,claude-hooks",
+      "type": "reference"
+    },
+    "claude-hooks-worktree-dev": {
+      "body": "claude-hooks uses three git worktrees for a proper SDLC:\n\n- `~/workspace/claude-hooks-dev` → `dev` branch — all edits, quick unit tests, `/gc` commits\n- `~/workspace/claude-hooks-test` → `test` branch — server runs here (port 8766, no --reload); full test suite runs against this\n- `~/workspace/claude-hooks` → `main` branch — sacred, only receives clean merges via `/deploy`\n\n**Deploy flow:** Use `/deploy` skill — runs unit gate in dev, merges dev→test, restarts the server via `launchctl kickstart -k`, runs full suite, then ships test→main.\n\n**Why:** Server runs from test worktree so dev edits never disrupt live Claude Code hooks. Main is never touched directly.\n\n**How to apply:** All edits go in dev. Never edit test or main directly. Use `/deploy` to ship.",
+      "created_at": "2026-07-28T00:46:10.031171+00:00",
+      "files": "",
+      "last_validated": "2026-07-28T00:46:10.031171+00:00",
+      "name": "claude-hooks-worktree-dev",
+      "related": "claude-hooks-worktree-test,claude-hooks-deploy-workflow,feedback-fix-in-dev-first",
+      "tags": "worktree, git, dev, test, main, branch, deploy, server, sdlc, claude-hooks, launchctl",
+      "type": "project"
+    },
+    "claude-hooks-worktree-test": {
+      "body": "The claude-hooks test worktree at `~/workspace/claude-hooks-test` (test branch) is where the hook server runs.\n\nLaunchd plist WorkingDirectory: `~/workspace/claude-hooks-test`. Server runs without --reload on port 8766. deploy.sh restarts it via `launchctl kickstart -k gui/$(id -u)/<plist-label>` after merging dev→test, then health-checks before running the full suite.\n\nIntegration and UI tests (pytest -m integration) hit this server via HTTP — they work from any worktree.\n\n**Why:** Isolates the live server from in-progress dev edits. Main is never the server source.\n\n**How to apply:** After /deploy merges dev→test and restarts the server, integration tests run against fresh code. Never point the plist at dev or main. Check /tmp/claude-hooks-server.log if server fails to come up.\n\n**Note:** `launchctl kickstart -k` restarts the process but uses launchd's in-memory plist config. To apply plist edits, run bootout + bootstrap (see memory: launchd-plist-reload-required).",
+      "created_at": "2026-07-28T00:46:10.031782+00:00",
+      "files": "",
+      "last_validated": "2026-07-28T00:46:10.031782+00:00",
+      "name": "claude-hooks-worktree-test",
+      "related": "claude-hooks-worktree-dev,claude-hooks-deploy-workflow,claude-hooks-server-process",
+      "tags": "worktree, test, server, launchd, port 8766, integration, sdlc, claude-hooks, launchctl, kickstart",
+      "type": "project"
+    },
+    "gate-policy-boundary-in-node": {
+      "body": "GateCheckNode has two distinct responsibilities — keep them separate:\n  1. State transformation: extract tool_name, build GateContext from SessionState (stays in node)\n  2. Policy decision: check(tool_name, ctx) → (deny, reason) (delegated to GatePolicy)\n\nThe GATES early-return (`if tool_name not in GATES`) also stays in the node — it is routing logic (skip ungated tools), not policy logic.\n\n**Why:** GateContext construction involves ~30 lines of state extraction. It is not part of the policy contract — a different policy impl would still need the same GateContext. Mixing them would make every policy reimplementer rebuild the extraction logic.\n\n**How to apply:** When adding a new Protocol boundary to a node, ask: 'would every alternative implementation need to redo this code?' If yes, it stays in the node. If no, it belongs in the Protocol impl.",
+      "created_at": "2026-07-28T00:46:10.032419+00:00",
+      "files": "",
+      "last_validated": "2026-07-28T00:46:10.032419+00:00",
+      "name": "gate-policy-boundary-in-node",
+      "related": "claude-hooks-gate-framework,claude-hooks-node-design,protocol-as-pipe-joint",
+      "tags": "gate policy protocol GateCheckNode GateContext state transformation boundary separation",
+      "type": "project"
+    },
+    "gate-rules-yaml-schema": {
+      "body": "~/.claude/gate_rules.yaml schema:\n\n  tool:      (required) short tool name, e.g. imessage__send\n  prereq:    (required) tool that must have been called recently\n  window_s:  seconds to look back (default 120)\n  name_arg:  key in the PREREQ tool's input whose value must appear in the prompt\n  input_arg: key in the GATED tool's own input whose value must appear in the prompt\n\nname_arg and input_arg are mutually exclusive in practice:\n- name_arg: used when prereq is a lookup (contacts__search name='Alice')\n- input_arg: used when the relevant value is on the gated call itself (mail__compose to='x@y.com')\n\n**How to apply:** Check existing entries as reference. input_arg check runs before prereq scan — fail fast.",
+      "created_at": "2026-07-28T00:46:10.033059+00:00",
+      "files": "",
+      "last_validated": "2026-07-28T00:46:10.033059+00:00",
+      "name": "gate-rules-yaml-schema",
+      "related": "",
+      "tags": "gate rules yaml schema name_arg input_arg prereq config external task:84e4fc39",
+      "type": "reference"
+    },
+    "gates-config-driven-external-tools": {
+      "body": "External MCP tool gates (local-mac tools like imessage__send, mail__compose, mail__delete) are declared in ~/.claude/gate_rules.yaml — not as Python classes in gates.py. The loader _load_external_gates() reads the YAML at module import and merges into GATES. Internal gates (git, tasks — need DB access) stay as code.\n\n**Validated end-to-end (2026-07-05), twice independently:**\n1. imessage__send: contacts__search(name=\"Alice\") logged into session_tools, then gate_check's name_arg_check found name='alice' in the recent prompt text → ALLOW → message sent.\n2. mail__delete: mail__read (from ~42s earlier, same session) satisfied the plain prereq check via session-wide lookback → ALLOW → delete succeeded.\n\nBoth are the first real end-to-end firings of this mechanism in the repo's log history — prior to this it had only ever been observed registering at import, never actually evaluating a real gated call.\n\n**Gotcha caught while validating:** gate_check's DEBUG log line `current=[...]` (from GateContext.current_calls) is scoped to only the current prompt/turn — it is NOT what the prereq check actually reads. The real prereq lookback (_make_prereq_check → ctx.prev_tools()) draws from session_tools, which spans the whole session across all prior prompts/turns within window_s. Seeing `current=[]` on a gated call does NOT mean the prereq was missing — check prev_tools()/session_tools timestamps against window_s instead, not the current_calls debug field, before concluding a gate failed to enforce its prereq.\n\n**Why:** McpHookBridgeNode pattern — engine in claude-hooks, rules owned by the tool's repo/config. No Python change needed to gate a new external tool.\n\n**How to apply:** To gate a new local-mac tool, add an entry to ~/.claude/gate_rules.yaml with tool, prereq, window_s, and optionally name_arg or input_arg. Never add a concrete Gate subclass for an external tool. Don't assume \"registered at startup\" means \"actually exercised\" — same lesson as [[summarize-task-context-never-actually-fired]] — but for this specific mechanism, it's now confirmed both to load AND to correctly gate two different real calls.",
+      "created_at": "2026-07-28T00:46:10.033840+00:00",
+      "files": "",
+      "last_validated": "2026-07-28T00:46:10.033840+00:00",
+      "name": "gates-config-driven-external-tools",
+      "related": "",
+      "tags": "external gates, gate_rules.yaml, imessage__send, mail__delete, contacts__search, validated, end-to-end, local-mac, session-wide prereq lookback",
+      "type": "project"
+    },
+    "hook-dev-mode": {
+      "body": "Hook error visibility is controlled by LC_DEV_MODE in langchain_learning/config.py (field: dev_mode, default: False).\n\nWhen LC_DEV_MODE=true: hooks exit with code 2 on any exception — Claude Code surfaces the error inline immediately.\nWhen LC_DEV_MODE=false (stable/prod): hooks write error to log DB silently, no exit 2.\n\npre_tool_use_lc is always fail-open (no exit 2 regardless of dev_mode) — crashing it would block tool calls.\n\n**Why:** During development, silent failures (like the stale turn=0 kwarg) went unnoticed for an entire session. exit 2 makes breakage immediately visible in the conversation.\n**How to apply:** Set LC_DEV_MODE=true in ~/.claude/.env during active development. Remove or set false when hooks are stable.",
+      "created_at": "2026-07-28T00:46:10.034534+00:00",
+      "files": "",
+      "last_validated": "2026-07-28T00:46:10.034534+00:00",
+      "name": "hook-dev-mode",
+      "related": "claude-hooks-constraints,claude-hooks-hook-delivery",
+      "tags": "claude-hooks, dev-mode, error-handling, exit-2, hook-errors",
+      "type": "project"
+    },
+    "hook-server-single-worker-decision": {
+      "body": "Decided against per-session worker processes for the claude-hooks FastAPI hook server. It stays a single uvicorn worker (no --workers N), single asyncio process handling all sessions via keyed dict lookups in the in-process MemorySaver checkpoint.\n\nWhy: per-session isolation (one process per session) would require either sticky-session routing via a reverse proxy in front of multi-process uvicorn, or spawning/tearing down a subprocess per session — the latter reintroduces the per-invocation subprocess-dispatcher overhead the FastAPI server was built to replace. It would also fragment the shared server_memory/event-log timeline across sessions. Discussed 2026-07-25/26; user's call: complexity isn't justified by the benefit at current scale.\n\nHow to apply: don't propose splitting the hook server into per-session workers/processes unless there's evidence one session's load or a crash is actually affecting others. If that happens, revisit — but default to the current single-worker design.",
+      "created_at": "2026-07-28T00:46:10.035225+00:00",
+      "files": "",
+      "last_validated": "2026-07-28T00:46:10.035225+00:00",
+      "name": "hook-server-single-worker-decision",
+      "related": "",
+      "tags": "uvicorn, workers, hook server, architecture, MemorySaver, sessions, scaling",
+      "type": "project"
+    },
+    "hooks-paths-module": {
+      "body": "All project and user-specific paths for claude-hooks live in `hooks/paths.py`.\n\nExports:\n- `PROJECT_ROOT` — resolves from `__file__`, worktree-safe\n- `HOOKS_DIR` — `PROJECT_ROOT / \"hooks\"`\n- `DOCS_DIR` — `PROJECT_ROOT / \"docs\"`\n- `MEM_DB` — `~/.claude/MEMORY.sqlite`\n- `VAULT_ROOT` — `~/workspace/claude_documents`\n- `TOOL_REGISTRY_PATH` — iCloud tool_registry.json\n\n**Why:** Previously each module computed its own `_PROJECT_ROOT` or hardcoded `Path.home() / 'workspace/claude-hooks'`, causing static files and templates to silently serve from the wrong worktree.\n\n**How to apply:** Any new path constant goes in `hooks/paths.py` — never hardcode paths in other modules. Import with `from hooks.paths import <NAME>`.",
+      "created_at": "2026-07-28T00:46:10.035940+00:00",
+      "files": "",
+      "last_validated": "2026-07-28T00:46:10.035940+00:00",
+      "name": "hooks-paths-module",
+      "related": "claude-hooks-key-files,claude-hooks-databases,server-project-root-hardcoded",
+      "tags": "paths config project-root vault-root mem-db tool-registry hardcoded paths central module",
+      "type": "project"
+    },
+    "init-db-run-as-module": {
+      "body": "Run scripts/init_db.py as a module, not as a path: `uv run python -m scripts.init_db`\n\n**Why:** Running as `uv run python scripts/init_db.py` causes `ModuleNotFoundError: No module named 'src'` because the working directory isn't on sys.path.\n\n**How to apply:** Always use `-m scripts.init_db` form for any script under `scripts/` that imports from `src/`.",
+      "created_at": "2026-07-28T00:46:10.036748+00:00",
+      "files": "",
+      "last_validated": "2026-07-28T00:46:10.036748+00:00",
+      "name": "init-db-run-as-module",
+      "related": "",
+      "tags": "scripts init_db setup module import error uv run task:cb357eb6",
+      "type": "reference"
+    },
+    "langchain-vs-claude-code-inversion": {
+      "body": "Claude Code and LangChain are complementary layers, not alternatives — they represent an inversion of control.\nClaude Code: Claude IS the agent. It reasons, picks MCP tools, orchestrates. Python hooks inject context around Claude but cannot compose multi-step LLM chains cleanly. claude -p subprocess = no streaming, hard to compose.\nLangChain: Python IS the agent. Claude (ChatAnthropic) is just a Runnable — a typed component with .invoke()/.batch()/.stream(). with_structured_output gives Pydantic-validated responses; RunnableParallel runs LLM calls concurrently; streaming falls out for free.\nStack: Claude Code (agentic reasoning) → MCP tools (native macOS) AND → LangChain pipeline (programmatic, Claude Haiku for narrow sub-tasks with schema contracts).\nRule: use Claude Code when you need reasoning and tool selection. Use LangChain when Python should own the orchestration and Claude is one step in a typed pipeline.",
+      "created_at": "2026-07-28T00:46:10.037470+00:00",
+      "files": "",
+      "last_validated": "2026-07-28T00:46:10.037470+00:00",
+      "name": "langchain-vs-claude-code-inversion",
+      "related": "claude-hooks-mission,claude-hooks-hybrid-model-strategy,langchain-subprocess-runnable",
+      "tags": "langchain claude-code inversion-of-control architecture mcp lcel programmatic agentic,claude-hooks",
+      "type": "project"
+    },
+    "langgraph-checkpointer-pattern": {
+      "body": "LangGraph MemorySaver checkpointer wired into hooks/server.py. session_id maps to thread_id. UserPromptSubmit passes full _fresh_state() + event fields to establish checkpoint. PreToolUse/PostToolUse/Stop pass only event-specific fields — checkpointer restores the rest. prompt_id, domains, keywords, memories all retained in checkpoint across all four hook events within a server lifetime. Zero DB reads between hooks.\n\nCheckpoint store: in-process, in-memory (MemorySaver) — does NOT survive server restarts. `~/.claude/langgraph_checkpoints.db` is a retired SqliteSaver-era file; nothing writes to it anymore.\n\nWhy: LangServe was stateless — each invoke threw away SessionState. SqliteSaver originally made the graph the session store and was cross-process safe, but caused two corruption incidents (task:b3964f85), so it was retired in favor of MemorySaver. Learned from ACME checkpoint pattern (thread_id isolation, resume from checkpoint).\nHow to apply: Always pass only changed fields in non-UPS invocations. UserPromptSubmit is the only full state initializer (_fresh_state). When adding new hook logic that needs prior-turn data, read from state (it's in the checkpoint). Do not assume checkpoint state survives a server restart (e.g. /deploy) — it won't.",
+      "created_at": "2026-07-28T00:46:10.038221+00:00",
+      "files": "",
+      "last_validated": "2026-07-28T00:46:10.038221+00:00",
+      "name": "langgraph-checkpointer-pattern",
+      "related": "claude-hooks-session-lifecycle,checkpoint-is-ipc,claude-hooks-ups-pipeline",
+      "tags": "langgraph, checkpointer, MemorySaver, thread_id, session_id, cross-hook, stateful-server,claude-hooks",
+      "type": "project"
+    },
+    "last-validated-now-auto-stamped": {
+      "body": "last_validated is now auto-stamped to datetime('now') on every memory__add/memory__add_batch call (both insert and update), as of task:514edb14. Before this, it existed in the schema (via the _NEW_COLUMNS migration) but was populated on 0/124 claude-hooks memories.\n\nWhy: there was no way to answer \"when was this memory last confirmed accurate\" without manually tracing files/content against git log for every staleness pass.\n\nHow to apply: to find staleness-audit priority candidates, query `sqlite3 ~/.claude/MEMORY.sqlite \"SELECT name, last_validated FROM memories WHERE domain='<domain>' ORDER BY last_validated ASC NULLS FIRST\"` — NULL entries are memories never touched since this fix landed (highest priority, unknown freshness), then oldest-timestamp entries next. Note last_validated bumps on ANY add/add_batch call, even one that only touches tags or fixes a typo — it is not proof the body's factual claims were re-verified against code, only that the row was written. Manual sqlite3 UPDATE (per CLAUDE.md's exposed-columns convention) is still the way to stamp last_validated during a /task-grooming or /task-introspection pass that confirms a memory accurate without editing it.",
+      "created_at": "2026-07-28T00:46:10.039333+00:00",
+      "files": "",
+      "last_validated": "2026-07-28T00:46:10.039333+00:00",
+      "name": "last-validated-now-auto-stamped",
+      "related": "",
+      "tags": "last_validated, memory staleness, memory audit, oldest memories, query pattern, memory__add, memory__add_batch, task:514edb14",
+      "type": "reference"
+    },
+    "mcp-hook-bridge-convention": {
+      "body": "MCP tools signal hook injection via a `__hook__` key in their response. `McpHookBridgeNode` pipes it to `pending_hook_output`. Zero claude-hooks code changes needed per new integration.\n\n**Why:** Named-tool routing in _post_tool_route violates open/closed — every new MCP project requires a claude-hooks code change. Content-based routing on `__hook__` makes claude-hooks pure infrastructure.\n\n**How to apply:** In any MCP tool response, return `{\"__hook__\": {\"additionalSystemPrompt\": \"...\"}}`. The bridge fires automatically. Named lifecycle tools (tasks__*) still take priority in routing — __hook__ check is the fallback.",
+      "created_at": "2026-07-28T00:46:10.040302+00:00",
+      "files": "",
+      "last_validated": "2026-07-28T00:46:10.040302+00:00",
+      "name": "mcp-hook-bridge-convention",
+      "related": "",
+      "tags": "mcp hook bridge generic posttooluse additionalSystemPrompt injection open-closed factory pattern task:e766dad2",
+      "type": "reference"
+    },
+    "mcp-not-wrapping-fastapi-server": {
+      "body": "Decided NOT to auto-wrap the claude-hooks FastAPI server (test worktree, port 8766) as an MCP server (e.g. via fastapi-mcp), despite the simplicity win of auto-derived tool schemas.\n\n**Why:** the test server restarts on every `/deploy`. If MCP tool availability were tied to that same process, deploy-time restarts would drop MCP tools mid-session. Keeping the MCP layer separate/hand-rolled means it can stay up independently of hook-server deploys.\n\n**How to apply:** keep the current hand-rolled `mcp__claude-hooks__*` tool layer as-is. Do not suggest collapsing it into the FastAPI app for \"zero config\" reasons — the reliability cost (coupled failure/restart domain) outweighs the maintenance savings, per user's explicit reasoning.",
+      "created_at": "2026-07-28T00:46:10.041456+00:00",
+      "files": "",
+      "last_validated": "2026-07-28T00:46:10.041456+00:00",
+      "name": "mcp-not-wrapping-fastapi-server",
+      "related": "",
+      "tags": "mcp fastapi architecture decision hook server reliability deploy",
+      "type": "project"
+    },
+    "pending-hook-output-surface-and-clear": {
+      "body": "Every session_graph entry point whose node chain can set pending_hook_output must surface-and-clear it (return it to the caller, zero the checkpoint copy) — run_post_tool, run_stop, and run_session all do this now.\n\nWhy: the field persists in the LangGraph checkpoint; an entry point that doesn't clear it lets the next PostToolUse return a stale payload misattributed to the wrong event (found when wiring LogTaskEventsNode's introspection nudge, task:eb46ac47).\n\nHow to apply: when adding a node that sets pending_hook_output, check which event_type routes to it and confirm that entry point clears the field after invoke; gate rendering in hooks/dispatcher.py on hookSpecificOutput.hookEventName so cross-event payloads are never rendered.",
+      "created_at": "2026-07-28T00:46:10.042604+00:00",
+      "files": "",
+      "last_validated": "2026-07-28T00:46:10.042604+00:00",
+      "name": "pending-hook-output-surface-and-clear",
+      "related": "",
+      "tags": "pending_hook_output leak surface clear run_session run_post_tool run_stop UPS one-shot hook output additionalContext dispatcher session_graph, task:eb46ac47",
+      "type": "project"
+    },
+    "protocol-as-pipe-joint": {
+      "body": "Protocols in claude-hooks mark the joints in the memory injection pipe where behavioral substitution is needed:\n  prompt → tokenise → MemoryRetriever → LoadMemoriesNode → additionalSystemPrompt\n\nThe three protocol joints are:\n  1. MemoryRetriever — how memories are scored and fetched (langchain_learning/nodes/load_memories.py)\n  2. ToolScorer     — how tool hints are ranked (langchain_learning/nodes/score_tools.py)\n  3. GatePolicy     — how tool gates are dispatched (hooks/gate_check.py)\n\nNot every node gets a Protocol — only nodes that are genuine substitution points (where a different implementation could exist and be useful).\n\n**Why:** Mirrors LCEL Runnable | Runnable composition but in pure Python with no framework overhead. Same idea as ACME POC NodeCallable Protocol (Principle 13).\n\n**How to apply:** When adding a new node, ask: is this a substitution point? If no, skip the Protocol. If yes, add it to retrievers.py and keep the implementation in nodes/ or hooks/.",
+      "created_at": "2026-07-28T00:46:10.043445+00:00",
+      "files": "",
+      "last_validated": "2026-07-28T00:46:10.043445+00:00",
+      "name": "protocol-as-pipe-joint",
+      "related": "gate-policy-boundary-in-node,claude-hooks-node-design,protocol-extraction-reduces-node-code",
+      "tags": "protocol interface pipe joint memory retrieval tool scoring gate policy pluggable substitution LCEL callable classes structural",
+      "type": "project"
+    },
+    "schema-py-ddl-source-of-truth": {
+      "body": "src/db/schema.py is the canonical DDL owner for all SQLite tables in claude-hooks.\n\nTables covered: memories, open_tasks, task_events, task_edges, mcp_tool_hints, hook_logs, test_runs.\nEach table has a DDL constant (MEMORIES_DDL, OPEN_TASKS_DDL, etc.) + a migrate_*_db(conn) function.\n\nUsage:\n- Tests: import DDL constants via tests/fixtures/db_factories.py factory functions\n- Setup: `uv run python -m scripts.init_db` — one-time, idempotent\n- Prod connect-time code (_ensure_db, _SCHEMA, etc.) NOT replaced — stays as-is\n\nRule: schema changes go in schema.py first. Tests get them automatically via factories.",
+      "created_at": "2026-07-28T00:46:10.044282+00:00",
+      "files": "",
+      "last_validated": "2026-07-28T00:46:10.044282+00:00",
+      "name": "schema-py-ddl-source-of-truth",
+      "related": "",
+      "tags": "schema DDL sqlite source of truth tests factories migrate init setup",
+      "type": "project"
+    },
+    "skills-live-in-both-main-and-dev-worktree": {
+      "body": "CORRECTED 2026-07-27 (task:da29c842) — the previous version of this memory was wrong and got acted on incorrectly in that same session (skills/task-grooming and skills/task-introspection were committed straight to ~/workspace/claude-hooks main, violating \"main is never touched except by /deploy\").\n\nskills/*.md files ARE checked into the claude-hooks repo (present in both the dev and main worktrees as separate git checkouts) — they are repo content, not an exception to the pipeline. Edit in `~/workspace/claude-hooks-dev` (dev branch) like any other repo file, commit there, and let `/deploy` carry the change dev→test→main same as hooks/*.py or any other tracked file.\n\nThe ONLY thing edited independently, outside the pipeline, is the deployed copy at `~/.claude/skills/` — that path is NOT part of this git repo at all (no `.git` there), so there is nothing for `/deploy` to carry it through; it must be `cp`'d by hand after the dev-worktree edit (or after /deploy lands on main, if you want the deployed copy to reflect only shipped state).\n\nWhy: skills/*.md not going through git's normal dev→test→main flow was itself the bug — a leftover from before the repo had a clean pipeline. The prior guidance (\"write to main, copy to dev, copy to deployed, three commits\") worked around drift by keeping main and dev separately committed with equivalent content, but that's a duplicate-commit-history smell, not a real fix — it also produced a real defect this session: an unrelated file (.gitignore) and an accidental embedded-repo gitlink got committed directly to main during the same \"skills are special\" episode, which is exactly the kind of out-of-band main edit the pipeline exists to prevent.\n\nHow to apply: treat skill.md edits exactly like any other dev-worktree edit — write in claude-hooks-dev, `/gc`, then `/deploy` to ship to test/main. After `/deploy` (or right after the dev edit, if you want the deployed skill to reflect work-in-progress rather than only shipped state), `cp` the file to `~/.claude/skills/<name>/skill.md` — this is the one manual step, since that path isn't git-tracked by this repo at all.",
+      "created_at": "2026-07-28T00:46:10.045126+00:00",
+      "files": "",
+      "last_validated": "2026-07-28T00:46:10.045126+00:00",
+      "name": "skills-live-in-both-main-and-dev-worktree",
+      "related": "",
+      "tags": "skills directory, main worktree, dev worktree, git sync, port stray edits, skill.md, deploy pipeline, task:b648c1d1, task:da29c842, corrected",
+      "type": "project"
+    },
+    "summarize-task-context-never-actually-fired": {
+      "body": "summarize_task_context runs every UPS turn but its first-turn-gated inner logic (raw context length check) has only fired 3 times total in claude_hooks.sqlite history (191/306/143 chars) — all under the 800-char threshold, so BareClaudeAgent has never actually been invoked. No \"invoking BareClaudeAgent\" or \"summary=... chars\" log line exists anywhere.\n\nWhy: [[ups-context-sources-all-capped]] says this node was \"re-enabled... is now live again\" — true in the sense that it runs, but it has never once produced a non-empty task_context_summary in practice. Confirmed by reading claude_hooks.sqlite via hooks__read_logs_sqlite, not assumed from code alone.\n\nHow to apply: don't assume \"gated and wired correctly\" means \"actually exercised\" — before relying on a node's real-world behavior (not just its code path), grep the actual log DB for its success-path log lines, same as done here. If task activations ever accumulate >800 chars of related-task/RAG/commit context on a first turn, this will fire for the first time — worth checking again if that ever seems to matter.",
+      "created_at": "2026-07-28T00:46:10.046002+00:00",
+      "files": "",
+      "last_validated": "2026-07-28T00:46:10.046002+00:00",
+      "name": "summarize-task-context-never-actually-fired",
+      "related": "",
+      "tags": "summarize_task_context, task context summary, BareClaudeAgent, threshold, logs, verified, first-turn-gated, ups-context-sources-all-capped",
+      "type": "project"
+    },
+    "task-framework-memory-delegation": {
+      "body": "Planned: delegate targeted memory fetching to the /task-framework skill itself as memory corpus grows.\n\n**Why:** BM25 across 150+ memories loses precision — tag overlap becomes noisy at scale. The skill has richer context (active task, domain, phase) to make a targeted pull at the moment work begins, rather than relying on general UPS-time scoring.\n\n**How to apply:**\n- UPS hook remains a fast general-context pass (session orientation, top-N BM25)\n- /task-framework skill adds a `memory__search` or `memory__list` call scoped to domain + task type at task activation time\n- Two-tier injection: hook = broad, skill = precise\n\n**When:** revisit when claude-hooks domain crosses ~150 memories.",
+      "created_at": "2026-07-28T00:46:10.047192+00:00",
+      "files": "",
+      "last_validated": "2026-07-28T00:46:10.047192+00:00",
+      "name": "task-framework-memory-delegation",
+      "related": "activate-task-before-work,always-activate-task-after-create,claude-hooks-load-memories-node",
+      "tags": "task-framework, memory injection, delegation, skill, targeted fetch, memory__search, scale",
+      "type": "project"
+    },
+    "task-lifecycle-three-skill-trio": {
+      "body": "The task lifecycle is now three companion skills, each independently invocable but designed to run in sequence: /task-grooming (pre-implementation, reduce uncertainty) → /task-implementation (execution-loop behavioral guide while working, cross-referenced from /task-framework step 4) → /task-introspection (post-close retrospective, evolve the system). All three share the same \"judgment over syntax\" philosophy established 2026-07-05.\n\nWhy: completes a session-long effort merging the user's judgment-first redesigns of grooming and introspection, then adding the missing middle piece (implementation) to close the loop.\n\nHow to apply: when any of the three needs future revision, check whether the change should ripple into the other two for consistency (e.g. a new engineering-judgment question, a new warning sign, a new cross-reference). They're not independent artifacts — they're one lifecycle split into three phases.",
+      "created_at": "2026-07-28T00:46:10.048120+00:00",
+      "files": "",
+      "last_validated": "2026-07-28T00:46:10.048120+00:00",
+      "name": "task-lifecycle-three-skill-trio",
+      "related": "",
+      "tags": "task lifecycle, task-grooming, task-implementation, task-introspection, task-framework, skills, execution loop, task:de6b2945",
+      "type": "project"
+    },
+    "tasks-index-task-upsert-bug": {
+      "body": "FIXED &amp; DEPLOYED 2026-07-17: tasks__index_task's \"id already present in index\" failure (TurboVec add_with_ids raises on duplicate; fix = index.remove(uid) before add, task:9c1a387f, commit 314e583). The fix existed in dev with regression tests but had never been deployed — shipped to main via /deploy (603 unit + 64 integration passed; merge 7af838b, which also carried c9b9b51 concept_store ACME-envelope migration). NOTE: an already-running Claude Code session's MCP server keeps the old code — verify only after /mcp reconnect or in a fresh session. Root lesson: a \"known bug\" in claude-hooks may already be fixed in dev; check `git log dev..main` deployment lag before writing any code.",
+      "created_at": "2026-07-28T00:46:10.049039+00:00",
+      "files": "",
+      "last_validated": "2026-07-28T00:46:10.049039+00:00",
+      "name": "tasks-index-task-upsert-bug",
+      "related": "",
+      "tags": "index_task turbovec upsert bug fixed deployed main server reload mcp reconnect",
+      "type": "project"
+    },
+    "tmp_cwd_domain_gap_closed": {
+      "body": "Found and closed a real gap: tests posting cwd=\"/tmp\" (test_server_api.py, test_hooks_lc.py, etc.) previously hit an unmapped cwd — cwd_domains.json had no \"/tmp\" entry, so those hook calls silently fell into the cwd_unmapped/no-domain path instead of exercising real domain-scoped memory injection. Fixed by adding \"/tmp\": \"test\" to cwd_domains.json, seeding two fixed reference memories (test-fixture-alpha/beta) under domain=test in MEMORY.sqlite, and adding TestTmpCwdFixedMemories in tests/test_server_api.py asserting both names appear in the UserPromptSubmit response's additionalSystemPrompt. Why: confirms cwd→domain→memory-injection pipeline actually resolves for the exact cwd value integration tests use, not just full domains like claude-hooks/vault/astrology. How to apply: when adding new integration tests that pass a synthetic cwd, check it resolves to a real (or intentionally test-only) domain in cwd_domains.json rather than silently no-op'ing.",
+      "created_at": "2026-07-28T00:46:10.049975+00:00",
+      "files": "",
+      "last_validated": "2026-07-28T00:46:10.049975+00:00",
+      "name": "tmp_cwd_domain_gap_closed",
+      "related": "",
+      "tags": "integration test cwd tmp domain gap memory injection test_server_api",
+      "type": "project"
+    },
+    "tool-hints-saturation-problem": {
+      "body": "High-frequency universal tools (vault__write, vault__read, session__save_summary) accumulate counts fast and will eventually dominate BM25+domain retrieval, crowding out lower-count but contextually precise tools.\n\n**Why:** Count-weighted scoring has no ceiling — a tool used 500x scores 10x higher than one used 50x, even if the 50x tool is the right one for the prompt.\n\n**Plan needed:** Implement a saturation cap or IDF-style normalization in ToolHintsRetriever. Options:\n1. Clamp count contribution above threshold N (e.g. log(count) instead of count for ranking)\n2. Flag tools as universal (domain=global + count > threshold) and exclude from scored retrieval — always inject them separately as ambient context\n3. Two-tier retrieval: universal tools in a fixed header, BM25 scores only non-universal tools\n\n**How to apply:** Revisit when any global-domain tool exceeds ~100 uses or when retrieval quality noticeably degrades (wrong tools surfacing for niche prompts).",
+      "created_at": "2026-07-28T00:46:10.050909+00:00",
+      "files": "",
+      "last_validated": "2026-07-28T00:46:10.050909+00:00",
+      "name": "tool-hints-saturation-problem",
+      "related": "claude-hooks-tool-tracking,claude-hooks-load-memories-node",
+      "tags": "tool-hints,bm25,retrieval,scoring,saturation,universal-tools,claude-hooks",
+      "type": "project"
+    },
+    "unassigned-epic-parent-id": {
+      "body": "The 'Unassigned' epic has task id 96c361de — use it as parent_id when creating a story/task/bug via tasks__create with no natural epic yet, since those issue_types are rejected without a parent. Why: tasks__create enforces epic-or-parent for task/story/bug issue_types; only issue_type=epic (via tasks__create_epic) can be a true root. How to apply: pass parent_id=\"96c361de\" for one-off fixes/tests that don't warrant a new epic; move to a real epic later if the work grows.",
+      "created_at": "2026-07-28T00:46:10.051865+00:00",
+      "files": "",
+      "last_validated": "2026-07-28T00:46:10.051865+00:00",
+      "name": "unassigned-epic-parent-id",
+      "related": "",
+      "tags": "tasks create standalone task no epic parent_id unassigned bug fallback task:ec42e13b",
+      "type": "reference"
+    },
+    "ups-context-sources-all-capped": {
+      "body": "All UPS-injected system-prompt context sources are bounded, as of task:251a8531: memories (4000-token budget trim, task:3de05199), related_tasks/related_commits/task_rag_chunks (top-3 each, pre-existing), task_context (20-turn SQL LIMIT, pre-existing), mid_task_decisions (last-15 slice, task:251a8531), task_body (3000-char truncation, task:251a8531). task_context_summary (from SummarizeTaskContextNode) was dead code from 2026-06-22 through 2026-07-04, but was re-enabled in task:b9dded3e — it is now live again, gated to fire at most once per task activation (first-turn-only, via len(task_context) <= 1), so its contribution to injected context is bounded by construction (a single ≤200-word bullet summary), not by _enforce_context_budget.\n\nWhy: memories was fixed first because it was the obvious uncapped one, but an explicit audit found two more silent unbounded-growth risks (mid_task_decisions grows every tasks__add_decision call over a task's life; task_body has no length cap at all).\n\nHow to apply: if a new UPS context-producing node is added, check whether its output list/string is naturally bounded (top-N query, fixed schema) or can grow with session/task lifetime (checkpoint-appended lists, raw DB text) — the latter needs an explicit cap, don't assume it's covered by _enforce_context_budget unless you add it there. If summarize_task_context.py is ever disabled/removed again, update this memory back.",
+      "created_at": "2026-07-28T00:46:10.053297+00:00",
+      "files": "",
+      "last_validated": "2026-07-28T00:46:10.053297+00:00",
+      "name": "ups-context-sources-all-capped",
+      "related": "",
+      "tags": "context cap bounded unbounded memories task decisions body prompt size growth task:251a8531 task_context_summary summarize_task_context first-turn-gated",
+      "type": "project"
+    },
+    "vscode-mcp-json-workspacefolder-relative": {
+      "body": "claude-hooks-dev/.vscode/mcp.json registers the claude-hooks stdio MCP server using ${workspaceFolder} instead of a hardcoded path (e.g. /Users/debaditya/workspace/claude-hooks-dev).\n\nWhy: this repo is developed as a git worktree (dev branch at claude-hooks-dev, prod/main branch at claude-hooks). A hardcoded path would need editing every time the config is copied between worktrees; ${workspaceFolder} makes the same file work unmodified in both.\n\nHow to apply: when adding VS Code / Copilot MCP configs for repos that use the dev/test/main worktree pattern, always prefer ${workspaceFolder}-relative command/args over absolute paths.",
+      "created_at": "2026-07-28T00:46:10.054283+00:00",
+      "files": "",
+      "last_validated": "2026-07-28T00:46:10.054283+00:00",
+      "name": "vscode-mcp-json-workspacefolder-relative",
+      "related": "",
+      "tags": "vscode, mcp.json, copilot, workspaceFolder, dev prod worktree, stdio server config, task:186af167",
+      "type": "project"
+    }
+  },
   "meta": {
     "commit": "",
     "extracted_at": "",
