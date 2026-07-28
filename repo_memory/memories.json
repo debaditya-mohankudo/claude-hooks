@@ -520,6 +520,16 @@
       "tags": "protocol interface pipe joint memory retrieval tool scoring gate policy pluggable substitution LCEL callable classes structural",
       "type": "project"
     },
+    "replay-harness-also-writes-to-production-checkpoint-store": {
+      "body": "CORRECTED (was factually wrong in its first version): tests/replay_harness.py does NOT write into the live server's production MemorySaver — replay_harness.py's _build_graph() constructs its own fresh MemorySaver inside its own separate OS process (`uv run python tests/replay_harness.py`), which is process-isolated from the live FastAPI server by default; no in-memory state is ever shared between them.\n\nThe REAL pollution is different: LogTaskEventsNode writes real rows into `proj_tasks.db`'s `task_events` table — a persistent SQLite file on disk, shared across processes regardless of which MemorySaver instance backs the graph. replay_harness.py's replay_event() deliberately seeds active_task_id into checkpoint state before invoking the graph (to exercise task-aware nodes like load_related_tasks/load_task_code/load_task_history), which means log_task_events sees an active task and writes a genuine task_events row with session_id='replay-<session>' — exactly what surfaced in tasks__history output during task:b63088a1's introspection.\n\nFix (task:a10a6638): (1) replay_harness.py's session_id now carries TEST_SESSION_PREFIX ('integration-test-replay-<session>'), (2) LogTaskEventsNode checks for that prefix and skips the task_events DB write entirely (not just the checkpoint) when present, logging a debug line instead. The prefix's job here is different from its job in task:b63088a1 — there it selects which MemorySaver a checkpoint write goes to; here it's a signal telling a DB-writing node to skip writing altogether, since replay's checkpoint isolation was never the actual problem.",
+      "created_at": "2026-07-28T01:57:51.984290+00:00",
+      "files": "tests/replay_harness.py, langchain_learning/nodes/log_task_events.py, langchain_learning/session_graph.py",
+      "last_validated": "2026-07-28T02:01:59.170536+00:00",
+      "name": "replay-harness-also-writes-to-production-checkpoint-store",
+      "related": "",
+      "tags": "replay_harness, task_events, proj_tasks.db, log_task_events, session isolation, task:a10a6638, task:b63088a1",
+      "type": "project"
+    },
     "schema-py-ddl-source-of-truth": {
       "body": "src/db/schema.py is the canonical DDL owner for all SQLite tables in claude-hooks.\n\nTables covered: memories, open_tasks, task_events, task_edges, mcp_tool_hints, hook_logs, test_runs.\nEach table has a DDL constant (MEMORIES_DDL, OPEN_TASKS_DDL, etc.) + a migrate_*_db(conn) function.\n\nUsage:\n- Tests: import DDL constants via tests/fixtures/db_factories.py factory functions\n- Setup: `uv run python -m scripts.init_db` — one-time, idempotent\n- Prod connect-time code (_ensure_db, _SCHEMA, etc.) NOT replaced — stays as-is\n\nRule: schema changes go in schema.py first. Tests get them automatically via factories.",
       "created_at": "2026-07-28T00:46:10.044282+00:00",

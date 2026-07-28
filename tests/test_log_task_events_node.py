@@ -141,3 +141,33 @@ def test_two_turns_insert_two_rows(tmp_path):
     with sqlite3.connect(str(db)) as conn:
         count = conn.execute("SELECT COUNT(*) FROM task_events").fetchone()[0]
     assert count == 2
+
+
+def test_skips_db_write_for_test_prefixed_session(tmp_path):
+    """task:a10a6638 — replay_harness.py seeds active_task_id to exercise
+    task-aware nodes, but that must not write real rows into proj_tasks.db's
+    task_events table. TEST_SESSION_PREFIX'd sessions are skipped entirely."""
+    from langchain_learning.session_graph import TEST_SESSION_PREFIX
+
+    db = _make_tasks_db(tmp_path)
+    with patch("langchain_learning.nodes.log_task_events._cfg") as cfg:
+        cfg.tasks_db = db
+        node = LogTaskEventsNode()
+        result = node(_state(session_id=f"{TEST_SESSION_PREFIX}replay-abc123"))
+
+    assert result == {}
+    with sqlite3.connect(str(db)) as conn:
+        count = conn.execute("SELECT COUNT(*) FROM task_events").fetchone()[0]
+    assert count == 0
+
+
+def test_non_prefixed_session_still_writes_normally(tmp_path):
+    db = _make_tasks_db(tmp_path)
+    with patch("langchain_learning.nodes.log_task_events._cfg") as cfg:
+        cfg.tasks_db = db
+        node = LogTaskEventsNode()
+        node(_state(session_id="a-real-session-id"))
+
+    with sqlite3.connect(str(db)) as conn:
+        count = conn.execute("SELECT COUNT(*) FROM task_events").fetchone()[0]
+    assert count == 1

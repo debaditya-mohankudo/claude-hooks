@@ -497,6 +497,54 @@
       "module": "hooks/server_memory.py",
       "name": "server-memory-tool-recording"
     },
+    "session-graph-test-production-routing": {
+      "confidence": 0.9,
+      "contracts": [
+        "get_session_graph(session_id: str = '') -> a compiled, checkpointer-backed StateGraph, production or test depending on session_id prefix"
+      ],
+      "created_at": "2026-07-28T01:58:19.215098+00:00",
+      "description": "get_session_graph(session_id) is the single chokepoint every hook entry point (run_session, run_gate, run_post_tool, run_stop, prewarm_session) already calls to obtain the compiled LangGraph StateGraph. Since task:b63088a1, it also decides WHICH of two graph instances to return based on session_id's prefix, isolating integration-test checkpoint traffic from the shared production MemorySaver without changing any endpoint URL or code path.",
+      "evidence": [
+        "langchain_learning/session_graph.py:get_session_graph",
+        "langchain_learning/session_graph.py:TEST_SESSION_PREFIX",
+        "hooks/server.py:session_detail",
+        "hooks/dispatcher.py:_handle_session_end",
+        "tests/test_session_graph_test_isolation.py"
+      ],
+      "invariants": [
+        "Any session_id starting with TEST_SESSION_PREFIX ('integration-test-') routes to _test_graph, a separate lazily-built graph/MemorySaver instance; every other session_id (including '') routes to the production _graph, exactly as before this routing existed.",
+        "Both _graph and _test_graph are built lazily on first use via the identical build_session_graph(checkpointer=MemorySaver()) pattern — no special-casing between them except which module-level global gets populated.",
+        "A checkpoint written under a test-prefixed session_id is genuinely invisible to the production graph, not just conventionally separated — they are two distinct MemorySaver instances with independent .storage dicts.",
+        "No eviction/cleanup logic exists for _test_graph and none is needed: both graphs reset to empty on every server restart, since MemorySaver has no persistence and none is intended for either.",
+        "Callers that reference the underlying singleton directly (sg._graph) rather than through get_session_graph(session_id) will NOT get isolation-aware routing — hooks/server.py's session_detail endpoint and hooks/dispatcher.py's _handle_session_end both had to be updated to route through get_session_graph(session_id) (or check the correct global explicitly) for the isolation guarantee to hold end-to-end."
+      ],
+      "last_validated": "2026-07-28T01:58:19.215098+00:00",
+      "module": "langchain_learning/session_graph.py",
+      "name": "session-graph-test-production-routing"
+    },
+    "session-state-latest-checkpoint-lookup": {
+      "confidence": 0.9,
+      "contracts": [
+        "get_current_session() -> {session_id, turn} or {} if no checkpoint exists anywhere",
+        "get_active_session() -> {task_id, title, session_id, turn} or {} if no active task on the latest checkpoint, or that task is done/abandoned"
+      ],
+      "created_at": "2026-07-28T01:58:12.018834+00:00",
+      "description": "get_current_session/get_active_session back GET /session/current and GET /session/active — the only signals available for 'what session am I in' before any thread_id is known. Both use _latest_checkpoint_tuple() to find the single most-recently-written checkpoint ACROSS ALL THREADS in a MemorySaver instance.",
+      "evidence": [
+        "hooks/session_state.py:_latest_checkpoint_tuple",
+        "hooks/session_state.py:get_current_session",
+        "hooks/session_state.py:get_active_session",
+        "tests/test_session_state.py"
+      ],
+      "invariants": [
+        "MemorySaver.list(None) (no config) iterates checkpointer.storage's thread_ids in Python dict-insertion order, then yields that FIRST thread's own checkpoint history before ever considering other threads — next(iter(checkpointer.list(None))) is NOT 'the most recent checkpoint globally', it's 'thread_ids[0]'s own most recent checkpoint', where thread_ids[0] never changes once set (dict insertion order is stable across key updates). This was task:a4531510's root cause: a long-lived thread (from a test fixture posting a hardcoded session_id every run) permanently occupied thread_ids[0], so get_current_session got stuck returning it forever regardless of real traffic.",
+        "_latest_checkpoint_tuple() fixes this by enumerating checkpointer.storage.keys() and calling get_tuple() per thread (O(1) latest-checkpoint lookup, not full-history iteration), comparing each thread's checkpoint['ts'] ISO timestamp to find the true global latest.",
+        "get_active_session additionally filters out done/abandoned tasks even when the checkpoint itself is stale — a checkpoint with an active_task_id pointing at a closed task still yields {} from this function."
+      ],
+      "last_validated": "2026-07-28T01:58:12.018834+00:00",
+      "module": "hooks/session_state.py",
+      "name": "session-state-latest-checkpoint-lookup"
+    },
     "task-document-schema": {
       "confidence": 0.9,
       "contracts": [
