@@ -1,50 +1,68 @@
 ---
-tags: dev workflow, git worktree, deploy.sh, committing, /gc, git commit, testing, deploy, main worktree, dev worktree, claude-hooks-dev, branch, merge, RAG refresh, code embeddings, diff embeddings, one-off deploy, manual path
+tags: dev workflow, git worktree, deploy.sh, committing, /gc, git commit, testing, deploy, main worktree, test worktree, dev worktree, claude-hooks-dev, claude-hooks-test, branch, merge, RAG refresh, code embeddings, diff embeddings
 ---
 # Development Workflow — Git Worktree
 
 ## Overview
 
-The production hook server always runs from `~/workspace/claude-hooks` (main branch).
-Development happens in an isolated git worktree so edits never touch the running server
-until you deliberately deploy.
+Three separate worktrees, each on its own branch:
 
 ```
-~/workspace/claude-hooks/          ← production (main branch, server runs here)
-~/workspace/claude-hooks/.claude/dev/  ← dev worktree (dev branch, edit here)
+~/workspace/claude-hooks-dev/   ← dev branch   — all edits happen here
+~/workspace/claude-hooks-test/  ← test branch  — the live hook server runs from here (port 8766)
+~/workspace/claude-hooks/       ← main branch  — production, touched only by /deploy --ship
 ```
+
+The hook server runs from **`claude-hooks-test`** with **MemorySaver** — in-process,
+in-memory checkpointing (task:b3964f85 retired `SqliteSaver` after two corruption
+incidents). Checkpoint state does NOT survive server restarts;
+`~/.claude/langgraph_checkpoints.db` is a retired file nothing writes to anymore.
+`/deploy` restarts the server after each merge into test.
+
+Editing in `claude-hooks-dev` never disrupts the live server — it only runs
+code from `claude-hooks-test`.
 
 ## Day-to-day loop
 
 ```bash
-# 1. Work in the dev worktree
-cd ~/workspace/claude-hooks/.claude/dev
+# 0. Merge main into dev first (task:701215e2) — catches any commits main has
+#    that dev doesn't (e.g. an out-of-band direct-to-main edit) before they can
+#    cause a real conflict at /deploy --ship time instead of here, where it's
+#    cheap and obvious to resolve.
+cd ~/workspace/claude-hooks-dev
+git merge main --no-edit
 
-# 2. Edit files, run tests
-uv run python -m pytest tests/ -q
+# 1. Edit in the dev worktree
 
-# 3. Commit with /gc (targets dev branch)
+# 2. Quick unit tests (no server needed)
+uv run python -m pytest tests/ -q -m "not integration"
+
+# 3. Commit
 /gc
 
-# 4. When ready to ship → deploy
-~/workspace/claude-hooks/scripts/deploy.sh
+# 4. Deploy to test + full suite + ship to main
+/deploy
 ```
 
-`deploy.sh` does: run tests → `git merge dev --no-edit` into main → restart launchd → verify `/health`.
+`/deploy` runs: unit tests in dev (quick gate) → merge dev→test → restart the
+test-worktree server via launchctl → wait for `/health` → run the full suite
+(unit + integration) from test against the live server. `/deploy --ship` then
+merges test→main; no tests run at that step since they already passed in test.
 
 ## Key rules
 
 | Rule | Why |
 |------|-----|
-| Edits go in `.claude/dev/`, not repo root | Repo root is the live server; editing there risks dirty state mid-reload |
-| `/gc` uses `--repo ~/workspace/claude-hooks/.claude/dev` | Commits land on dev branch, not main |
-| `/deploy` restarts the server after merge | Ensures new code is live before the full test suite runs |
-| `deploy.sh` is the only path to merge dev→main | Keeps main always passing tests |
+| Edits go in `~/workspace/claude-hooks-dev` (dev branch) | Never touch main or test directly |
+| **Merge main into dev before committing new work**, not just before `/deploy` | main can drift ahead via direct edits (has happened more than once) — catching it early avoids a conflict during `/deploy --ship` |
+| `/gc` commits target `--repo ~/workspace/claude-hooks-dev` | Commits land on dev branch |
+| Server runs from `claude-hooks-test`, restarted by `/deploy` | Dev edits never disrupt live Claude Code hooks |
+| `/deploy` / `/deploy --ship` is the only path to merge dev→test→main | Keeps main always passing tests |
+| Include `task:<id>` in every commit | `/gc` injects it automatically when a task is active |
 
 ## Committing
 
 Use `/gc` from any session. The skill targets the dev worktree automatically.
-Include `task:<id>` in every commit; `/gc` injects it when a task is active.
 
 ```
 feat(area): short description
@@ -53,61 +71,11 @@ task:abc123
 epic:def456
 ```
 
-## deploy.sh flow
-
-```
-tests pass in .claude/dev/
-       ↓
-git merge dev --no-edit  (in repo root / main)
-       ↓
-launchctl unload + load  (restarts hook server)
-       ↓
-GET /health → {"status":"ok"}
-```
-
-If tests fail, deploy aborts before the merge. Fix the failure on dev, then redeploy.
-
-## One-off skipping deploy.sh (manual path)
-
-When pre-existing test failures block deploy.sh, merge and restart manually:
-
-```bash
-cd ~/workspace/claude-hooks
-git merge dev --no-edit
-
-pkill -f "uvicorn hooks.server" || true
-sleep 1
-cd ~/workspace/claude-hooks-test
-nohup uv run uvicorn hooks.server:app --host 127.0.0.1 --port 8766 > /tmp/claude-hooks-server.log 2>&1 &
-
-curl -s http://127.0.0.1:8766/health
-```
-
-## Setting up the worktree (first time)
-
-```bash
-cd ~/workspace/claude-hooks
-git worktree add .claude/dev -b dev
-```
-
-If the dev branch already exists remotely:
-
-```bash
-git worktree add .claude/dev dev
-```
-
-Verify:
-
-```bash
-git worktree list
-# ~/workspace/claude-hooks           abc1234 [main]
-# ~/workspace/claude-hooks/.claude/dev  def567 [dev]
-```
-
 ## RAG index refresh after deploy
 
-After every successful commit on main, refresh the code and diff indexes so
-search stays in sync with HEAD:
+After every successful commit, refresh the code and diff indexes so search
+stays in sync with HEAD (handled automatically by `/gc`, but can be run
+manually):
 
 ```python
 # code_rag — incremental (changed files only)
@@ -117,7 +85,9 @@ mcp__claude-hooks__code_rag__index_files(files=["path/to/changed.py"])
 mcp__claude-hooks__diff_rag__index_commits(repo=".", since="HEAD~1", max_commits=1)
 ```
 
-## Checkpoint DB
+## Checkpoint state
 
-The server uses `SqliteSaver` at `~/.claude/langgraph_checkpoints.db`.
-State persists across reloads and restarts — no context is lost on deploy.
+The server uses `MemorySaver` (in-process, in-memory). State does NOT persist
+across server restarts or redeploys — this is a deliberate tradeoff after
+`SqliteSaver` corruption incidents (task:b3964f85). Design accordingly: don't
+rely on checkpoint state surviving a `/deploy`.
