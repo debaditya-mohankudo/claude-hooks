@@ -176,12 +176,13 @@ def score_repo_memories(tokens: set[str], cwd: str, cfg: dict) -> dict[str, tupl
 
     store_path = resolve_path(cwd)
     if store_path is None:
+        _log.debug("[score_repo_memories] no repo_memory store for cwd=%s", cwd)
         return {}
 
     try:
         store = RepoMemoryStore(store_path)
     except Exception as exc:
-        _log.warning("[score_repo_memories] repo_memory load error: %s", exc)
+        _log.warning("[score_repo_memories] repo_memory load error: store=%s error=%s", store_path, exc)
         return {}
 
     scored: dict[str, tuple[float, dict]] = {}
@@ -201,6 +202,10 @@ def score_repo_memories(tokens: set[str], cwd: str, cfg: dict) -> dict[str, tupl
             "related": memory.get("related", ""),
             "updated": memory.get("last_validated", ""),
         })
+    _log.debug(
+        "[score_repo_memories] store=%s candidates=%d scored=%d names=%s",
+        store_path, len(store), len(scored), list(scored.keys()),
+    )
     return scored
 
 
@@ -252,10 +257,20 @@ def score_memories(
         # Repo-local candidates compete for the same top-N slots as MEMORY.sqlite
         # rows. A name collision (unlikely — repo_memory migration avoids reusing
         # names still live in the global store) keeps whichever scored higher.
-        for name, (repo_score, repo_mem) in score_repo_memories(tokens, cwd, cfg).items():
+        repo_scored = score_repo_memories(tokens, cwd, cfg)
+        collisions = 0
+        for name, (repo_score, repo_mem) in repo_scored.items():
             existing = scored.get(name)
-            if existing is None or repo_score > existing[0]:
-                scored[name] = (repo_score, repo_mem)
+            if existing is not None:
+                collisions += 1
+                if repo_score <= existing[0]:
+                    continue
+            scored[name] = (repo_score, repo_mem)
+        if repo_scored:
+            _log.info(
+                "[score_memories] repo_memory merge cwd=%s sqlite_candidates=%d repo_candidates=%d collisions=%d",
+                cwd, len(rows), len(repo_scored), collisions,
+            )
 
     # Graph-neighbour boost — seeds are 2×top_n highest direct scorers
     n = top_n if top_n is not None else cfg.get("top_n", 5)
