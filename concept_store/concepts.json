@@ -593,6 +593,30 @@
       "module": "hooks/session_state.py",
       "name": "session-state-latest-checkpoint-lookup"
     },
+    "task-create-hierarchy-validation-scope": {
+      "confidence": 0.85,
+      "contracts": [
+        "handle_create(body='') always delegates to handle_create_scaffolded(task_type=task_type or 'misc', ...) — never duplicates template-fill or hierarchy logic inline",
+        "handle_create_scaffolded validates hierarchy via validate_jira_hierarchy(issue_type, parent_id) before building the body or inserting",
+        "handle_create's explicit-body path (body non-empty) does NOT run validate_jira_hierarchy inline — it relies on the external tasks__create PreToolUse gate (JiraHierarchyGate) for that check, since it's only reachable when called directly as the tasks__create MCP tool"
+      ],
+      "created_at": "2026-07-28T16:44:05.024324+00:00",
+      "description": "handle_create is a thin wrapper: when body is omitted it delegates entirely to handle_create_scaffolded, which builds the template body from task_templates/<task_type>.md AND validates Jira parent/child hierarchy (validate_jira_hierarchy from hooks/gates.py) before inserting. handle_create only retains its own insert logic for the explicit-body case, which create_scaffolded can't express (fixed template section labels).",
+      "evidence": [
+        "src/tools/tasks.py:handle_create",
+        "src/tools/tasks.py:handle_create_scaffolded",
+        "hooks/gates.py:validate_jira_hierarchy",
+        "hooks/gates.py:JiraHierarchyGate",
+        "task:5fc68a7c"
+      ],
+      "invariants": [
+        "PreToolUse gates in hooks/gates.py are keyed by external MCP tool name (e.g. JiraHierarchyGate.tool_name = 'tasks__create') and only fire on the MCP-dispatched call path — any internal Python function call to a gated handler (e.g. handle_create_scaffolded calling handle_create directly) bypasses that gate entirely and needs its own explicit check if the same invariant must hold",
+        "Adding a hierarchy/gate check to handle_create's core (rather than scoped to handle_create_scaffolded) breaks unit tests that call handle_create directly with permissive defaults (issue_type='task', no parent) — confirmed empirically: 62 test failures in tests/test_task_issue_type.py before scoping the fix down"
+      ],
+      "last_validated": "2026-07-28T16:44:05.024324+00:00",
+      "module": "src/tools/tasks.py",
+      "name": "task-create-hierarchy-validation-scope"
+    },
     "task-document-schema": {
       "confidence": 0.9,
       "contracts": [
