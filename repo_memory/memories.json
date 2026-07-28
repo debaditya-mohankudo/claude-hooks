@@ -260,16 +260,6 @@
       "tags": "claude-hooks,hook,payload,mcp,tool_name,tool_response,normalize",
       "type": "project"
     },
-    "claude-hooks-hybrid-model-strategy": {
-      "body": "Goal: use Claude + Ollama (qwen2.5:3b) as a hybrid — each at its optimal strength without compromising accuracy.\n\nRule: Ollama for fast/cheap/local tasks (domain classification, signal extraction, lightweight generation). Claude for reasoning, gating decisions, and anything where a wrong answer has real consequences. Never use a local model for safety-critical decisions (gates, send/delete operations).\n\nWhy: zero API cost and low latency for classification-scale tasks; Claude's accuracy preserved where it matters.\n\nHow to apply: when adding a new pipeline node, ask — does this require judgment or is it pattern-matching/extraction? Pattern-matching → Ollama candidate. Judgment/safety → Claude only.",
-      "created_at": "2026-07-28T00:46:10.019179+00:00",
-      "files": "",
-      "last_validated": "2026-07-28T00:46:10.019179+00:00",
-      "name": "claude-hooks-hybrid-model-strategy",
-      "related": "langchain-vs-claude-code-inversion,domain-classifier-llm-when,classify-domain-node-design",
-      "tags": "ollama,claude,hybrid,classification,accuracy,qwen,langchain-ollama,design,claude-hooks",
-      "type": "project"
-    },
     "claude-hooks-live-server-runs-from-test-worktree": {
       "body": "The production claude-hooks hook server (launchd job com.debaditya.claude-hooks-pipeline, uvicorn on :8766) runs from ~/workspace/claude-hooks-test's checkout, not ~/workspace/claude-hooks (main) or claude-hooks-dev.\n\nWhy: the repo uses a dev->test->main promotion flow (see /deploy skill) where test is the worktree the live daemon actually serves from — main is just the shipped/tagged endpoint of the pipeline, dev is where feature work happens.\n\nHow to apply: new feature work must start in ~/workspace/claude-hooks-dev (branch dev), never edited directly on ~/workspace/claude-hooks (main) — main edits have zero runtime effect and bypass the unit-gate/full-suite checks. Always land features via /deploy dev->test->main to reach the live server.",
       "created_at": "2026-07-28T00:46:10.020190+00:00",
