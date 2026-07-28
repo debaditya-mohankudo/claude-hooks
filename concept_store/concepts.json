@@ -294,6 +294,26 @@
       "module": "src/tools/hooks.py",
       "name": "hooks-mcp-tools-observability"
     },
+    "log-task-events-test-prefix-skip": {
+      "confidence": 0.9,
+      "contracts": [
+        "__call__(state) returns {} (no-op) for any state['session_id'] matching TEST_SESSION_PREFIX, identical to the existing no-active-task-id and missing-DB no-op paths"
+      ],
+      "created_at": "2026-07-28T02:07:45.324984+00:00",
+      "description": "LogTaskEventsNode writes one task_events row per UPS turn to proj_tasks.db whenever an active_task_id is set in state. Since task:a10a6638, it skips this DB write entirely for any session_id starting with TEST_SESSION_PREFIX (langchain_learning.session_graph.TEST_SESSION_PREFIX) — added because tests/replay_harness.py deliberately seeds active_task_id to exercise task-aware nodes during replay, which was writing real, permanent rows into the persistent, cross-process proj_tasks.db under session_id='replay-<session>', cluttering real task history (tasks__history).",
+      "evidence": [
+        "langchain_learning/nodes/log_task_events.py:LogTaskEventsNode.__call__",
+        "tests/test_log_task_events_node.py:test_skips_db_write_for_test_prefixed_session"
+      ],
+      "invariants": [
+        "The skip check happens AFTER the no-active-task-id early return but BEFORE any DB connection is opened — no proj_tasks.db access at all occurs for test-prefixed sessions, not just a rollback or filtered read later.",
+        "The prefix check is imported lazily inside __call__, not at module level — langchain_learning.session_graph imports the node registry, which imports this module, so a top-level import would be circular.",
+        "This guard only affects THIS node's DB write — it does not affect whether other nodes run, or whether the checkpoint/state itself gets test-graph routing (that's session_graph.get_session_graph's separate, unrelated job, task:b63088a1)."
+      ],
+      "last_validated": "2026-07-28T02:07:45.324984+00:00",
+      "module": "langchain_learning/nodes/log_task_events.py",
+      "name": "log-task-events-test-prefix-skip"
+    },
     "logger-sqlite-handler": {
       "confidence": 0.97,
       "contracts": [
