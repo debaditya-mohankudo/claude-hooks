@@ -95,28 +95,24 @@
         "All sections are markdown-formatted"
       ],
       "created_at": "2026-06-29T09:47:25.284960+00:00",
-      "description": "Assembles the injected additionalSystemPrompt from SessionState context: Turn state, soul/vault context, active domains, injected memories, tool hints, active task body, task history, related commits, and active review checklist. Also emits a one-time \"New project detected\" note (from CwdDomainDetectNode's cwd_unmapped) when the session's cwd matches no cwd_domains.json entry. Also renders execution_contract (added 2026-07-05, task:380140fa) as its own \"### Execution contract\" section, verbatim, distinct from task_body.",
+      "description": "Assembles the UserPromptSubmit additionalSystemPrompt from SessionState context (memories, task context, repo memories, related tasks/commits, rag chunks) into markdown sections, applying a token budget before rendering.",
       "evidence": [
-        "hooks/dispatcher.py:66",
-        "hooks/dispatcher.py:184",
-        "hooks/dispatcher.py:96",
-        "hooks/dispatcher.py: def _enforce_context_budget(ctx: dict) -> None: ... while memories and _combined_tokens() > _CONTEXT_TOKEN_BUDGET: memories.pop()",
-        "hooks/dispatcher.py: if len(body) > _TASK_BODY_CHAR_CAP: body = body[:_TASK_BODY_CHAR_CAP] + \"\\n...[truncated]\"",
-        "langchain_learning/nodes/decision_task.py: if len(current) > _MAX_DECISIONS: current = current[-_MAX_DECISIONS:]",
-        "hooks/dispatcher.py: contract = (ctx.get(\"execution_contract\") or \"\").strip(); if contract: lines.append(\"### Execution contract\")"
+        "hooks/dispatcher.py:_format_system_prompt",
+        "hooks/dispatcher.py:_enforce_context_budget"
       ],
       "invariants": [
         "Sections are only emitted when their data is non-empty",
         "Related tasks section is populated when LoadRelatedTasksNode finds semantically similar done tasks via TurboVec neighbor search (capped at 3); empty when no active task, no rag index, or no matching done neighbors",
         "Task context summary takes precedence over raw task history when both exist",
         "New-project note is emitted when ctx['cwd_unmapped'] is true (set by CwdDomainDetectNode only on the first turn a session's cwd is unmapped, tracked via cwd_domain_reminder_sent in checkpoint state so it fires once per session, not every turn)",
-        "Before assembly, _enforce_context_budget(ctx) trims ctx['memories'] from the tail (lowest-scored, since the list is pre-sorted descending) until the combined token count of memories+task_memories+related_tasks+related_commits+task_rag_chunks fits _CONTEXT_TOKEN_BUDGET (4000 tokens), or memories is empty. related_tasks/related_commits/task_rag_chunks are never trimmed here — they're already capped at top-3 by their nodes.",
+        "Before assembly, _enforce_context_budget(ctx) trims ctx['memories'] from the tail (lowest-scored, since the list is pre-sorted descending) until the combined token count of memories+task_memories+repo_task_memories+related_tasks+related_commits+task_rag_chunks fits _CONTEXT_TOKEN_BUDGET (4000 tokens), or memories is empty. task_memories/repo_task_memories/related_tasks/related_commits/task_rag_chunks are counted toward the budget but never trimmed themselves — they're already small/capped by their producing nodes (repo_task_memories is filtered by Files: overlap at task-activation time, task:850ddd65).",
         "task_body is hard-truncated to _TASK_BODY_CHAR_CAP (3000 chars) at render time, appending an \"...[truncated]\" marker when cut — it has no upstream length cap (a task's body can be arbitrarily long, e.g. a large epic scaffold).",
         "mid_task_decisions (Task decisions section) is capped to the most recent _MAX_DECISIONS (15) entries by langchain_learning/nodes/decision_task.py, sliced on every tasks__add_decision append — not trimmed in dispatcher.py itself. This checkpoint state exists solely for prompt injection; the durable decision history lives in the task's DB record, unaffected by the slice.",
         "execution_contract is rendered as its own section, independent of task_body and _enforce_context_budget — it is NOT subject to _TASK_BODY_CHAR_CAP truncation or memories-budget eviction, by design (a fixed north-star template built once at task activation by activate_task.py._build_execution_contract, must stay byte-identical every turn). Cleared alongside the other active-task fields at all three deactivation sites: DeactivateTaskNode (tasks__clear_active/tasks__finish), ActivateTaskNode's pop-to-empty-stack, and LogTaskEventsNode's \"task:<id> done\" auto-close (task:eb46ac47 — this third site was originally missed).",
-        "After _format_system_prompt, the UPS handler appends one-shot node output: if ctx['pending_hook_output'].hookSpecificOutput has hookEventName == 'UserPromptSubmit', its additionalContext is appended to the assembled system prompt (e.g. LogTaskEventsNode's /task-introspection nudge after a \"task:<id> done\" auto-close, task:eb46ac47). run_session() surfaces-and-clears the checkpoint copy (mirroring run_post_tool/run_stop), so the payload renders exactly once and cannot leak into the next PostToolUse response; the hookEventName gate prevents a stale cross-event payload from ever being rendered here."
+        "After _format_system_prompt, the UPS handler appends one-shot node output: if ctx['pending_hook_output'].hookSpecificOutput has hookEventName == 'UserPromptSubmit', its additionalContext is appended to the assembled system prompt (e.g. LogTaskEventsNode's /task-introspection nudge after a \"task:<id> done\" auto-close, task:eb46ac47). run_session() surfaces-and-clears the checkpoint copy (mirroring run_post_tool/run_stop), so the payload renders exactly once and cannot leak into the next PostToolUse response; the hookEventName gate prevents a stale cross-event payload from ever being rendered here.",
+        "repo_task_memories (## Repo memories section) is emitted alongside task_memories (## Task memories) but the two are mutually exclusive in practice per-repo: activate_task.py sources task_memories from either the global scorer OR repo_memory, never both, depending on whether the active task's repo has migrated to repo_memory/memories.json (task:850ddd65)."
       ],
-      "last_validated": "2026-07-23T12:34:17.828250+00:00",
+      "last_validated": "2026-07-28T00:50:53.572861+00:00",
       "module": "hooks/dispatcher.py",
       "name": "dispatcher-system-prompt-assembly"
     },

@@ -77,14 +77,19 @@ _TASK_BODY_CHAR_CAP = 3000
 def _enforce_context_budget(ctx: dict) -> None:
     """Trim ctx["memories"] (lowest-scored last, since the list is pre-sorted
     descending by score) until the combined context fits _CONTEXT_TOKEN_BUDGET
-    tokens, or the list is empty. Mutates ctx in place. related_tasks/related_commits/
-    task_rag_chunks are left untouched — they're already small and capped.
+    tokens, or the list is empty. Mutates ctx in place. task_memories/
+    repo_task_memories/related_tasks/related_commits/task_rag_chunks are
+    counted toward the budget but never trimmed themselves — they're already
+    small/capped (repo_task_memories is filtered by Files: overlap at
+    activation time, see activate_task.py), so memories is the only source
+    with a meaningful relevance ordering to evict from.
     """
     from src.tools.tokens import count_tokens
 
     def _combined_tokens() -> int:
         return count_tokens("".join(
-            m.get("body", "") for m in ctx.get("memories", []) + ctx.get("task_memories", [])
+            m.get("body", "")
+            for m in ctx.get("memories", []) + ctx.get("task_memories", []) + ctx.get("repo_task_memories", [])
         )) + count_tokens("".join(
             t.get("body_snippet", "") for t in ctx.get("related_tasks", [])
         )) + count_tokens("".join(
