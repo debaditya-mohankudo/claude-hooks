@@ -1,9 +1,9 @@
 ---
-tags: architecture overview, claude-hooks, hook server, MCP tools, LangGraph, session graph, memory system, gate framework, task framework, observability, FastAPI, uvicorn, system overview, components, SysML, formal model
+tags: architecture overview, claude-hooks, hook server, MCP tools, LangGraph, session graph, memory system, gate framework, task framework, observability, FastAPI, uvicorn, system overview, components
 ---
 # claude-hooks Architecture
 
-> This document describes the system as built — the decisions made, why they were made, and the constraints that shaped the design. The structural/behavioral claims below are backed by a validated SysML v2 model in `docs/models/` (source of truth for structure/state/requirements/sequence — this page explains it, it doesn't restate it informally).
+> This document describes the system as built — the decisions made, why they were made, and the constraints that shaped the design.
 
 ---
 
@@ -19,46 +19,32 @@ tags: architecture overview, claude-hooks, hook server, MCP tools, LangGraph, se
 
 ---
 
-## Formal Model (SysML v2)
+## Subsystems
 
-Validated via `jupyter console --kernel=sysml` (the SysML v2 Pilot Implementation's kernel — see the MBSE learning epic that produced these, task:7af08b6b). Each `.sysml` file below parses and validates with zero errors against the real SysML v2 metamodel — not diagrams-as-illustration, a checked model.
+Five subsystems, each composing a shared `Foundation` (config, DB schema, logging — cross-cutting, not a peer subsystem), composed into a top-level system: `HookServer` (FastAPI server, event dispatcher, 3 gates, session memory timeline — owns the LangGraph checkpointer lifecycle), `MCPTools` (FastMCP dispatcher, 9 domains / 56 actions), `TaskGraph` (Jira-style issue tracking backed by `proj_tasks.db`), `MemoryConceptRAGStores` (four distinct persistent stores: memory/`MEMORY.sqlite`/BM25 — per-turn UPS scoring, `feedback`/`user`/non-repo-domain facts only since task:850ddd65; repo_memory/`repo_memory/memories.json` — per-repo committed store for `project`/`reference` facts, lifecycle-scoped only (task-activation/grooming/introspection), never per-turn scored; concept/`concepts.json`; RAG/code_rag+diff_rag on a shared TurboVec core), and `LangGraphPipeline` (`StateGraph(SessionState)`, ~28 nodes, `MemorySaver` checkpointer after a prior `SqliteSaver` corrupted).
 
-### Subsystems (Block Definition Diagram equivalent)
+## Task lifecycle
 
-Five subsystems, each composing a shared `Foundation` (config, DB schema, logging — cross-cutting, not a peer subsystem), composed into a top-level `System` part: `HookServer` (FastAPI server, event dispatcher, 3 gates, session memory timeline — owns the LangGraph checkpointer lifecycle), `MCPTools` (FastMCP dispatcher, 9 domains / 56 actions), `TaskGraph` (Jira-style issue tracking backed by `proj_tasks.db`), `MemoryConceptRAGStores` (four distinct persistent stores: memory/`MEMORY.sqlite`/BM25 — per-turn UPS scoring, `feedback`/`user`/non-repo-domain facts only since task:850ddd65; repo_memory/`repo_memory/memories.json` — per-repo committed store for `project`/`reference` facts, lifecycle-scoped only (task-activation/grooming/introspection), never per-turn scored; concept/`concepts.json`; RAG/code_rag+diff_rag on a shared TurboVec core), and `LangGraphPipeline` (`StateGraph(SessionState)`, ~28 nodes, `MemorySaver` checkpointer after a prior `SqliteSaver` corrupted).
+Transcribed directly from `src/tools/tasks.py`'s `_VALID_STATUSES`/`_TRANSITIONS`/`is_valid_transition` — not inferred. New tasks always start `open`; `done`/`abandoned` are terminal; any non-terminal state can transition to `abandoned` (special-cased in code rather than listed per-state). Not modeled as a same-task transition: parent auto-close-on-all-subtasks-done is a cross-task side effect (`handle_finish`).
 
-Full source with all `doc` comments and provenance: [`docs/models/claude_hooks_system.sysml`](models/claude_hooks_system.sysml), [`docs/models/foundation.sysml`](models/foundation.sysml).
+## Requirements traceability
 
-### Task lifecycle (state machine)
-
-Transcribed directly from `src/tools/tasks.py`'s `_VALID_STATUSES`/`_TRANSITIONS`/`is_valid_transition` — not inferred. New tasks always start `openState`; `doneState`/`abandonedState` are terminal; any non-terminal state can transition to `abandonedState` (special-cased in code rather than listed per-state, modeled here as explicit transitions for clarity). Not modeled: parent auto-close-on-all-subtasks-done is a cross-task side effect (`handle_finish`), not a same-task transition.
-
-Full source: [`docs/models/task_lifecycle.sysml`](models/task_lifecycle.sysml).
-
-### Requirements traceability
-
-Six requirements, each `satisfy`'d by a subsystem part, sourced from a mix of this document's own prose and `concept_store/concepts.json` invariants (see the file for full sourcing citations per requirement — every one cites its origin, none invented):
+Six requirements, each satisfied by a subsystem, sourced from a mix of this document's own prose and `concept_store/concepts.json` invariants:
 
 | Requirement | Source | Satisfied by |
 | --- | --- | --- |
-| `CommitTaskTraceabilityRequirement` | concepts: `gates-commit-traceability`, `commit-task-traceability-capture` | `hookServer`, `taskGraph` |
-| `AdditiveOnlyMigrationRequirement` | concept: `db-schema-ddl-and-migrations` invariant | `foundation` |
-| `LogReadViaMCPOnlyRequirement` | this doc's "Observability" section | `mcpTools` |
-| `CheckpointNonPersistenceRequirement` | this doc's "Development Workflow" section | `pipeline` |
-| `MemoryScoringPerDomainRequirement` | concept: `memory-scoring-per-domain-batch-limit` | `stores` |
-| `JiraHierarchyRequirement` | concept: `gates-jira-hierarchy` | `taskGraph`, `hookServer` |
+| Commit ↔ task traceability | concepts: `gates-commit-traceability`, `commit-task-traceability-capture` | `HookServer`, `TaskGraph` |
+| Additive-only migrations | concept: `db-schema-ddl-and-migrations` invariant | `Foundation` |
+| Logs readable only via MCP | this doc's "Observability" section | `MCPTools` |
+| Checkpoint non-persistence | this doc's "Development Workflow" section | `LangGraphPipeline` |
+| Memory scoring per-domain limit | concept: `memory-scoring-per-domain-batch-limit` | `MemoryConceptRAGStores` |
+| Jira-style hierarchy | concept: `gates-jira-hierarchy` | `TaskGraph`, `HookServer` |
 
-Full source: [`docs/models/requirements.sysml`](models/requirements.sysml).
+## UserPromptSubmit sequence
 
-### UserPromptSubmit sequence
-
-SysML v2's textual notation has no distinct sequence-diagram keyword — an `action def` with explicit `first`/`then` successions is the closest fit. Ground truth: `hooks/dispatcher.py:_handle_user_prompt_submit()` and `langchain_learning/session_graph.py:build_session_graph()`. Eight ordered actions: client forwards the payload → server routes to the dispatcher → dispatcher reads existing checkpoint state → the StateGraph runs (`load_turn` → task loaders → fan-out `cwd_domain_detect`/`load_memories`/`score_tools` → `set_prompt_id` → `log_task_events`) → dispatcher adds `vault_context` → trims to the token/char budget → assembles `additionalSystemPrompt` → response flows back through server → client → Claude Code.
-
-Full source: [`docs/models/user_prompt_submit_flow.sysml`](models/user_prompt_submit_flow.sysml).
+Ground truth: `hooks/dispatcher.py:_handle_user_prompt_submit()` and `langchain_learning/session_graph.py:build_session_graph()`. Eight ordered steps: client forwards the payload → server routes to the dispatcher → dispatcher reads existing checkpoint state → the StateGraph runs (`load_turn` → task loaders → fan-out `cwd_domain_detect`/`load_memories`/`score_tools` → `set_prompt_id` → `log_task_events`) → dispatcher adds `vault_context` → trims to the token/char budget → assembles `additionalSystemPrompt` → response flows back through server → client → Claude Code.
 
 **A prior version of this section named `hooks/memory_loader_lc.py` as an "LCEL pipeline."** That file does not exist anywhere in this repo — it belongs to a separate, global `~/.claude/` memory system unrelated to claude-hooks. The graph above (a LangGraph `StateGraph`, not LCEL — no LCEL usage exists anywhere in this repo) is the real mechanism.
-
-**Reading the models yourself:** these are plain text — readable without tooling for the structure/names/comments — but full parse/semantic validation requires the SysML v2 Pilot Implementation's Jupyter kernel (`jupyter console --kernel=sysml`; setup notes in the MBSE epic, task:7af08b6b) or a SysML v2-capable IDE (Eclipse Papyrus).
 
 ---
 
@@ -141,5 +127,3 @@ flowchart TD
 
 - [New Repo Onboarding](new_repo_onboarding.md) — How to register a new project into `cwd_domains.json` and seed memories
 - [Setup Guide](setup.md) — Getting claude-hooks running from scratch; database creation, hook registration, env vars
-
-**Caveat on staleness:** unlike `concept_store/concepts.json` (auto drift-checked on every Edit/Write), the SysML models in `docs/models/` have no drift detection — they're a snapshot as of task:7af08b6b's epic, not automatically kept in sync with code changes. Treat them as "validated at time of writing," and re-derive if this section's subsystem/requirement/transition claims look stale against current code.
