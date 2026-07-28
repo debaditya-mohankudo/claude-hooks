@@ -16,6 +16,19 @@ _DEFAULT_FILENAME = "memories.json"
 _VALID_TYPES = ("project", "reference")
 
 
+def resolve_path(cwd: str) -> Optional[Path]:
+    """Path to <cwd>/repo_memory/memories.json if it exists, else None.
+
+    Same convention for every project — no per-repo config. A repo's presence
+    of this file is the switch consumers use to decide whether to prefer
+    repo-local memories over the global MEMORY.sqlite store for that cwd.
+    """
+    if not cwd:
+        return None
+    path = Path(cwd) / "repo_memory" / _DEFAULT_FILENAME
+    return path if path.exists() else None
+
+
 class RepoMemoryStore:
     """Stores repo-specific project/reference memories as a JSON file keyed by name.
 

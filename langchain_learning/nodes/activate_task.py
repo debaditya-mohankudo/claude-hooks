@@ -26,6 +26,7 @@ from langchain_learning.nodes._text_utils import tokenise, task_project_tag
 from langchain_learning.nodes.backfill_memory_files import _parse_files_section, _file_tokens
 from langchain_learning.session_state import SessionState
 from repo_memory.store import RepoMemoryStore
+from repo_memory.store import resolve_path as _resolve_repo_memory_path
 from src.logger import get_logger
 
 _log = get_logger(__name__)
@@ -132,11 +133,12 @@ def _repo_memory_store_path(cwd: str) -> Path | None:
     memory context comes from repo_memory instead of MEMORY.sqlite's global
     scoring for that repo (task:850ddd65 — repo memories replace task
     memories, not add to them, once a repo has moved to the split store).
+
+    Thin wrapper over repo_memory.store.resolve_path — same resolution used
+    by LoadMemoriesNode's per-turn scoring (_memory_scoring.score_repo_memories),
+    kept as a separate function here only for call-site readability.
     """
-    if not cwd:
-        return None
-    path = Path(cwd) / "repo_memory" / "memories.json"
-    return path if path.exists() else None
+    return _resolve_repo_memory_path(cwd)
 
 
 def _load_repo_task_memories(store_path: Path, task_files: list[str]) -> list[dict]:

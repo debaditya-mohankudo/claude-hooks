@@ -52,7 +52,7 @@ class LoadMemoriesNode:
         )
 
         try:
-            memories = self._retriever.retrieve(tokens, project_domain)
+            memories = self._retriever.retrieve(tokens, project_domain, cwd=cwd)
         except Exception as exc:
             _log.error("[load_memories] retriever error: %s", exc)
             return {"memories": [], "keywords": list(tokens)}
