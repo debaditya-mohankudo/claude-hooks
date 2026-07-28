@@ -1,14 +1,22 @@
 ---
 name: task-create
-description: Quick reference for creating Jira-style issues — epic, story, task, bug, subtask. Which args to pass, hierarchy rules, when to use cwd vs domain. Use when about to call tasks__create or when the user says /task-create.
+description: Quick reference for creating Jira-style issues — epic, story, task, bug, subtask. Which args to pass, hierarchy rules, when to use cwd vs domain. Use when about to call tasks__create_scaffolded or when the user says /task-create.
 user-invocable: true
-updated: 2026-07-26
+updated: 2026-07-28
 wiki: "[[Documentation/Tools/claude-hooks/skills.md]]"
 repo: ~/workspace/claude-hooks/skills/task-create/skill.md
 deployed: ~/.claude/skills/task-create/skill.md
 ---
 
-Reference for `mcp__claude-hooks__tasks__create`. Read this before calling it.
+Reference for `mcp__claude-hooks__tasks__create_scaffolded`. Read this before calling it.
+
+**Prefer `tasks__create_scaffolded` over `tasks__create`.** `tasks__create` requires
+a hand-formatted `body` string that must exactly match the gate's `Type:` + required-section
+schema (`hooks/dispatcher.py:_check_task_body_format`) — free-form or slightly-off bodies get
+denied with a "missing section" error. `tasks__create_scaffolded` takes structured params
+(`title`, `task_type`, `sections` dict) and builds a guaranteed-valid body internally, so it
+never hits that rejection loop. Only reach for raw `tasks__create` if you need body content
+that doesn't fit the template's fixed section labels at all — a rare case.
 
 ## Jira hierarchy
 
@@ -39,31 +47,38 @@ mcp__claude-hooks__tasks__create_epic(
 
 # Story / task / bug — child of an epic
 # No epic yet? Use parent_id="96c361de" (Unassigned) — move to a real epic later.
-mcp__claude-hooks__tasks__create(
+mcp__claude-hooks__tasks__create_scaffolded(
     title="<short title>",
-    body="<Type: + template below>",
+    task_type="feature",        # feature | bug | research | misc — workflow kind
+    sections={"Task": "...", "Motivation": "...", "Files": "..."},
     cwd="<repo path>",          # or domain=
     parent_id="<epic_task_id>",
     issue_type="story",         # or task | bug
 )
 
 # Subtask — must have a parent (story, task, or bug)
-mcp__claude-hooks__tasks__create(
+mcp__claude-hooks__tasks__create_scaffolded(
     title="<short title>",
-    body="<Type: + template below>",
+    task_type="feature",
+    sections={"Task": "...", "Motivation": "...", "Files": "..."},
     cwd="<repo path>",          # or domain=
     parent_id="<parent_task_id>",
     issue_type="subtask",
 )
 
 # Research / non-dev — explicit domain, no cwd
-mcp__claude-hooks__tasks__create(
+mcp__claude-hooks__tasks__create_scaffolded(
     title="<short title>",
-    body="<Type: + template below>",
+    task_type="research",
+    sections={"Task": "...", "Context": "..."},
     domain="<domain>",
     issue_type="task",          # or story | bug
 )
 ```
+
+Any section left unset is auto-filled with `"(pending)"`/`"TBD"` — fill in later via
+`tasks__update(body=...)`. Only fall back to raw `tasks__create` with a hand-written
+`body` if your content genuinely doesn't fit the template's fixed section labels below.
 
 ## domain values
 

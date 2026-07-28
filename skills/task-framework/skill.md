@@ -2,7 +2,7 @@
 name: task-framework
 description: Start or resume a task using the task graph framework. Creates a task, activates it for the session, and explains the lifecycle. Use when the user runs /task-framework or asks to work on a task with tracking.
 user-invocable: true
-updated: 2026-07-26
+updated: 2026-07-28
 wiki: "[[Documentation/Tools/claude-hooks/skills.md]]"
 repo: ~/workspace/claude-hooks/skills/task-framework/skill.md
 deployed: ~/.claude/skills/task-framework/skill.md
@@ -68,11 +68,12 @@ Skip this step only for single-task work with no subtasks.
 Use `/task-create` — it documents the full API surface (issue hierarchy, cwd vs domain, body format, subtask signatures). Quick reference:
 
 ```python
-# Dev task
-mcp__claude-hooks__tasks__create(title="...", body="...", cwd="<repo path>")
+# Dev task — prefer create_scaffolded: it builds a gate-valid body from structured
+# sections, avoiding tasks__create's "missing section" rejection loop.
+mcp__claude-hooks__tasks__create_scaffolded(title="...", task_type="feature", sections={...}, cwd="<repo path>")
 
 # Research / non-dev
-mcp__claude-hooks__tasks__create(title="...", body="...", domain="<domain>")
+mcp__claude-hooks__tasks__create_scaffolded(title="...", task_type="research", sections={...}, domain="<domain>")
 ```
 
 **Title quality (dev tasks):** The title is embedded for semantic neighbor search — it must encode *what + where + why* with concrete keywords. A good title is self-contained and scoped:
