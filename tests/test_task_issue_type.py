@@ -43,17 +43,17 @@ class TestCreateIssueType:
 
 class TestAutoFillFromTemplate:
     def test_empty_body_auto_fills_misc_template(self):
-        r = handle_create(title="Fix the flaky test")
+        r = handle_create(title="Fix the flaky test", issue_type="epic")
         assert "error" not in r
         assert "id" in r
 
     def test_empty_body_with_task_type_uses_that_template(self):
-        r = handle_create(title="Investigate slow queries", task_type="research")
+        r = handle_create(title="Investigate slow queries", task_type="research", issue_type="epic")
         assert "error" not in r
         assert "id" in r
 
     def test_auto_filled_body_contains_title_and_type_line(self):
-        r = handle_create(title="Fix the flaky test")
+        r = handle_create(title="Fix the flaky test", issue_type="epic")
         row = handle_get(r["id"])
         assert "Type: misc" in row["body"]
         assert "Fix the flaky test" in row["body"]
