@@ -133,9 +133,9 @@ Knowledge should evolve. Identify obsolete memories, stale documentation, outdat
 
 ## Step 4 — Memory evolution
 
-Two capture channels, split by scope:
+Three capture channels, split by scope. Decide in this order — each one rules out the next:
 
-**Task-specific** (tied to this task's context — a design decision and rationale, a constraint or gotcha discovered here, a pattern that worked or failed here):
+**1. Task-specific** (tied to this task's context — a design decision and rationale, a constraint or gotcha discovered here, a pattern that worked or failed here):
 
 ```python
 mcp__claude-hooks__tasks__create_feedback(task_id="<id>", decision="...", constraint="...", pattern="...", session_id="<sid>")
@@ -143,13 +143,33 @@ mcp__claude-hooks__tasks__create_feedback(task_id="<id>", decision="...", constr
 
 All three fields optional — pass only what surfaced. This is the only place create_feedback is invoked since the finish-time retrospective template became a pointer to this skill (task:8c3c2ee4) — don't skip it when something task-specific surfaced.
 
-**Globally reusable** (applies across tasks or domains — workflow discoveries, architectural patterns, debugging techniques, recurring pitfalls, framework behavior):
+**2. Repo-specific project/reference fact** (a durable architectural/behavioral fact about *this repo's* code — not this task's specific decision, and not something equally true in an unrelated repo; task:850ddd65's repo-local memory split):
+
+```python
+mcp__claude-hooks__repo_memory__upsert(
+    repo="<repo>",
+    memory={"name": "<slug>", "type": "project"|"reference", "body": "...", "tags": "...", "files": "<file1>, <file2>"},
+)
+```
+
+Check first whether `<repo>/repo_memory/memories.json` exists (`repo_memory__list(repo="<repo>")` — empty result set with no error means the store exists but is empty; an error means the repo hasn't been migrated to the split store yet). If the repo has no repo_memory store yet, fall through to channel 3 (global) rather than creating one unilaterally — store creation is `task:850ddd65`'s migration concern, not something introspection should trigger as a side effect.
+
+Populate `files` whenever you know the concrete file(s) the fact is about — this is what lets task-activation (`activate_task.py`) and future drift detection match the fact back to relevant work; an empty `files` column was the exact gap found auditing the pre-split global memories.
+
+Unlike global memories (whose names get rolled up into `document.related.memories` automatically from `task_events.memories`, see Step 7b below), a repo_memory slug created here isn't logged anywhere else — append it to `document.related.memories` yourself in the same Step 7b call so it isn't lost:
+```python
+mcp__claude-hooks__tasks__update_document(id="<task_id>", related={"memories": ["<repo-memory-slug>"]})
+```
+
+**3. Globally reusable** (applies across tasks or domains — workflow discoveries, architectural patterns, debugging techniques, recurring pitfalls, framework behavior; also the fallback when repo-specificity itself is ambiguous):
 
 ```python
 mcp__claude-hooks__memory__add(name="<slug>", type="feedback", domain="<domain>", tags="..., task:<id>", body="...")
 ```
 
-Include `task:<id>` as the last tag for traceability. Avoid recording task-specific trivia as global memories — that's what create_feedback is for. Link related memories with `[[slug]]` in the body where relevant — cheap now, saves a future search.
+Include `task:<id>` as the last tag for traceability. Avoid recording task-specific trivia as global memories — that's what channel 1 is for. Link related memories with `[[slug]]` in the body where relevant — cheap now, saves a future search.
+
+**Deciding between 2 and 3 when it's genuinely unclear**: default to channel 3 (global). A wrongly-globalized memory is merely retrieved slightly-too-often across repos; a wrongly-repo-localized memory silently vanishes from the always-on UPS pipeline for anyone working in other repos who'd have benefited from it. Bias toward the channel with the smaller blast radius on a mistake.
 
 ---
 

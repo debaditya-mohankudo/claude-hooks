@@ -247,3 +247,98 @@ def test_build_execution_contract_contains_finish_philosophy():
     assert "task:abc123" in contract
     assert "Some task" in contract
     assert "Finish decisively" in contract
+
+
+# ── repo_memory replaces task_memories for migrated repos (task:850ddd65) ────
+
+def test_no_cwd_falls_back_to_global_scoring(tmp_path):
+    """No cwd in state → no repo store to check → global _score_memories path,
+    unchanged from pre-split behavior."""
+    db = _make_tasks_db(tmp_path)
+    with patch("langchain_learning.nodes.activate_task._cfg") as cfg:
+        cfg.tasks_db = db
+        cfg.memory_db = tmp_path / "MEMORY.sqlite"
+        node = ActivateTaskNode()
+        result = node(_state(tool_name="tasks__set_active", tool_input={"task_id": "task01"}))
+    assert result["repo_task_memories"] == []
+    assert result["task_memories"] == []  # empty since MEMORY.sqlite doesn't exist here
+
+
+def test_cwd_without_repo_memory_store_falls_back_to_global(tmp_path):
+    """cwd set, but no repo_memory/memories.json at that path → repo not
+    migrated yet → global scoring still runs, repo_task_memories stays empty."""
+    db = _make_tasks_db(tmp_path)
+    with patch("langchain_learning.nodes.activate_task._cfg") as cfg:
+        cfg.tasks_db = db
+        cfg.memory_db = tmp_path / "MEMORY.sqlite"
+        node = ActivateTaskNode()
+        result = node(_state(
+            tool_name="tasks__set_active",
+            tool_input={"task_id": "task01"},
+            cwd=str(tmp_path),
+        ))
+    assert result["repo_task_memories"] == []
+
+
+def test_cwd_with_repo_memory_store_replaces_global_scoring(tmp_path):
+    """cwd points at a migrated repo (repo_memory/memories.json exists) →
+    task_memories comes back empty (global scorer skipped entirely) and
+    repo_task_memories is sourced from the repo store instead — replace,
+    not merge."""
+    db = _make_tasks_db(tmp_path)
+    store_dir = tmp_path / "repo_memory"
+    store_dir.mkdir()
+    (store_dir / "memories.json").write_text(
+        '{"meta": {}, "memories": {"a-fact": {'
+        '"name": "a-fact", "type": "project", "body": "some repo fact",'
+        '"tags": "", "files": "", "related": ""}}}'
+    )
+    with patch("langchain_learning.nodes.activate_task._cfg") as cfg:
+        cfg.tasks_db = db
+        cfg.memory_db = tmp_path / "MEMORY.sqlite"
+        node = ActivateTaskNode()
+        result = node(_state(
+            tool_name="tasks__set_active",
+            tool_input={"task_id": "task01"},
+            cwd=str(tmp_path),
+        ))
+    assert result["task_memories"] == []
+    assert len(result["repo_task_memories"]) == 1
+    assert result["repo_task_memories"][0]["name"] == "a-fact"
+
+
+def test_repo_memories_filtered_by_task_files_overlap(tmp_path):
+    """When the task has a Files: section, repo memories are filtered to
+    those whose files overlap it — same stem-token matching as the global
+    store's files-column backfill."""
+    db = make_tasks_db(tmp_path, tasks=[
+        {"id": "task01", "title": "Fix auth bug",
+         "body": "Type: feature\nTask:\ndesc\n\nFiles:\nhooks/gates.py\n", "status": "open"},
+    ])
+    store_dir = tmp_path / "repo_memory"
+    store_dir.mkdir()
+    (store_dir / "memories.json").write_text(
+        '{"meta": {}, "memories": {'
+        '"gates-fact": {"name": "gates-fact", "type": "project", "body": "about gates",'
+        '"tags": "", "files": "hooks/gates.py", "related": ""},'
+        '"unrelated-fact": {"name": "unrelated-fact", "type": "project", "body": "unrelated",'
+        '"tags": "", "files": "src/other.py", "related": ""}'
+        '}}'
+    )
+    with patch("langchain_learning.nodes.activate_task._cfg") as cfg:
+        cfg.tasks_db = db
+        cfg.memory_db = tmp_path / "MEMORY.sqlite"
+        node = ActivateTaskNode()
+        result = node(_state(
+            tool_name="tasks__set_active",
+            tool_input={"task_id": "task01"},
+            cwd=str(tmp_path),
+        ))
+    names = {m["name"] for m in result["repo_task_memories"]}
+    assert names == {"gates-fact"}
+
+
+def test_pop_active_clears_repo_task_memories_too():
+    node = ActivateTaskNode()
+    result = node(_state(tool_name="tasks__pop_active", task_stack=[]))
+    assert result["repo_task_memories"] == []

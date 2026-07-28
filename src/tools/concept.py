@@ -13,20 +13,8 @@ for a tool whose whole purpose is operating on repos other than this one.
 """
 from __future__ import annotations
 
-from pathlib import Path
-
 from concept_store.store import ConceptStore
-
-
-def _resolve_repo(repo: str) -> Path:
-    """repo -> validated Path. Mirrors code_rag.py's _resolve_repo, minus
-    the default-to-claude-hooks fallback (see module docstring)."""
-    if not repo:
-        raise ValueError("repo is required")
-    p = Path(repo).expanduser()
-    if not p.is_dir():
-        raise ValueError(f"Repo not found: {repo}")
-    return p
+from tools._repo_resolve import resolve_repo as _resolve_repo
 
 
 def _store_for(repo: str) -> ConceptStore:

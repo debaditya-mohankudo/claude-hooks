@@ -209,6 +209,19 @@ def _format_system_prompt(ctx: dict) -> str:
                 lines.append(body)
             lines.append("")
 
+    if ctx.get("repo_task_memories"):
+        # Repo-local project/reference memories (repo_memory/memories.json) matched
+        # to the active task's Files: section — task:850ddd65's activation-time
+        # consumer. No [domain] tag (repo IS the domain now, see repo_memory/store.py).
+        lines.append("## Repo memories")
+        for mem in ctx["repo_task_memories"]:
+            name = mem.get("name", "?")
+            body = mem.get("body", "").strip()
+            lines.append(f"### {name} [{mem.get('type', '')}]")
+            if body:
+                lines.append(body)
+            lines.append("")
+
     if ctx.get("task_context_summary"):
         lines.append("## Task context")
         lines.append(ctx["task_context_summary"])
