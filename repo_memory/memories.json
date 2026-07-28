@@ -370,6 +370,16 @@
       "tags": "worktree, test, server, launchd, port 8766, integration, sdlc, claude-hooks, launchctl, kickstart",
       "type": "project"
     },
+    "deploy-concept-audit-catches-what-grooming-misses": {
+      "body": "The /deploy skill's Step 1 concept audit (diffing changed modules against concept_store invariants right before shipping to test) caught a real integration gap during task:850ddd65 that /task-grooming's pre-implementation pass had no way to catch: the new ## Repo memories context section bypassed _enforce_context_budget's token accounting entirely, silently violating the dispatcher-system-prompt-assembly concept's stated invariant.\n\nWhy grooming couldn't have caught this: grooming runs BEFORE implementation, when the exact shape of new code (a new context section, a new state field) isn't concretely known yet — it can flag general risk areas but can't diff against code that doesn't exist yet. The concept audit runs AFTER implementation, against the actual diff, immediately before the change goes live — structurally the last point where a stored invariant can be checked against real changed files.\n\nThis is why both checks matter and aren't redundant: grooming catches premise/design gaps early (cheap to fix), concept audit catches implementation-vs-invariant drift late (last chance before shipping). Don't skip the deploy skill's concept audit step thinking grooming already covered it — they catch different classes of problems at different points in the lifecycle.",
+      "created_at": "2026-07-28T01:23:55.469253+00:00",
+      "files": "skills/deploy/skill.md, hooks/dispatcher.py",
+      "last_validated": "2026-07-28T01:23:55.469253+00:00",
+      "name": "deploy-concept-audit-catches-what-grooming-misses",
+      "related": "",
+      "tags": "deploy, concept audit, task-grooming, invariant, integration gap, lifecycle, context budget",
+      "type": "project"
+    },
     "gate-policy-boundary-in-node": {
       "body": "GateCheckNode has two distinct responsibilities — keep them separate:\n  1. State transformation: extract tool_name, build GateContext from SessionState (stays in node)\n  2. Policy decision: check(tool_name, ctx) → (deny, reason) (delegated to GatePolicy)\n\nThe GATES early-return (`if tool_name not in GATES`) also stays in the node — it is routing logic (skip ungated tools), not policy logic.\n\n**Why:** GateContext construction involves ~30 lines of state extraction. It is not part of the policy contract — a different policy impl would still need the same GateContext. Mixing them would make every policy reimplementer rebuild the extraction logic.\n\n**How to apply:** When adding a new Protocol boundary to a node, ask: 'would every alternative implementation need to redo this code?' If yes, it stays in the node. If no, it belongs in the Protocol impl.",
       "created_at": "2026-07-28T00:46:10.032419+00:00",

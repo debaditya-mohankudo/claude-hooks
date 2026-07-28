@@ -14,6 +14,37 @@ from src.logger import get_logger as _get_logger
 _log = _get_logger(__name__)
 
 
+def _latest_checkpoint_tuple(checkpointer):
+    """The single most-recently-written checkpoint across ALL threads.
+
+    `checkpointer.list(None)` (MemorySaver) iterates `self.storage`'s thread_ids
+    in dict-insertion order, then yields that FIRST thread's own checkpoints
+    (sorted by checkpoint_id descending) before ever moving to the next
+    thread_id. So `next(iter(checkpointer.list(None)))` silently returns the
+    latest checkpoint of whichever thread happened to be created first and is
+    still resident in memory — NOT the most recently active session — every
+    single time, regardless of how much real traffic other sessions get. This
+    is what made hooks__session_id/get_current_session/get_active_session get
+    permanently stuck returning a long-lived integration-test thread_id.
+
+    Fix: look up each thread's own latest checkpoint directly via get_tuple()
+    (one O(1) dict lookup per thread, no full-history iteration) and compare
+    their `checkpoint['ts']` ISO timestamps to find the true global latest.
+    """
+    thread_ids = list(getattr(checkpointer, "storage", {}).keys())
+    if not thread_ids:
+        return None
+    best = None
+    for thread_id in thread_ids:
+        tup = checkpointer.get_tuple({"configurable": {"thread_id": thread_id}})
+        if tup is None:
+            continue
+        ts = tup.checkpoint.get("ts", "")
+        if best is None or ts > best.checkpoint.get("ts", ""):
+            best = tup
+    return best
+
+
 def get_active_session() -> dict:
     """Return the active task from the most recent session checkpoint.
 
@@ -25,7 +56,7 @@ def get_active_session() -> dict:
         if not checkpointer:
             return {}
         from src.tools.tasks import handle_get
-        latest = next(iter(checkpointer.list(None)), None)
+        latest = _latest_checkpoint_tuple(checkpointer)
         if not latest:
             return {}
         state = latest.checkpoint.get("channel_values", {})
@@ -60,12 +91,12 @@ def get_current_session() -> dict:
         if not checkpointer:
             return {}
         _t0 = _time.perf_counter()
-        latest = next(iter(checkpointer.list(None)), None)
+        latest = _latest_checkpoint_tuple(checkpointer)
         _elapsed_ms = (_time.perf_counter() - _t0) * 1000
-        # >500ms is a real anomaly here — checkpointer.list(None) reading one
-        # row should be near-instant. Logged unconditionally (not just when
-        # slow) so a regression is visible in normal logs, not only when
-        # someone thinks to check. task:b3964f85 — the checkpointer is now
+        # >500ms is a real anomaly here — one get_tuple() per thread should be
+        # near-instant even across many threads. Logged unconditionally (not
+        # just when slow) so a regression is visible in normal logs, not only
+        # when someone thinks to check. task:b3964f85 — the checkpointer is now
         # MemorySaver (in-process dict), not a SQLite file, so there's no
         # db_size to report anymore; a slow read here would now point at
         # unbounded *total* checkpoint count across all threads instead of
@@ -73,9 +104,9 @@ def get_current_session() -> dict:
         # yet caps the number of distinct threads kept in RAM — see
         # task:b3964f85's follow-up note on cross-thread growth).
         if _elapsed_ms > 500:
-            _log.warning("[get_current_session] checkpointer.list(None) took %.0fms — possible unbounded checkpoint growth", _elapsed_ms)
+            _log.warning("[get_current_session] _latest_checkpoint_tuple took %.0fms — possible unbounded checkpoint growth", _elapsed_ms)
         else:
-            _log.debug("[get_current_session] checkpointer.list(None) took %.1fms", _elapsed_ms)
+            _log.debug("[get_current_session] _latest_checkpoint_tuple took %.1fms", _elapsed_ms)
         if not latest:
             return {}
         state = latest.checkpoint.get("channel_values", {})

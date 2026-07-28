@@ -1,5 +1,28 @@
 {
   "concepts": {
+    "activate-task-memory-source-selection": {
+      "confidence": 0.85,
+      "contracts": [
+        "_activate() returns repo_task_memories: list[dict] in its state-update dict alongside the existing task_memories",
+        "hooks/dispatcher.py's _format_system_prompt renders repo_task_memories under a separate '## Repo memories' section, and _enforce_context_budget counts its tokens toward the shared budget (added after a concept-audit catch, see dispatcher-system-prompt-assembly)"
+      ],
+      "created_at": "2026-07-28T01:24:25.586506+00:00",
+      "description": "On task activation (tasks__set_active/tasks__pop_active), ActivateTaskNode selects the source of task-context memories based on whether the active task's cwd has migrated to the repo_memory split (task:850ddd65): if <cwd>/repo_memory/memories.json exists, the global _score_memories() scorer is skipped entirely and repo_task_memories (filtered by the task's Files: section overlap via backfill_memory_files.py's _file_tokens stem-matching) is used instead. If no repo_memory store exists for that cwd, falls back to the pre-split behavior (global MEMORY.sqlite scoring, unfiltered by Files:). The two sources are mutually exclusive per activation, never both populated for the same task. This concept only covers the memory-source-selection behavior, not activate_task.py's other responsibilities (execution_contract building, task_stack push/pop, task lookup).",
+      "evidence": [
+        "langchain_learning/nodes/activate_task.py:_repo_memory_store_path",
+        "langchain_learning/nodes/activate_task.py:_load_repo_task_memories",
+        "langchain_learning/nodes/activate_task.py:_activate"
+      ],
+      "invariants": [
+        "repo_store_path presence (not emptiness) is the switch — an existing-but-empty repo_memory/memories.json still skips the global scorer, it doesn't fall back",
+        "task_memories and repo_task_memories are never both non-empty for the same activation",
+        "Absence of a Files: section on the task means ALL repo_memory entries are returned unfiltered (intentional — the store is small/curated, unlike the global table, so no-filter is not noise)",
+        "tasks__pop_active on an empty stack clears both task_memories and repo_task_memories alongside the other active-task fields"
+      ],
+      "last_validated": "2026-07-28T01:24:25.586506+00:00",
+      "module": "langchain_learning/nodes/activate_task.py",
+      "name": "activate-task-memory-source-selection"
+    },
     "commit-task-traceability-capture": {
       "confidence": 0.9,
       "contracts": [
@@ -373,6 +396,32 @@
       "last_validated": "2026-06-29T09:47:25.288769+00:00",
       "module": "src/tools/rag_core.py",
       "name": "rag-core-turbovec-index"
+    },
+    "repo-memory-store-pattern": {
+      "confidence": 0.9,
+      "contracts": [
+        "get(name) -> dict | None",
+        "list(type=None) -> list[dict], filtered by type when given",
+        "upsert(memory: dict) -> None, requires memory['name'] and valid memory['type']",
+        "search(query) -> list[dict], case-insensitive substring match across name/body/tags, ranked by match count"
+      ],
+      "created_at": "2026-07-28T01:24:17.644376+00:00",
+      "description": "RepoMemoryStore is a JSON-backed, per-repo committed store for project/reference memories about that repo's own code/architecture, sibling to concept_store's ConceptStore (same wrapper shape, same tolerant-missing-file behavior) but an independently-evolvable class, not a shared base. Unlike the global MEMORY.sqlite table, this store is never scored per-turn by UPS — it's consulted only during task lifecycle events (task activation, task-grooming, task-introspection) via src/tools/repo_memory.py's MCP handlers (get/list/upsert/delete/search, repo required no default, mirrors concept.py's _resolve_repo convention).",
+      "evidence": [
+        "repo_memory/store.py",
+        "src/tools/repo_memory.py",
+        "src/tools/_repo_resolve.py"
+      ],
+      "invariants": [
+        "Entries have no `domain` field — the repo filesystem path itself is the domain, since the file lives inside that repo",
+        "Entries have no `hit_count`/`last_hit` — nothing scores this store per-turn, so nothing needs hit tracking",
+        "upsert() validates type is 'project' or 'reference' only, raising ValueError otherwise — the one behavioral difference from ConceptStore, which has no type enum constraint",
+        "Missing file -> empty dict, no mkdir in __init__ (mkdir only happens in handle_upsert, mirroring concept.py's gap-cover for the same reason)",
+        "save() rewrites the whole file (json.dumps indent=2 sort_keys=True) on every write — no partial/incremental writes"
+      ],
+      "last_validated": "2026-07-28T01:24:17.644376+00:00",
+      "module": "repo_memory/store.py",
+      "name": "repo-memory-store-pattern"
     },
     "server-fastapi-hook-server": {
       "confidence": 0.95,
