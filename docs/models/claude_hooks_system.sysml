@@ -14,9 +14,9 @@ package ClaudeHooksSystem {
     }
 
     part def MCPTools {
-        doc /* FastMCP dispatcher (src/dispatcher.py), 8 domains / 51 actions
+        doc /* FastMCP dispatcher (src/dispatcher.py), 9 domains / 56 actions
              * (hooks, memory, tasks, code_rag, diff_rag, think, scratch,
-             * concept). */
+             * concept, repo_memory). */
         part foundation : Foundation;
     }
 
@@ -28,10 +28,15 @@ package ClaudeHooksSystem {
     }
 
     part def MemoryConceptRAGStores {
-        doc /* Three distinct persistent stores: memory store (MEMORY.sqlite,
-             * BM25-scored), concept store (concepts.json, architectural
-             * knowledge), and RAG stores (code_rag, diff_rag, shared
-             * TurboVec core). */
+        doc /* Four distinct persistent stores (task:850ddd65 split repo_memory
+             * out as a fourth): memory store (MEMORY.sqlite, BM25-scored,
+             * per-turn UPS injection — now feedback/user/non-repo-domain
+             * facts only), repo_memory store (repo_memory/memories.json,
+             * committed per-repo, project/reference facts about that repo's
+             * own code, lifecycle-scoped only — task-activation/grooming/
+             * introspection, never per-turn scored), concept store
+             * (concepts.json, architectural knowledge), and RAG stores
+             * (code_rag, diff_rag, shared TurboVec core). */
         part foundation : Foundation;
     }
 
