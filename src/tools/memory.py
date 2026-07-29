@@ -175,30 +175,7 @@ def _search_rows(query: str, type: str, domain: str, con: sqlite3.Connection) ->
     return con.execute(sql, params).fetchall()
 
 
-def _search_repo_memory(query: str, type: str, repo: str) -> list[dict]:
-    """Search a repo's repo_memory/memories.json via the same RepoMemoryStore.search()
-    that backs repo_memory__search — reused directly, not reimplemented, since
-    task:850ddd65 moved project/reference facts about `repo` out of MEMORY.sqlite
-    and a plain memory__search would otherwise silently miss them now."""
-    from repo_memory.store import RepoMemoryStore
-    from tools._repo_resolve import resolve_repo
-
-    try:
-        repo_path = resolve_repo(repo)
-    except ValueError as exc:
-        _log.warning("[handle_search] repo_memory lookup skipped: %s", exc)
-        return []
-    store_path = repo_path / "repo_memory" / "memories.json"
-    if not store_path.exists():
-        return []
-    store = RepoMemoryStore(store_path)
-    results = store.search(query)
-    if type:
-        results = [r for r in results if r.get("type") == type]
-    return results
-
-
-def handle_search(query: str, type: str = "", domain: str = "", repo: str = "") -> dict:
+def handle_search(query: str, type: str = "", domain: str = "") -> dict:
     """Search memories by keyword across name, tags, and body.
 
     Slug normalization: underscores and hyphens are stripped before matching
@@ -211,12 +188,6 @@ def handle_search(query: str, type: str = "", domain: str = "", repo: str = "") 
         query:  Keyword(s) to search for (case-insensitive).
         type:   Optional filter by type (user/feedback/project/reference).
         domain: Optional filter by domain.
-        repo:   Optional repo path — when given, also searches that repo's
-                repo_memory/memories.json (task:850ddd65) and merges results
-                in, since repo-specific project/reference facts no longer
-                live in MEMORY.sqlite. Silently skipped if the repo has no
-                repo_memory store yet (not an error — most repos haven't
-                migrated).
     """
     with sqlite3.connect(MEMORY_DB) as con:
         con.row_factory = sqlite3.Row
@@ -234,15 +205,8 @@ def handle_search(query: str, type: str = "", domain: str = "", repo: str = "") 
                 rows = sorted(seen.values(), key=lambda r: r["updated"], reverse=True)
 
     results = [dict(r) for r in rows]
-    for r in results:
-        r["source"] = "global"
-    if repo:
-        repo_results = _search_repo_memory(query, type, repo)
-        for r in repo_results:
-            r["source"] = "repo_memory"
-        results.extend(repo_results)
 
-    _log.debug("handle_search query='%s' type=%s domain=%s repo=%s → %d results", query, type, domain, repo, len(results))
+    _log.debug("handle_search query='%s' type=%s domain=%s → %d results", query, type, domain, len(results))
     return {
         "count": len(results),
         "results": results,

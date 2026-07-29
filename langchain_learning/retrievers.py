@@ -44,7 +44,6 @@ class MemoryRetriever(Protocol):
         tokens: set[str],
         project_domain: str | None,
         top_n: int | None = None,
-        cwd: str = "",
     ) -> list[dict]: ...
 
 
@@ -92,7 +91,7 @@ class NullMemoryRetriever:
     """No-op retriever — always returns empty. Satisfies MemoryRetriever Protocol."""
 
     def retrieve(
-        self, tokens: set[str], project_domain: str | None, top_n: int | None = None, cwd: str = ""
+        self, tokens: set[str], project_domain: str | None, top_n: int | None = None
     ) -> list[dict]:
         return []
 
@@ -121,7 +120,6 @@ class CombinationSignalRetriever:
         tokens: set[str],
         project_domain: str | None,
         top_n: int | None = None,
-        cwd: str = "",
     ) -> list[dict]:
         import sqlite3
         from langchain_learning.config import config as _cfg
@@ -133,7 +131,7 @@ class CombinationSignalRetriever:
         conn = sqlite3.connect(f"file:{_cfg.memory_db}?mode=ro", uri=True)
         conn.row_factory = sqlite3.Row
         try:
-            results = score_memories(tokens, project_domain, conn, top_n=top_n, cwd=cwd)
+            results = score_memories(tokens, project_domain, conn, top_n=top_n)
             _log.debug("[CombinationSignalRetriever] scored=%d domain=%s tokens=%d",
                        len(results), project_domain, len(tokens))
             return results

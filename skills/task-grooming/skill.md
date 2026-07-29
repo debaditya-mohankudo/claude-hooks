@@ -125,37 +125,6 @@ Skip silently only if NEITHER format's store files are present — not just beca
 
 ---
 
-## Step 2b — Repo memory lookup (if the repo has migrated to the split store)
-
-Repo-specific `project`/`reference` memories about this repo's own code/architecture live in a committed per-repo JSON store (`repo_memory/memories.json`), separate from the global `MEMORY.sqlite` — see task:850ddd65. Not every repo has migrated yet; treat absence the same as concept_store's absence, a normal state, not a gap to flag.
-
-```bash
-test -f "<repo>/repo_memory/memories.json" && echo has-repo-memory
-```
-
-If present:
-
-```python
-mcp__claude-hooks__repo_memory__list(repo="<repo>")
-```
-
-Match the task's `Files:` section against each memory's `files` field (comma-separated, same stem-based matching convention `activate_task.py`'s task-activation lookup already uses) — no need to hand-roll a different heuristic here.
-
-Append matches as a `## Repo memory context` block in the grooming notes, parallel structure to `## Concept context`:
-
-```
-## Repo memory context
-- dispatcher-is-table-driven (type: project)
-  body: "Adding a new tool family is one DOMAIN_MAP entry + one tools/<name>.py module."
-  → check: does this task's plan account for this known fact?
-```
-
-For each match, ask the same question `## Concept context` asks of invariants: does the task's plan conflict with, or fail to account for, what this memory already establishes as true about the repo? Unlike concepts (structured invariants/contracts), a repo memory is freeform prose — there's no formal conflict check, just a judgment call on relevance.
-
-Skip silently if `repo_memory/memories.json` doesn't exist for this repo.
-
----
-
 ## Step 3 — Read before judging
 
 Before auditing, read all injected/gathered context completely. Then ask:

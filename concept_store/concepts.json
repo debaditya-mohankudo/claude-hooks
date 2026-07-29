@@ -1,28 +1,5 @@
 {
   "concepts": {
-    "activate-task-memory-source-selection": {
-      "confidence": 0.85,
-      "contracts": [
-        "_activate() returns repo_task_memories: list[dict] in its state-update dict alongside the existing task_memories",
-        "hooks/dispatcher.py's _format_system_prompt renders repo_task_memories under a separate '## Repo memories' section, and _enforce_context_budget counts its tokens toward the shared budget (added after a concept-audit catch, see dispatcher-system-prompt-assembly)"
-      ],
-      "created_at": "2026-07-28T01:24:25.586506+00:00",
-      "description": "On task activation (tasks__set_active/tasks__pop_active), ActivateTaskNode selects the source of task-context memories based on whether the active task's cwd has migrated to the repo_memory split (task:850ddd65): if <cwd>/repo_memory/memories.json exists, the global _score_memories() scorer is skipped entirely and repo_task_memories (filtered by the task's Files: section overlap via backfill_memory_files.py's _file_tokens stem-matching) is used instead. If no repo_memory store exists for that cwd, falls back to the pre-split behavior (global MEMORY.sqlite scoring, unfiltered by Files:). The two sources are mutually exclusive per activation, never both populated for the same task. This concept only covers the memory-source-selection behavior, not activate_task.py's other responsibilities (execution_contract building, task_stack push/pop, task lookup).",
-      "evidence": [
-        "langchain_learning/nodes/activate_task.py:_repo_memory_store_path",
-        "langchain_learning/nodes/activate_task.py:_load_repo_task_memories",
-        "langchain_learning/nodes/activate_task.py:_activate"
-      ],
-      "invariants": [
-        "repo_store_path presence (not emptiness) is the switch — an existing-but-empty repo_memory/memories.json still skips the global scorer, it doesn't fall back",
-        "task_memories and repo_task_memories are never both non-empty for the same activation",
-        "Absence of a Files: section on the task means ALL repo_memory entries are returned unfiltered (intentional — the store is small/curated, unlike the global table, so no-filter is not noise)",
-        "tasks__pop_active on an empty stack clears both task_memories and repo_task_memories alongside the other active-task fields"
-      ],
-      "last_validated": "2026-07-28T01:24:25.586506+00:00",
-      "module": "langchain_learning/nodes/activate_task.py",
-      "name": "activate-task-memory-source-selection"
-    },
     "commit-task-traceability-capture": {
       "confidence": 0.9,
       "contracts": [
@@ -118,7 +95,7 @@
         "All sections are markdown-formatted"
       ],
       "created_at": "2026-06-29T09:47:25.284960+00:00",
-      "description": "Assembles the UserPromptSubmit additionalSystemPrompt from SessionState context (memories, task context, repo memories, related tasks/commits, rag chunks) into markdown sections, applying a token budget before rendering.",
+      "description": "Assembles the UserPromptSubmit additionalSystemPrompt from SessionState context (memories, task context, related tasks/commits, rag chunks) into markdown sections, applying a token budget before rendering.",
       "evidence": [
         "hooks/dispatcher.py:_format_system_prompt",
         "hooks/dispatcher.py:_enforce_context_budget"
@@ -128,14 +105,14 @@
         "Related tasks section is populated when LoadRelatedTasksNode finds semantically similar done tasks via TurboVec neighbor search (capped at 3); empty when no active task, no rag index, or no matching done neighbors",
         "Task context summary takes precedence over raw task history when both exist",
         "New-project note is emitted when ctx['cwd_unmapped'] is true (set by CwdDomainDetectNode only on the first turn a session's cwd is unmapped, tracked via cwd_domain_reminder_sent in checkpoint state so it fires once per session, not every turn)",
-        "Before assembly, _enforce_context_budget(ctx) trims ctx['memories'] from the tail (lowest-scored, since the list is pre-sorted descending) until the combined token count of memories+task_memories+repo_task_memories+related_tasks+related_commits+task_rag_chunks fits _CONTEXT_TOKEN_BUDGET (4000 tokens), or memories is empty. task_memories/repo_task_memories/related_tasks/related_commits/task_rag_chunks are counted toward the budget but never trimmed themselves — they're already small/capped by their producing nodes (repo_task_memories is filtered by Files: overlap at task-activation time, task:850ddd65).",
+        "Before assembly, _enforce_context_budget(ctx) trims ctx['memories'] from the tail (lowest-scored, since the list is pre-sorted descending) until the combined token count of memories+task_memories+related_tasks+related_commits+task_rag_chunks fits _CONTEXT_TOKEN_BUDGET (4000 tokens), or memories is empty. task_memories/related_tasks/related_commits/task_rag_chunks are counted toward the budget but never trimmed themselves — they're already small/capped by their producing nodes.",
         "task_body is hard-truncated to _TASK_BODY_CHAR_CAP (3000 chars) at render time, appending an \"...[truncated]\" marker when cut — it has no upstream length cap (a task's body can be arbitrarily long, e.g. a large epic scaffold).",
         "mid_task_decisions (Task decisions section) is capped to the most recent _MAX_DECISIONS (15) entries by langchain_learning/nodes/decision_task.py, sliced on every tasks__add_decision append — not trimmed in dispatcher.py itself. This checkpoint state exists solely for prompt injection; the durable decision history lives in the task's DB record, unaffected by the slice.",
         "execution_contract is rendered as its own section, independent of task_body and _enforce_context_budget — it is NOT subject to _TASK_BODY_CHAR_CAP truncation or memories-budget eviction, by design (a fixed north-star template built once at task activation by activate_task.py._build_execution_contract, must stay byte-identical every turn). Cleared alongside the other active-task fields at all three deactivation sites: DeactivateTaskNode (tasks__clear_active/tasks__finish), ActivateTaskNode's pop-to-empty-stack, and LogTaskEventsNode's \"task:<id> done\" auto-close (task:eb46ac47 — this third site was originally missed).",
         "After _format_system_prompt, the UPS handler appends one-shot node output: if ctx['pending_hook_output'].hookSpecificOutput has hookEventName == 'UserPromptSubmit', its additionalContext is appended to the assembled system prompt (e.g. LogTaskEventsNode's /task-introspection nudge after a \"task:<id> done\" auto-close, task:eb46ac47). run_session() surfaces-and-clears the checkpoint copy (mirroring run_post_tool/run_stop), so the payload renders exactly once and cannot leak into the next PostToolUse response; the hookEventName gate prevents a stale cross-event payload from ever being rendered here.",
-        "repo_task_memories (## Repo memories section) is emitted alongside task_memories (## Task memories) but the two are mutually exclusive in practice per-repo: activate_task.py sources task_memories from either the global scorer OR repo_memory, never both, depending on whether the active task's repo has migrated to repo_memory/memories.json (task:850ddd65)."
+        "The '## Repo memories' section and repo_task_memories (task:850ddd65's per-repo memory split) were removed by task:a7ddc132 — task_memories now always comes from the global MEMORY.sqlite scorer, with no per-repo alternative source."
       ],
-      "last_validated": "2026-07-28T00:50:53.572861+00:00",
+      "last_validated": "2026-07-29T18:34:33.582070+00:00",
       "module": "hooks/dispatcher.py",
       "name": "dispatcher-system-prompt-assembly"
     },
@@ -416,60 +393,6 @@
       "last_validated": "2026-06-29T09:47:25.288769+00:00",
       "module": "src/tools/rag_core.py",
       "name": "rag-core-turbovec-index"
-    },
-    "repo-memory-per-turn-scoring-merge": {
-      "confidence": 0.85,
-      "contracts": [
-        "score_repo_memories(tokens, cwd, cfg) -> dict[name, (score, dict)], dict shape matches sqlite-row-derived candidates: name/type/domain/tags/body/related/updated",
-        "score_memories(tokens, project_domain, conn, top_n=None, cwd=\"\") -> list[dict], cwd is purely additive/optional"
-      ],
-      "created_at": "2026-07-28T04:57:27.972917+00:00",
-      "description": "score_memories() optionally accepts cwd (default \"\", meaning existing callers are unaffected). When cwd is given, score_repo_memories(tokens, cwd, cfg) scores cwd's repo_memory/memories.json entries with the same tag/body-Jaccard + recency formula combination_score uses, always applying the 'project' domain weight (repo_memory entries have no domain column; the cwd itself establishes relevance). These repo-scored candidates are merged into the same {name: (score, dict)} pool built from MEMORY.sqlite rows, keeping the higher score on a name collision, before the existing graph-neighbour-boost and top-N truncation steps run. This is how LoadMemoriesNode's per-turn '## Injected memories' injection (langchain_learning/nodes/load_memories.py, fires every UPS turn regardless of active task) surfaces repo_memory content for a migrated repo, distinct from activate_task.py's task-activation-only, exclusive-switch consumption of the same store (see activate-task-memory-source-selection).",
-      "evidence": [
-        "langchain_learning/nodes/_memory_scoring.py:score_repo_memory_row",
-        "langchain_learning/nodes/_memory_scoring.py:score_repo_memories",
-        "langchain_learning/nodes/_memory_scoring.py:score_memories",
-        "langchain_learning/retrievers.py:CombinationSignalRetriever.retrieve",
-        "langchain_learning/nodes/load_memories.py:LoadMemoriesNode.__call__"
-      ],
-      "invariants": [
-        "cwd=\"\" (the default) skips repo_memory entirely — identical behavior to before this change for any caller that doesn't pass cwd (e.g. activate_task.py's _score_memories still calls score_memories() without cwd)",
-        "Repo-sourced result dicts carry domain='repo' (a marker, not a real domain column) so hooks/dispatcher.py's existing '## Injected memories' renderer (`### {name} [{domain}]`) distinguishes them from MEMORY.sqlite-sourced hits without any renderer changes",
-        "Repo-sourced candidates are excluded from the graph-neighbour 'related' boost pass — seed_row lookup only checks rows_by_name (sqlite rows), so a repo-sourced seed's related slugs are never walked; this is a known simplification, not a bug",
-        "record_memory_hits() is still called with repo-sourced names included; the UPDATE against MEMORY.sqlite silently affects 0 rows for those names (see repo-memory-store-pattern's hit-tracking invariant)"
-      ],
-      "last_validated": "2026-07-28T04:57:27.972917+00:00",
-      "module": "langchain_learning/nodes/_memory_scoring.py",
-      "name": "repo-memory-per-turn-scoring-merge"
-    },
-    "repo-memory-store-pattern": {
-      "confidence": 0.9,
-      "contracts": [
-        "get(name) -> dict | None",
-        "list(type=None) -> list[dict], filtered by type when given",
-        "upsert(memory: dict) -> None, requires memory['name'] and valid memory['type']",
-        "search(query) -> list[dict], case-insensitive substring match across name/body/tags, ranked by match count",
-        "resolve_path(cwd) -> Path | None, returns None when cwd is falsy or <cwd>/repo_memory/memories.json doesn't exist"
-      ],
-      "created_at": "2026-07-28T01:24:17.644376+00:00",
-      "description": "RepoMemoryStore is a JSON-backed, per-repo committed store for project/reference memories about that repo's own code/architecture, sibling to concept_store's ConceptStore (same wrapper shape, same tolerant-missing-file behavior) but an independently-evolvable class, not a shared base. It has two independent consumers: task-lifecycle events (task activation, task-grooming, task-introspection) via src/tools/repo_memory.py's MCP handlers, which is exclusive-switch behavior against the global MEMORY.sqlite scorer per repo_memory-per-turn-scoring-merge; and, as of that same change, the per-turn UPS load_memories path, which additively merges repo_memory candidates into the same ranked pool as MEMORY.sqlite rows (score_repo_memories() in langchain_learning/nodes/_memory_scoring.py) rather than switching away from the global store.",
-      "evidence": [
-        "repo_memory/store.py",
-        "src/tools/repo_memory.py",
-        "src/tools/_repo_resolve.py",
-        "langchain_learning/nodes/_memory_scoring.py:score_repo_memories"
-      ],
-      "invariants": [
-        "Entries have no `domain` field — the repo filesystem path itself is the domain, since the file lives inside that repo",
-        "Entries have no `hit_count`/`last_hit` — the store itself still records no hit stats; per-turn scoring's record_memory_hits() UPDATE against MEMORY.sqlite is a harmless no-op for repo-sourced names that don't exist in that table, so hits on repo-sourced memories are silently untracked, not an error",
-        "upsert() validates type is 'project' or 'reference' only, raising ValueError otherwise — the one behavioral difference from ConceptStore, which has no type enum constraint",
-        "Missing file -> empty dict, no mkdir in __init__ (mkdir only happens in handle_upsert, mirroring concept.py's gap-cover for the same reason)",
-        "save() rewrites the whole file (json.dumps indent=2 sort_keys=True) on every write — no partial/incremental writes",
-        "Path resolution (<cwd>/repo_memory/memories.json) is centralized in repo_memory.store.resolve_path(cwd) — both consumers (activate_task.py's task-lifecycle switch and _memory_scoring.py's per-turn merge) call this same function, not separate copies"
-      ],
-      "last_validated": "2026-07-28T04:57:14.249443+00:00",
-      "module": "repo_memory/store.py",
-      "name": "repo-memory-store-pattern"
     },
     "server-fastapi-hook-server": {
       "confidence": 0.95,
