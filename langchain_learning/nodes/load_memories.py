@@ -52,16 +52,15 @@ class LoadMemoriesNode:
         )
 
         try:
-            memories = self._retriever.retrieve(tokens, project_domain, cwd=cwd)
+            memories = self._retriever.retrieve(tokens, project_domain)
         except Exception as exc:
             _log.error("[load_memories] retriever error: %s", exc)
             return {"memories": [], "keywords": list(tokens)}
 
         names_out = [m.get("name", "?") for m in memories]
-        repo_names = [m.get("name", "?") for m in memories if m.get("domain") == "repo"]
         _log.info(
-            "[load_memories] mode=combination returned=%d (repo=%d) keywords=%d project_domain=%s names=%s repo_names=%s",
-            len(memories), len(repo_names), len(tokens), project_domain, names_out, repo_names,
+            "[load_memories] mode=combination returned=%d keywords=%d project_domain=%s names=%s",
+            len(memories), len(tokens), project_domain, names_out,
         )
         try:
             from hooks.server_memory import record_memories

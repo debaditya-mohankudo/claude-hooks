@@ -1,6 +1,6 @@
 """Shared repo-path resolution for tools operating against another repo's
-on-disk state (concept_store, repo_memory, ...). Extracted out of concept.py
-so the same validation isn't copied per tool module and silently diverges."""
+on-disk state (concept_store, ...). Extracted out of concept.py so the same
+validation isn't copied per tool module and silently diverges."""
 from __future__ import annotations
 
 from pathlib import Path

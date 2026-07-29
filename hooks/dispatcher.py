@@ -78,18 +78,17 @@ def _enforce_context_budget(ctx: dict) -> None:
     """Trim ctx["memories"] (lowest-scored last, since the list is pre-sorted
     descending by score) until the combined context fits _CONTEXT_TOKEN_BUDGET
     tokens, or the list is empty. Mutates ctx in place. task_memories/
-    repo_task_memories/related_tasks/related_commits/task_rag_chunks are
-    counted toward the budget but never trimmed themselves — they're already
-    small/capped (repo_task_memories is filtered by Files: overlap at
-    activation time, see activate_task.py), so memories is the only source
-    with a meaningful relevance ordering to evict from.
+    related_tasks/related_commits/task_rag_chunks are counted toward the
+    budget but never trimmed themselves — they're already small/capped, so
+    memories is the only source with a meaningful relevance ordering to
+    evict from.
     """
     from src.tools.tokens import count_tokens
 
     def _combined_tokens() -> int:
         return count_tokens("".join(
             m.get("body", "")
-            for m in ctx.get("memories", []) + ctx.get("task_memories", []) + ctx.get("repo_task_memories", [])
+            for m in ctx.get("memories", []) + ctx.get("task_memories", [])
         )) + count_tokens("".join(
             t.get("body_snippet", "") for t in ctx.get("related_tasks", [])
         )) + count_tokens("".join(
@@ -214,18 +213,6 @@ def _format_system_prompt(ctx: dict) -> str:
                 lines.append(body)
             lines.append("")
 
-    if ctx.get("repo_task_memories"):
-        # Repo-local project/reference memories (repo_memory/memories.json) matched
-        # to the active task's Files: section — task:850ddd65's activation-time
-        # consumer. No [domain] tag (repo IS the domain now, see repo_memory/store.py).
-        lines.append("## Repo memories")
-        for mem in ctx["repo_task_memories"]:
-            name = mem.get("name", "?")
-            body = mem.get("body", "").strip()
-            lines.append(f"### {name} [{mem.get('type', '')}]")
-            if body:
-                lines.append(body)
-            lines.append("")
 
     if ctx.get("task_context_summary"):
         lines.append("## Task context")

@@ -138,83 +138,11 @@ def combination_score(
     return (domain_weight + tag_score + body_score) * recency_multiplier(row["updated"], cfg)
 
 
-def score_repo_memory_row(memory: dict, tokens: set[str], cfg: dict) -> float:
-    """Score one repo_memory/memories.json entry against a token set.
-
-    Same tag/body-overlap + recency formula as combination_score, but domain
-    weighting is always the "project" weight — a repo_memory entry has no
-    domain column because the cwd itself already establishes relevance (see
-    repo_memory/store.py's docstring: "the repo path itself is the domain").
-    """
-    domain_weights: dict = cfg.get("domain_weights", {"project": 2.0, "global": 0.5})
-    domain_weight = domain_weights.get("project", 2.0)
-
-    if not tokens:
-        return domain_weight * recency_multiplier(memory.get("last_validated"), cfg)
-
-    tag_tokens  = set(tokenise((memory.get("tags") or "").lower()))
-    body_tokens = set(tokenise((memory.get("body") or "").lower()))
-
-    tag_score  = (len(tokens & tag_tokens)  / max(len(tag_tokens),  1)) * cfg.get("tag_weight", 3.0)
-    body_score = (len(tokens & body_tokens) / max(len(tokens), 1))      * cfg.get("body_weight", 1.0)
-
-    if (tag_score + body_score) < cfg.get("min_keyword_score", 0.0):
-        return 0.0
-
-    return (domain_weight + tag_score + body_score) * recency_multiplier(memory.get("last_validated"), cfg)
-
-
-def score_repo_memories(tokens: set[str], cwd: str, cfg: dict) -> dict[str, tuple[float, dict]]:
-    """Score cwd's repo_memory/memories.json entries, normalized to the same
-    {name: (score, dict)} shape score_memories() builds from MEMORY.sqlite rows,
-    so the two candidate pools can be merged before top-N truncation.
-
-    Returns {} when cwd has no repo_memory/memories.json (unmigrated repo, or
-    no active cwd) — always safe to call unconditionally.
-    """
-    from repo_memory.store import RepoMemoryStore, resolve_path
-
-    store_path = resolve_path(cwd)
-    if store_path is None:
-        _log.debug("[score_repo_memories] no repo_memory store for cwd=%s", cwd)
-        return {}
-
-    try:
-        store = RepoMemoryStore(store_path)
-    except Exception as exc:
-        _log.warning("[score_repo_memories] repo_memory load error: store=%s error=%s", store_path, exc)
-        return {}
-
-    scored: dict[str, tuple[float, dict]] = {}
-    for memory in store.list():
-        s = score_repo_memory_row(memory, tokens, cfg)
-        if s <= 0:
-            continue
-        name = memory.get("name", "?")
-        # Marked domain distinguishes repo-sourced hits in the rendered
-        # "## Injected memories" section without a real `domain` column to read from.
-        scored[name] = (s, {
-            "name":    name,
-            "type":    memory.get("type", ""),
-            "domain":  "repo",
-            "tags":    memory.get("tags", ""),
-            "body":    memory.get("body", ""),
-            "related": memory.get("related", ""),
-            "updated": memory.get("last_validated", ""),
-        })
-    _log.debug(
-        "[score_repo_memories] store=%s candidates=%d scored=%d names=%s",
-        store_path, len(store), len(scored), list(scored.keys()),
-    )
-    return scored
-
-
 def score_memories(
     tokens: set[str],
     project_domain: str | None,
     conn: sqlite3.Connection,
     top_n: int | None = None,
-    cwd: str = "",
 ) -> list[dict]:
     """Score all candidate memories and return top-N by combination signal.
 
@@ -222,11 +150,6 @@ def score_memories(
     boost: each high-scoring memory lifts its `related` siblings by
     related_boost_factor × seed_score (additive, capped to related_max_neighbours
     per seed). This makes the retriever concept-graph-aware without embeddings.
-
-    When `cwd` is given, cwd's repo_memory/memories.json entries (if any) are
-    scored the same way and merged into the same candidate pool before
-    truncation — repo-local memories compete for top-N slots on relevance,
-    same as any MEMORY.sqlite row (task: per-turn repo_memory injection).
     """
     cfg = load_scoring_cfg()
     batch_limit = cfg.get("batch_limit", 500)
@@ -252,25 +175,6 @@ def score_memories(
         s = combination_score(row, tokens, project_domain, cfg)
         if s > 0:
             scored[row["name"]] = (s, dict(row))
-
-    if cwd:
-        # Repo-local candidates compete for the same top-N slots as MEMORY.sqlite
-        # rows. A name collision (unlikely — repo_memory migration avoids reusing
-        # names still live in the global store) keeps whichever scored higher.
-        repo_scored = score_repo_memories(tokens, cwd, cfg)
-        collisions = 0
-        for name, (repo_score, repo_mem) in repo_scored.items():
-            existing = scored.get(name)
-            if existing is not None:
-                collisions += 1
-                if repo_score <= existing[0]:
-                    continue
-            scored[name] = (repo_score, repo_mem)
-        if repo_scored:
-            _log.info(
-                "[score_memories] repo_memory merge cwd=%s sqlite_candidates=%d repo_candidates=%d collisions=%d",
-                cwd, len(rows), len(repo_scored), collisions,
-            )
 
     # Graph-neighbour boost — seeds are 2×top_n highest direct scorers
     n = top_n if top_n is not None else cfg.get("top_n", 5)

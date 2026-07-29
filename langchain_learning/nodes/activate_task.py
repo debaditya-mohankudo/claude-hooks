@@ -17,16 +17,12 @@ from __future__ import annotations
 import re
 import sqlite3
 
-from pathlib import Path
-
 from langchain_learning.config import config as _cfg
 from langchain_learning.nodes._memory_scoring import score_memories
 from langchain_learning.nodes._node_log import entry
 from langchain_learning.nodes._text_utils import tokenise, task_project_tag
-from langchain_learning.nodes.backfill_memory_files import _parse_files_section, _file_tokens
+from langchain_learning.nodes.backfill_memory_files import _parse_files_section
 from langchain_learning.session_state import SessionState
-from repo_memory.store import RepoMemoryStore
-from repo_memory.store import resolve_path as _resolve_repo_memory_path
 from src.logger import get_logger
 
 _log = get_logger(__name__)
@@ -126,49 +122,6 @@ def _score_memories(task_id: str, task_title: str, task_body: str = "") -> list[
 
 
 
-def _repo_memory_store_path(cwd: str) -> Path | None:
-    """Path to cwd's repo_memory/memories.json if migrated, else None.
-
-    A migrated repo's presence of this file is the switch: task-activation
-    memory context comes from repo_memory instead of MEMORY.sqlite's global
-    scoring for that repo (task:850ddd65 — repo memories replace task
-    memories, not add to them, once a repo has moved to the split store).
-
-    Thin wrapper over repo_memory.store.resolve_path — same resolution used
-    by LoadMemoriesNode's per-turn scoring (_memory_scoring.score_repo_memories),
-    kept as a separate function here only for call-site readability.
-    """
-    return _resolve_repo_memory_path(cwd)
-
-
-def _load_repo_task_memories(store_path: Path, task_files: list[str]) -> list[dict]:
-    """Load repo_memory/memories.json entries, filtered by overlap with the
-    task's Files: section when a Files: section exists; otherwise all of them
-    (this store is small/curated, unlike the global scored table, so showing
-    everything when there's nothing to filter by is intentional, not noise).
-    """
-    try:
-        store = RepoMemoryStore(store_path)
-    except Exception as exc:
-        _log.warning("[activate_task] repo_memory load error: %s", exc)
-        return []
-
-    all_memories = store.list()
-    if not task_files:
-        return all_memories
-
-    # Same stem-token matching backfill_memory_files.py already uses for the
-    # global store's files-column overlap — reuse it rather than reinventing
-    # a second matching heuristic for this store.
-    task_tokens = _file_tokens(task_files)
-    matched = []
-    for memory in all_memories:
-        mem_files = [f.strip() for f in (memory.get("files") or "").split(",") if f.strip()]
-        if task_tokens & _file_tokens(mem_files):
-            matched.append(memory)
-    return matched
-
-
 def _activate(state: SessionState, task_id: str, task_stack: list) -> dict:
     """Resolve task from DB + score memories. Returns state update dict.
 
@@ -182,25 +135,13 @@ def _activate(state: SessionState, task_id: str, task_stack: list) -> dict:
     domain = task_project_tag(task_id, _cfg.tasks_db) or "global"
     task_files = _parse_files_section(body)
 
-    repo_store_path = _repo_memory_store_path(state.get("cwd", ""))
-    if repo_store_path is not None:
-        # Migrated repo: repo_memory is the source of truth for project/reference
-        # facts about this repo now — skip the global scorer entirely rather than
-        # showing both (the global table no longer holds this repo's facts once
-        # migrated, so calling it would just waste a query, but the skip is
-        # explicit here rather than incidental).
-        memories = []
-        repo_task_memories = _load_repo_task_memories(repo_store_path, task_files)
-    else:
-        memories = _score_memories(task_id, title, body)
-        repo_task_memories = []
+    memories = _score_memories(task_id, title, body)
 
     return {
         "active_task_id":           task_id,
         "active_task_title":        title,
         "task_body":                body,
         "task_memories":            memories,
-        "repo_task_memories":       repo_task_memories,
         "task_stack":               task_stack,
         "active_parent_task_id":    parent_id,
         "active_parent_task_title": parent_title,
@@ -248,7 +189,7 @@ class ActivateTaskNode:
                 _log.info("[activate_task] pop on empty stack — clearing active task for session=%s", session_id[:8])
                 return {
                     "active_task_id": "", "active_task_title": "", "task_body": "",
-                    "task_memories": [], "repo_task_memories": [], "task_stack": [],
+                    "task_memories": [], "task_stack": [],
                     "mid_task_decisions": [], "execution_contract": "",
                 }
             task_id = stack.pop()
@@ -259,11 +200,10 @@ class ActivateTaskNode:
             return {}
 
         _log.info(
-            "[activate_task] session=%s tool=%s task=%s title=%r memories=%d repo_memories=%d stack_depth=%d",
+            "[activate_task] session=%s tool=%s task=%s title=%r memories=%d stack_depth=%d",
             session_id[:8], tool_name, updates.get("active_task_id", ""),
             updates.get("active_task_title", ""),
             len(updates.get("task_memories") or []),
-            len(updates.get("repo_task_memories") or []),
             len(updates.get("task_stack") or []),
         )
         return updates

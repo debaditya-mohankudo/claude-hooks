@@ -9,7 +9,6 @@ import pytest
 from langchain_learning.nodes._memory_scoring import (
     record_memory_hits,
     score_memories,
-    score_repo_memories,
 )
 from src.db.schema import MEMORIES_DDL
 
@@ -213,62 +212,3 @@ def test_record_memory_hits_never_raises_on_db_error(tmp_path):
     bad_path = tmp_path / "does" / "not" / "exist" / "MEMORY.sqlite"
     with patch("src.config.config", memory_db=bad_path):
         record_memory_hits(["alpha"])  # should not raise
-
-
-# ---------------------------------------------------------------------------
-# score_repo_memories / score_memories(cwd=...) merge
-# ---------------------------------------------------------------------------
-
-def _write_repo_memory(tmp_path, name, tags="", body="", mem_type="project"):
-    import json
-
-    store_dir = tmp_path / "repo_memory"
-    store_dir.mkdir(exist_ok=True)
-    store_path = store_dir / "memories.json"
-    data = json.loads(store_path.read_text()) if store_path.exists() else {"meta": {}, "memories": {}}
-    data["memories"][name] = {
-        "name": name, "type": mem_type, "tags": tags, "body": body,
-        "files": "", "related": "", "last_validated": "", "created_at": "",
-    }
-    store_path.write_text(json.dumps(data))
-    return tmp_path
-
-
-def test_score_repo_memories_returns_empty_when_no_store(tmp_path):
-    assert score_repo_memories({"gate"}, str(tmp_path), _CFG) == {}
-
-
-def test_score_repo_memories_returns_empty_when_no_cwd():
-    assert score_repo_memories({"gate"}, "", _CFG) == {}
-
-
-def test_score_repo_memories_scores_by_tag_overlap(tmp_path):
-    _write_repo_memory(tmp_path, "repo-gate-fact", tags="gate framework", body="")
-    results = score_repo_memories({"gate", "framework"}, str(tmp_path), _CFG)
-    assert "repo-gate-fact" in results
-    score, mem = results["repo-gate-fact"]
-    assert score > 0
-    assert mem["domain"] == "repo"
-    assert mem["name"] == "repo-gate-fact"
-
-
-def test_score_memories_merges_repo_candidates(mem_conn, tmp_path):
-    """A repo_memory entry with no sqlite counterpart still surfaces via cwd=."""
-    _insert(mem_conn, "sqlite-gate-fact", domain="claude-hooks", tags="gate", body="")
-    _write_repo_memory(tmp_path, "repo-only-gate-fact", tags="gate", body="")
-
-    results = score_memories({"gate"}, "claude-hooks", mem_conn, top_n=5, cwd=str(tmp_path))
-    names = {m["name"] for m in results}
-    assert "sqlite-gate-fact" in names
-    assert "repo-only-gate-fact" in names
-
-
-def test_score_memories_without_cwd_ignores_repo_store(mem_conn, tmp_path):
-    """cwd="" (default) must not touch repo_memory at all — existing callers unaffected."""
-    _insert(mem_conn, "sqlite-gate-fact", domain="claude-hooks", tags="gate", body="")
-    _write_repo_memory(tmp_path, "repo-only-gate-fact", tags="gate", body="")
-
-    results = score_memories({"gate"}, "claude-hooks", mem_conn, top_n=5)
-    names = {m["name"] for m in results}
-    assert "sqlite-gate-fact" in names
-    assert "repo-only-gate-fact" not in names
