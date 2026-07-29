@@ -50,6 +50,21 @@ class TestRecordBashCommit:
             )
         mock_record.assert_not_called()
 
+    def test_earlier_prose_task_id_does_not_shadow_closing_tag(self):
+        """A commit body may legitimately mention a different task in prose
+        (e.g. reverting/superseding it) before its own closing task:<id>
+        tag — the closing tag must win, not whichever appears first
+        (task:9f75c02c, found via task:a7ddc132's commit landing under the
+        wrong task_id in commit_task_map)."""
+        with patch("subprocess.run", return_value=_fake_rev_parse("abc1234def")), \
+             patch("src.tools.tasks.record_commit", return_value={"ok": True}) as mock_record:
+            _record_bash_commit(
+                {"cwd": "/repo"},
+                {"command": "git commit -m 'Revert X\n\ntask:850ddd65 marked abandoned, pointing here.\n\ntask:a7ddc132'"},
+                "sess1",
+            )
+        mock_record.assert_called_once_with(task_id="a7ddc132", commit_hash="abc1234def", repo_path="/repo")
+
     def test_missing_cwd_falls_back_to_env(self):
         with patch.dict("os.environ", {"CLAUDE_CWD": "/env/repo"}, clear=False), \
              patch("subprocess.run", return_value=_fake_rev_parse("abc1234def")) as mock_run, \

@@ -419,10 +419,14 @@ def _record_bash_commit(hook_input: dict, tool_input: dict, session_id: str) -> 
     command = tool_input.get("command", "") if isinstance(tool_input, dict) else ""
     if not _GIT_COMMIT_RE.search(command):
         return
-    match = _TASK_ID_RE.search(command)
-    if not match:
+    matches = _TASK_ID_RE.findall(command)
+    if not matches:
         return
-    task_id = match.group(0).split(":", 1)[1]
+    # Last match, not first — a commit body legitimately mentioning another
+    # task in prose (e.g. "task:X marked abandoned, pointing here" while
+    # reverting/superseding it) must not shadow this commit's own closing
+    # task:<id> tag, which by convention appears last (task:a7ddc132).
+    task_id = matches[-1].split(":", 1)[1]
     cwd = hook_input.get("cwd") or os.environ.get("CLAUDE_CWD") or os.getcwd()
 
     try:
