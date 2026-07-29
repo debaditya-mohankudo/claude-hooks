@@ -121,7 +121,22 @@ curl http://127.0.0.1:8766/health
 
 ---
 
-## 5. Register the hooks in `~/.claude/settings.json`
+## 5. Optional: Copilot-compatible bridge
+
+Copilot does not expose the same native hook event surface as Claude Code, so this repo now includes a small bridge script that forwards simple prompt/tool events to the same FastAPI hook server.
+
+```bash
+cd ~/workspace/claude-hooks
+python3 hooks/copilot_client.py prompt --prompt "summarize this repo" --session-id copilot-demo
+python3 hooks/copilot_client.py pre-tool --tool-name imessage__send --session-id copilot-demo --tool-args '{"recipient":"+1-555-0100"}'
+python3 hooks/copilot_client.py post-tool --tool-name imessage__send --session-id copilot-demo --tool-args '{"recipient":"+1-555-0100"}'
+```
+
+The bridge maps these to the equivalent `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, and `Stop` endpoint calls so the existing gates and context pipeline can be exercised from Copilot-style workflows.
+
+---
+
+## 6. Register the hooks in `~/.claude/settings.json`
 
 Hooks now call `client.py` — a thin HTTP wrapper (stdlib urllib, no curl/jq needed) that posts to the FastAPI server. Add the following to your global Claude Code settings (`~/.claude/settings.json`). Replace the path if you cloned to a different location.
 
@@ -176,7 +191,7 @@ Hooks now call `client.py` — a thin HTTP wrapper (stdlib urllib, no curl/jq ne
 
 ---
 
-## 6. Environment variables
+## 7. Environment variables
 
 All variables are optional. Set them in `~/.claude/.env` or export in your shell.
 
@@ -189,7 +204,7 @@ All variables are optional. Set them in `~/.claude/.env` or export in your shell
 
 ---
 
-## 7. Verify the setup
+## 8. Verify the setup
 
 Start a new Claude Code session and check the system prompt for `## Injected memories`. If the block appears, the `UserPromptSubmit` hook is running correctly.
 
@@ -213,7 +228,7 @@ A successful run exits 0 and emits JSON with `additionalSystemPrompt`.
 
 ---
 
-## 8. Seed initial memories (optional but recommended)
+## 9. Seed initial memories (optional but recommended)
 
 The system works without any memories, but seeding a few facts immediately improves context quality. **Since task:850ddd65's memory split, which store you seed into depends on what kind of fact it is** — this replaces an earlier version of this section that recommended seeding `type=project` facts via `memory__add` with a nonexistent `priority` param; that per-memory priority field never existed in the schema (`src/db/schema.py`'s `memories` table has no such column), and project-level architecture facts belong in the per-repo store below, not the always-injected global one.
 
