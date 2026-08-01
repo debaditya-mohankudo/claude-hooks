@@ -6,7 +6,6 @@ from typing import Optional
 
 from langchain_learning.config import config as _cfg
 from langchain_learning.nodes._node_log import entry
-from langchain_learning.nodes._text_utils import task_project_tag as _task_project_tag
 from langchain_learning.session_state import SessionState
 from src.logger import get_logger
 
@@ -62,18 +61,14 @@ class LoadActiveTaskNode:
         if not task_id:
             return {}
 
-        task_project = _task_project_tag(task_id, _cfg.tasks_db)
-        if task_project:
-            cwd = state.get("cwd", "")
-            cwd_project = _project_from_cwd(cwd) if cwd else None
-            if cwd_project and cwd_project != task_project:
-                _log.info(
-                    "[load_active_task] suppressing task=%s (project:%s) — cwd project=%s",
-                    task_id, task_project, cwd_project,
-                )
-                return {"active_task_id": "", "active_task_title": "", "task_body": ""}
-
-        _log.info("[load_active_task] session=%s active_task=%s title=%r project_tag=%s",
+        # The project-scoping suppression is gone (task:6240c675). It read the
+        # task's project:<name> tag out of proj_tasks.db and blanked the active
+        # task when the cwd disagreed. Two reasons it goes: the tag was derived
+        # from a working directory, which is a guess recorded as a fact, and the
+        # lookup read a store this repo no longer owns. task-framework scopes the
+        # active task by workspace path directly, so the thing this approximated
+        # is now answered exactly, by the system that owns it.
+        _log.info("[load_active_task] session=%s active_task=%s title=%r",
                   (state.get("session_id") or "")[:8], task_id,
-                  state.get("active_task_title", ""), task_project or "none")
+                  state.get("active_task_title", ""))
         return {}

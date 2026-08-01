@@ -28,10 +28,19 @@ _CLEARED_STATE = {
     "execution_contract":       "",
 }
 
-# Short pointer only — /task-introspection owns the full retro flow
-# (decisions, tasks__create_feedback, memory__add_batch, grooming grades).
-# Core sentence shared with LogTaskEventsNode's auto-done nudge so the two
-# close paths can't drift (task:8c3c2ee4).
+# Moved here from LogTaskEventsNode, which was deleted with the rest of the
+# task pipeline (task:6240c675). It lived there so the two close paths could not
+# drift; there is now only one close path, so it lives with it.
+#
+# This nudge is the one piece of the task pipeline kept: it enforces nothing,
+# cannot block, needs no task store, and formats a task_id the tool call already
+# carried. A convenience is allowed to be exactly that.
+INTROSPECTION_NUDGE_TEMPLATE = (
+    "task:{task_id} closed — run /task-introspection task:{task_id} "
+    "to capture decisions and learnings while the context is fresh."
+)
+
+# Short pointer only — /task-introspection owns the full retro flow.
 _RETROSPECTIVE_TEMPLATE = """\
 ## Task retrospective
 
@@ -71,7 +80,6 @@ class DeactivateTaskNode:
             if not task_id:
                 _log.warning("[deactivate_task] tasks__finish fired but tool_input has no task_id — skipping retrospective")
             else:
-                from langchain_learning.nodes.log_task_events import INTROSPECTION_NUDGE_TEMPLATE
                 title = state.get("active_task_title") or task_id
                 retro_prompt = _RETROSPECTIVE_TEMPLATE.format(
                     title=title,

@@ -6,13 +6,10 @@ from langchain_learning.nodes.gate_check import GateCheckNode
 from langchain_learning.nodes.load_active_task import LoadActiveTaskNode
 from langchain_learning.nodes.load_task_history import LoadTaskHistoryNode
 from langchain_learning.nodes.load_task_code import LoadTaskCodeNode
-from langchain_learning.nodes.load_related_tasks import LoadRelatedTasksNode
 from langchain_learning.nodes.load_related_commits import LoadRelatedCommitsNode
 from langchain_learning.nodes.load_memories import LoadMemoriesNode
-from langchain_learning.nodes.log_task_events import LogTaskEventsNode
 from langchain_learning.nodes.load_turn import LoadTurnNode
 from langchain_learning.nodes.log_tool_usage import LogToolUsageNode
-from langchain_learning.nodes.activate_task import ActivateTaskNode
 from langchain_learning.nodes.backfill_memory_files import BackfillMemoryFilesNode
 from langchain_learning.nodes.deactivate_task import DeactivateTaskNode
 from langchain_learning.nodes.decision_task import DecisionTaskNode
@@ -29,7 +26,6 @@ NODE_REGISTRY: dict[str, object] = {
     "load_active_task":        LoadActiveTaskNode,
     "load_task_history":       LoadTaskHistoryNode,
     "load_task_code":          LoadTaskCodeNode,
-    "load_related_tasks":      LoadRelatedTasksNode,
     "load_related_commits":    LoadRelatedCommitsNode,
     "load_memories":           LoadMemoriesNode,
     "cwd_domain_detect":       CwdDomainDetectNode,
@@ -41,13 +37,11 @@ NODE_REGISTRY: dict[str, object] = {
     "gate_check":              GateCheckNode,
     # PostToolUse chain
     "log_tool_usage":          LogToolUsageNode,
-    "activate_task":           ActivateTaskNode,
     "backfill_memory_files":   BackfillMemoryFilesNode,
     "deactivate_task":         DeactivateTaskNode,
     "decision_task":           DecisionTaskNode,
     "mcp_hook_bridge":         McpHookBridgeNode,
     # Stop chain
-    "log_task_events":         LogTaskEventsNode,
     "play_sound":              PlaySoundNode,
     # Fallback
     "noop":                    NoopNode,

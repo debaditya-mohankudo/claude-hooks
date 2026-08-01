@@ -56,15 +56,23 @@ def test_passes_through_when_project_matches(tmp_path):
 
 # ── project tag mismatch → suppress ──────────────────────────────────────────
 
-def test_suppresses_task_when_project_mismatches(tmp_path):
+def test_no_longer_suppresses_on_project_mismatch(tmp_path):
+    """Project-tag suppression is gone (task:6240c675).
+
+    It read the task's project:<name> tag out of proj_tasks.db and blanked the
+    active task when the cwd disagreed. Two reasons it went: the tag was derived
+    from a working directory, which is a guess recorded as a fact, and the
+    lookup read a store this repo no longer owns. task-framework scopes the
+    active task by workspace path directly, so the thing this approximated is
+    now answered exactly by the system that owns it.
+    """
     db = _make_tasks_db(tmp_path, tags="project:myapp")
     with patch("langchain_learning.nodes.load_active_task._cfg") as cfg, \
          patch("langchain_learning.nodes.load_active_task._project_from_cwd", return_value="other-app"):
         cfg.tasks_db = db
         node = LoadActiveTaskNode()
         result = node(_state(active_task_id="t1", cwd="/workspace/other-app"))
-    assert result["active_task_id"] == ""
-    assert result["active_task_title"] == ""
+    assert result == {}
 
 
 # ── no cwd → don't suppress ──────────────────────────────────────────────────

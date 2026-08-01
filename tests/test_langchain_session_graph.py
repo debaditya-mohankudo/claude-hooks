@@ -607,10 +607,18 @@ class TestDeactivateTaskRetrospective:
         assert "tasks__create_feedback" not in ctx
         assert "memory__add_batch" not in ctx
 
-    def test_finish_pointer_matches_auto_done_nudge(self):
-        """Both close paths must share one nudge sentence so they can't drift."""
-        from langchain_learning.nodes.deactivate_task import DeactivateTaskNode
-        from langchain_learning.nodes.log_task_events import INTROSPECTION_NUDGE_TEMPLATE
+    def test_finish_emits_the_introspection_nudge(self):
+        """The nudge survived the task pipeline's removal.
+
+        It used to live in LogTaskEventsNode and was shared so the two close
+        paths could not drift. That node is gone with the rest of the pipeline —
+        it wrote task_event rows and stamped open_tasks — and there is now one
+        close path, so the template lives with it. The nudge itself was kept
+        because it enforces nothing, cannot block, and needs no task store.
+        """
+        from langchain_learning.nodes.deactivate_task import (
+            DeactivateTaskNode, INTROSPECTION_NUDGE_TEMPLATE,
+        )
         node = DeactivateTaskNode()
         state = self._make_state("tasks__finish", task_id="abc123")
         ctx = node(state)["pending_hook_output"]["hookSpecificOutput"]["additionalContext"]

@@ -8,11 +8,11 @@ Graph shape:
 
     START → route_event (conditional)
       ├── user_prompt_submit → load_turn ──(task active?)──► load_active_task → load_task_history
-      │                         → load_task_code (TurboVec RAG) → load_related_tasks ──► cwd_domain_detect → load_memories
-      │                                            └─(no task)────────────►
-      │                         → score_tools → set_prompt_id → log_task_events → END
+      │                         → load_task_code (TurboVec RAG) → load_related_commits
+      │                                            └─(no task)──► summarize_task_context
+      │                         → cwd_domain_detect / load_memories / score_tools → set_prompt_id → END
       ├── pre_tool_use       → gate_check → END
-      ├── post_tool_use      → log_tool_usage → update_tool_keywords → (tasks__set_active → activate_task | tasks__clear_active/finish → deactivate_task | *) → END
+      ├── post_tool_use      → log_tool_usage → update_tool_keywords → (tasks__clear_active/finish → deactivate_task | *) → END
       └── stop               → noop → play_sound → END
 
 State persistence: the FastAPI hook server (hooks/server.py) opens a MemorySaver
@@ -70,15 +70,13 @@ def build_session_graph(checkpointer=None):
     # Register all nodes from registry
     for name in [
         "noop",
-        "load_turn", "load_active_task", "load_task_history", "load_task_code", "load_related_tasks", "load_related_commits", "load_memories",
+        "load_turn", "load_active_task", "load_task_history", "load_task_code", "load_related_commits", "load_memories",
         "cwd_domain_detect",
         "score_tools", "summarize_task_context", "set_prompt_id",
         "gate_check",
         "log_tool_usage",
-        "activate_task", "deactivate_task", "decision_task",
+        "deactivate_task", "decision_task",
         "mcp_hook_bridge",
-        "backfill_memory_files",
-        "log_task_events",
         "play_sound",
     ]:
         builder.add_node(name, get_node(name))
@@ -97,23 +95,28 @@ def build_session_graph(checkpointer=None):
     )
 
     # UserPromptSubmit chain
+    #
+    # load_related_tasks is gone (task:6240c675). It fetched semantically similar
+    # done tasks out of proj_tasks.db to push into the turn — the capability
+    # dropped in task:d6ddb40f, and a store this repo no longer owns. With no
+    # active task there is now nothing to load, so that branch goes straight to
+    # the fan-in point instead of through a loader that would find nothing.
     builder.add_conditional_edges(
         "load_turn",
-        lambda s: "load_active_task" if s.get("active_task_id") else "load_related_tasks",
+        lambda s: "load_active_task" if s.get("active_task_id") else "summarize_task_context",
         {
             "load_active_task": "load_active_task",
-            "load_related_tasks": "load_related_tasks",
+            "summarize_task_context": "summarize_task_context",
         },
     )
-    # fan-out from load_active_task: history, code, related tasks, related commits run in parallel
+    # fan-out from load_active_task: history, code, related commits run in parallel
     builder.add_edge("load_active_task",      "load_task_history")
     builder.add_edge("load_active_task",      "load_task_code")
-    builder.add_edge("load_active_task",      "load_related_tasks")
     builder.add_edge("load_active_task",      "load_related_commits")
-    # fan-in: all four loaders converge at summarize_task_context (compresses
+    # fan-in: all three loaders converge at summarize_task_context (compresses
     # task_context/rag_chunks/related_* into task_context_summary; first-turn-gated
     # internally, so it's a fast no-op pass-through on every other turn)
-    for loader in ("load_task_history", "load_task_code", "load_related_tasks", "load_related_commits"):
+    for loader in ("load_task_history", "load_task_code", "load_related_commits"):
         builder.add_edge(loader, "summarize_task_context")
     # fan-out from summarize_task_context to second-tier nodes
     builder.add_edge("summarize_task_context", "cwd_domain_detect")
@@ -123,8 +126,11 @@ def build_session_graph(checkpointer=None):
     builder.add_edge("cwd_domain_detect",     "set_prompt_id")
     builder.add_edge("load_memories",         "set_prompt_id")
     builder.add_edge("score_tools",           "set_prompt_id")
-    builder.add_edge("set_prompt_id",   "log_task_events")
-    builder.add_edge("log_task_events", END)
+    # log_task_events is gone with the rest of the task pipeline: it wrote a
+    # task_event row per turn and stamped open_tasks.updated_at, both into a
+    # store this repo no longer owns. Its introspection nudge survives, moved
+    # into deactivate_task, which needs no store to format it.
+    builder.add_edge("set_prompt_id", END)
 
     # PreToolUse chain
     builder.add_edge("gate_check", END)
@@ -132,8 +138,13 @@ def build_session_graph(checkpointer=None):
     # PostToolUse chain
     def _post_tool_route(state: SessionState) -> str:
         tool = state.get("tool_name", "")
-        if tool in ("tasks__set_active", "tasks__pop_active"):
-            return "activate_task"
+        # tasks__set_active and tasks__pop_active no longer route anywhere.
+        # activate_task read the task out of proj_tasks.db and pushed its body,
+        # parent and files into the turn; the stack it popped was dropped in
+        # task:d6ddb40f. task-framework owns the active task and is asked, not
+        # announced. tasks__clear_active and tasks__finish still route, because
+        # deactivate_task only clears checkpoint keys and emits the retrospective
+        # nudge — no store involved.
         if tool in ("tasks__clear_active", "tasks__finish"):
             return "deactivate_task"
         if tool == "tasks__add_decision":
@@ -148,19 +159,15 @@ def build_session_graph(checkpointer=None):
     builder.add_conditional_edges(
         "log_tool_usage",
         _post_tool_route,
-        {"activate_task": "activate_task", "deactivate_task": "deactivate_task",
+        {"deactivate_task": "deactivate_task",
          "decision_task": "decision_task", "mcp_hook_bridge": "mcp_hook_bridge", END: END},
     )
-    # Backfill slot — single BackfillNodeProtocol node after activation.
-    # To swap: replace this edge + the node registration with your own implementation.
-    # Multiple strategies must be composed inside one node — do not add parallel edges.
-    # See: langchain_learning/nodes/base.py BackfillNodeProtocol for the contract.
-    builder.add_conditional_edges(
-        "activate_task",
-        lambda s: "backfill_memory_files" if s.get("task_files") else END,
-        {"backfill_memory_files": "backfill_memory_files", END: END},
-    )
-    builder.add_edge("backfill_memory_files", END)
+    # The backfill slot is unwired, not deleted. It ran after activate_task and
+    # fired only when that node had populated task_files from the task store, so
+    # with activate_task gone nothing can ever reach it — leaving it registered
+    # would be a node the graph can never enter. backfill_memory_files.py itself
+    # stays on disk: the BackfillNodeProtocol contract is still the documented
+    # extension point, and whoever wires a new feeder needs the implementation.
     builder.add_edge("deactivate_task",   END)
     builder.add_edge("decision_task",     END)
     builder.add_edge("mcp_hook_bridge",   END)

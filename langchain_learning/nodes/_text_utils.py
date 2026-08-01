@@ -24,20 +24,7 @@ def tokenise(text: str) -> set[str]:
     return {t for t in re.findall(r"[a-z]{3,}", text.lower()) if t not in _STOP_WORDS}
 
 
-def task_project_tag(task_id: str, tasks_db) -> Optional[str]:
-    """Return the project:<name> tag value for task_id from proj_tasks.db, or None."""
-    if not tasks_db.exists():
-        return None
-    try:
-        conn = sqlite3.connect(f"file:{tasks_db}?mode=ro", uri=True)
-        row = conn.execute("SELECT tags FROM open_tasks WHERE id = ?", (task_id,)).fetchone()
-        conn.close()
-        if row is None:
-            return None
-        for tag in (row[0] or "").split(","):
-            tag = tag.strip()
-            if tag.startswith("project:"):
-                return tag[len("project:"):]
-    except Exception:
-        pass
-    return None
+# task_project_tag was removed here (task:6240c675). It read a task's
+# project:<name> tag out of proj_tasks.db, a store this repo no longer owns,
+# and the tag itself was derived from a working directory.
+

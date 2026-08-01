@@ -11,10 +11,10 @@ If a node raises unhandled to LangGraph, the graph aborts entirely — these
 tests catch that regression too (they'd error out rather than asserting).
 
 Topology under test (UPS with active task):
-    load_active_task → load_task_history ──┐
-                     → load_task_code    ──┼──→ cwd_domain_detect ──┐
-                     → load_related_tasks─┘    load_memories        ├──→ set_prompt_id → log_task_events
-                                               score_tools          ┘
+    load_active_task → load_task_history ────┐
+                     → load_task_code    ────┼──→ cwd_domain_detect ──┐
+                     → load_related_commits ─┘    load_memories       ├──→ set_prompt_id → END
+                                                  score_tools         ┘
 """
 from __future__ import annotations
 
@@ -77,8 +77,6 @@ class TestSingleDependencyFailure:
         mock_cfg.memory_db = tmp_path / "MEMORY.sqlite"
 
         with patch("langchain_learning.nodes.load_task_history._cfg", mock_cfg), \
-             patch("langchain_learning.nodes.log_task_events.LogTaskEventsNode.__call__",
-                   return_value={}), \
              patch("langchain_learning.nodes.load_memories.LoadMemoriesNode.__call__",
                    return_value={"memories": [{"name": "m1"}]}) as mock_memories:
 
@@ -92,27 +90,6 @@ class TestSingleDependencyFailure:
         # task_context is empty (node returned default)
         assert result.get("task_context", []) == []
 
-    def test_load_related_tasks_vector_error_graph_completes(self, tmp_path):
-        """handle_neighbors raising → load_related_tasks returns [] → graph completes."""
-        graph = _build_graph()
-        session_id = "fail-rel-01"
-        _seed_active_task(graph, session_id, "task0001")
-
-        with patch("langchain_learning.nodes.load_related_tasks.handle_neighbors",
-                   side_effect=Exception("tvim index corrupt")), \
-             patch("langchain_learning.nodes.log_task_events.LogTaskEventsNode.__call__",
-                   return_value={}), \
-             patch("langchain_learning.nodes.load_memories.LoadMemoriesNode.__call__",
-                   return_value={"memories": []}) as mock_memories:
-
-            result = _run_ups(graph, session_id, tmp_path)
-
-        assert isinstance(result, dict)
-        # related_tasks is empty — node's except Exception caught the error
-        assert result.get("related_tasks", []) == []
-        # downstream load_memories still ran
-        mock_memories.assert_called_once()
-
     def test_load_memories_db_error_score_tools_still_runs(self, tmp_path):
         """MEMORY.sqlite failure → load_memories returns [] → score_tools still runs."""
         graph = _build_graph()
@@ -124,8 +101,6 @@ class TestSingleDependencyFailure:
         mock_cfg.memory_db = tmp_path / "MEMORY.sqlite"  # doesn't exist
 
         with patch("langchain_learning.nodes.load_memories._cfg", mock_cfg), \
-             patch("langchain_learning.nodes.log_task_events.LogTaskEventsNode.__call__",
-                   return_value={}), \
              patch("langchain_learning.nodes.score_tools.ScoreToolsNode.__call__",
                    return_value={"tool_hints": ["contacts__search"]}) as mock_score:
 
@@ -142,17 +117,10 @@ class TestSingleDependencyFailure:
         _seed_active_task(graph, session_id, "task0001")
         # No .code_embeddings.tvim in tmp_path → node bails at existence check
 
-        with patch("langchain_learning.nodes.log_task_events.LogTaskEventsNode.__call__",
-                   return_value={}), \
-             patch("langchain_learning.nodes.load_related_tasks.handle_neighbors",
-                   return_value=[]) as mock_neighbors:
-
-            result = _run_ups(graph, session_id, tmp_path)
+        result = _run_ups(graph, session_id, tmp_path)
 
         assert isinstance(result, dict)
         assert result.get("task_rag_chunks", []) == []
-        # load_related_tasks is re-enabled — handle_neighbors returns [] (no rag db) or is called
-        assert result.get("related_tasks", []) == []
 
 
 # ---------------------------------------------------------------------------
@@ -161,8 +129,14 @@ class TestSingleDependencyFailure:
 
 class TestDoubleDependencyFailure:
 
-    def test_history_and_related_both_fail_graph_completes(self, tmp_path):
-        """load_task_history DB missing + handle_neighbors raising → graph still completes."""
+    def test_history_and_code_both_fail_graph_completes(self, tmp_path):
+        """load_task_history DB missing + load_task_code index missing → graph completes.
+
+        Previously paired history with load_related_tasks; that node was removed
+        with the task pipeline (task:6240c675), so the second failure is now the
+        other surviving parallel loader. The property under test is unchanged —
+        two simultaneous fan-out failures must not abort the graph.
+        """
         graph = _build_graph()
         session_id = "fail-double-01"
         _seed_active_task(graph, session_id, "task0001")
@@ -172,10 +146,6 @@ class TestDoubleDependencyFailure:
         mock_cfg.memory_db = tmp_path / "MEMORY.sqlite"
 
         with patch("langchain_learning.nodes.load_task_history._cfg", mock_cfg), \
-             patch("langchain_learning.nodes.load_related_tasks.handle_neighbors",
-                   side_effect=Exception("no index")), \
-             patch("langchain_learning.nodes.log_task_events.LogTaskEventsNode.__call__",
-                   return_value={}), \
              patch("langchain_learning.nodes.load_memories.LoadMemoriesNode.__call__",
                    return_value={"memories": []}) as mock_memories:
 
@@ -183,7 +153,7 @@ class TestDoubleDependencyFailure:
 
         assert isinstance(result, dict)
         assert result.get("task_context", []) == []
-        assert result.get("related_tasks", []) == []
+        assert result.get("task_rag_chunks", []) == []
         # load_memories — second fan-out tier — still ran
         mock_memories.assert_called_once()
 
@@ -200,8 +170,6 @@ class TestDoubleDependencyFailure:
         with patch("langchain_learning.nodes.load_memories._cfg", mock_cfg_mem), \
              patch("langchain_learning.nodes.score_tools.ScoreToolsNode.__call__",
                    return_value={"tool_hints": []}), \
-             patch("langchain_learning.nodes.log_task_events.LogTaskEventsNode.__call__",
-                   return_value={}), \
              patch("langchain_learning.nodes.set_prompt_id.SetPromptIdNode.__call__",
                    return_value={"prompt_id": "double-pid"}) as mock_pid:
 
@@ -218,21 +186,23 @@ class TestDoubleDependencyFailure:
 
 class TestNoActiveTaskFailure:
 
-    def test_load_related_tasks_failure_no_task_path(self, tmp_path):
-        """On no-active-task path, handle_neighbors error → [] → set_prompt_id runs."""
+    def test_no_task_path_reaches_set_prompt_id(self, tmp_path):
+        """The no-active-task branch still completes after being rerouted.
+
+        It used to run through load_related_tasks, and this test injected a
+        failure there. That node is gone (task:6240c675), so the branch now goes
+        from load_turn straight to summarize_task_context — there is no loader
+        left to fail on this path. What still matters is that the rerouted
+        branch reaches set_prompt_id, which is what this now pins.
+        """
         graph = _build_graph()
         session_id = "fail-notask-01"
         # No active task seeded
 
-        with patch("langchain_learning.nodes.load_related_tasks.handle_neighbors",
-                   side_effect=Exception("tvim not found")), \
-             patch("langchain_learning.nodes.log_task_events.LogTaskEventsNode.__call__",
-                   return_value={}), \
-             patch("langchain_learning.nodes.set_prompt_id.SetPromptIdNode.__call__",
+        with patch("langchain_learning.nodes.set_prompt_id.SetPromptIdNode.__call__",
                    return_value={"prompt_id": "notask-pid"}) as mock_pid:
 
             result = _run_ups(graph, session_id, tmp_path)
 
         assert isinstance(result, dict)
-        assert result.get("related_tasks", []) == []
         mock_pid.assert_called_once()
