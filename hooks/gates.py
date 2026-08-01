@@ -460,118 +460,20 @@ def validate_jira_hierarchy(issue_type: str, parent_id: str) -> str | None:
 # validates its own input directly, which is this repo checking its own data.
 
 
-# ---------------------------------------------------------------------------
-# Task lifecycle — shared state machine helper + per-tool gates
-# ---------------------------------------------------------------------------
-
-def _check_task_transition(task_id: str, to_status: str, body: str = "") -> tuple[bool, str]:
-    """Enforce the task state machine for any lifecycle transition.
-
-    Returns (deny, reason). Fails open on DB errors or missing task.
-    """
-    try:
-        from src.tools.tasks import _connect, is_valid_transition
-        with _connect() as conn:
-            row = conn.execute(
-                "SELECT status FROM open_tasks WHERE id=?", (task_id,)
-            ).fetchone()
-    except Exception as exc:
-        _log.warning("[_check_task_transition] DB lookup failed: %s — failing open", exc)
-        return False, ""
-
-    if row is None:
-        return False, ""
-
-    current_status = (row["status"] or "").lower()
-
-    if not is_valid_transition(current_status, to_status):
-        from src.tools.tasks import _TRANSITIONS
-        allowed = sorted(_TRANSITIONS.get(current_status, set()) | {"abandoned"})
-        return (
-            True,
-            f"Blocked: task '{task_id}' cannot transition from '{current_status}' to '{to_status}'. "
-            f"Allowed next states: {', '.join(allowed)}.",
-        )
-
-    _log.info("[_check_task_transition] task=%s %s→%s allow", task_id, current_status, to_status)
-    return False, ""
-
-
-class TaskSetActiveGate(Gate):
-    """Gate for tasks__set_active — task must exist and be in an activatable state (open or blocked).
-
-    'active' is checkpoint-only and never written to the DB, so _check_task_transition
-    cannot be used here. We just verify the task is in a workable state.
-    """
-    tool_name = "tasks__set_active"
-
-    def verify(self, ctx: GateContext) -> tuple[bool, str]:
-        task_id = (ctx.tool_input.get("task_id") or "").strip()
-        if not task_id:
-            return False, ""
-        try:
-            from src.tools.tasks import _connect
-            with _connect() as conn:
-                row = conn.execute(
-                    "SELECT status FROM open_tasks WHERE id = ?", (task_id,)
-                ).fetchone()
-        except Exception as exc:
-            _log.warning("[TaskSetActiveGate] DB lookup failed: %s — failing open", exc)
-            return False, ""
-        if row is None:
-            # NOT this repo's task, rather than a bad id. tasks__set_active is
-            # a bare name that more than one MCP server provides, and open_tasks
-            # stopped being the only task store — task-framework keeps its own.
-            # Blocking on absence made this gate deny every taskfw activation,
-            # the same defect JiraHierarchyGate had. An unknown id belongs to
-            # whoever owns it, and that owner validates it.
-            _log.info("[TaskSetActiveGate] task=%s not in open_tasks — not ours, allow", task_id)
-            return False, ""
-        if row["status"] not in ("open", "blocked", "wip"):
-            return True, (
-                f"Blocked: task '{task_id}' has status '{row['status']}' and cannot be activated. "
-                f"Only open, blocked, or wip tasks can be made active."
-            )
-        return False, ""
-
-
-class TaskUpdateGate(Gate):
-    """Gate for tasks__update — state machine check on status changes."""
-    tool_name = "tasks__update"
-
-    def verify(self, ctx: GateContext) -> tuple[bool, str]:
-        new_status = (ctx.tool_input.get("status") or "").strip().lower()
-        task_id = (ctx.tool_input.get("id") or "").strip()
-
-        if not new_status:
-            return False, ""
-        if not task_id:
-            return False, ""
-
-        return _check_task_transition(task_id, new_status, ctx.tool_input.get("body") or "")
-
-
-class TaskFinishGate(Gate):
-    """Gate for tasks__finish — enforces active→done via _check_task_transition."""
-    tool_name = "tasks__finish"
-
-    def verify(self, ctx: GateContext) -> tuple[bool, str]:
-        task_id = (ctx.tool_input.get("task_id") or "").strip()
-        if not task_id:
-            return False, ""
-        return _check_task_transition(task_id, "done", ctx.tool_input.get("reason") or "")
-
 
 # ---------------------------------------------------------------------------
 # Gate registry
 # ---------------------------------------------------------------------------
 
+# The task lifecycle gates are gone. They enforced task-framework's state
+# machine from here, reading this repo's open_tasks, which made a taskfw id
+# look like a missing task and a taskfw rule look like this repo's to set.
+# Both commit gates stay: neither touches a task store — one regexes the Bash
+# command for task:<id>, the other checks a typed param — so traceability
+# survives the extraction with no dependency on taskfw at all.
 GATES: dict[str, Gate] = {g.tool_name: g for g in [
     GitCommitGate(),
     GitCommitMcpGate(),
-    TaskSetActiveGate(),
-    TaskUpdateGate(),
-    TaskFinishGate(),
 ]}
 
 # Merge external gates from gate_rules.yaml — external entries never override internal ones
