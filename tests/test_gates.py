@@ -709,6 +709,47 @@ def test_git_add_and_commit_allowed_with_task_id():
     assert not deny
 
 
+def test_git_commit_dash_f_allowed_when_file_has_task_id(tmp_path):
+    """git commit -F <path> — task id lives in the file, not the command."""
+    msg = tmp_path / "commit_msg.txt"
+    msg.write_text("Subject line\n\ntask:97b365ac\n\nBody.\n")
+    ctx = _git_ctx(f'git commit -F {msg}')
+    deny, _ = GitCommitGate().verify(ctx)
+    assert not deny
+
+
+def test_git_commit_dash_f_denied_when_file_has_no_task_id(tmp_path):
+    msg = tmp_path / "commit_msg.txt"
+    msg.write_text("Subject line\n\nBody with no task id.\n")
+    ctx = _git_ctx(f'git commit -F {msg}')
+    deny, reason = GitCommitGate().verify(ctx)
+    assert deny
+    assert "task:<id>" in reason
+
+
+def test_git_commit_dash_f_denied_when_file_missing(tmp_path):
+    """A nonexistent -F path must not crash the gate — it just can't confirm traceability."""
+    ctx = _git_ctx(f'git commit -F {tmp_path / "nope.txt"}')
+    deny, _ = GitCommitGate().verify(ctx)
+    assert deny
+
+
+def test_git_commit_dash_dash_file_long_flag_allowed(tmp_path):
+    msg = tmp_path / "commit_msg.txt"
+    msg.write_text("Subject\n\ntask:deadbeef\n")
+    ctx = _git_ctx(f'git commit --file {msg}')
+    deny, _ = GitCommitGate().verify(ctx)
+    assert not deny
+
+
+def test_git_commit_dash_f_quoted_path_with_spaces_allowed(tmp_path):
+    msg = tmp_path / "commit msg.txt"
+    msg.write_text("Subject\n\ntask:cafebabe\n")
+    ctx = _git_ctx(f'git commit -F "{msg}"')
+    deny, _ = GitCommitGate().verify(ctx)
+    assert not deny
+
+
 # ---------------------------------------------------------------------------
 # GitCommitMcpGate
 # ---------------------------------------------------------------------------

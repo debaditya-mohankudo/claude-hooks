@@ -320,14 +320,25 @@ _GIT_COMMIT_RE = _re.compile(
     _re.IGNORECASE,
 )
 _TASK_ID_RE = _re.compile(r'task:[a-f0-9]{6,}')
+# `git commit -F <path>` / `--file <path>` — the form task-framework's own
+# /commit skill recommends for multi-paragraph messages, since heredocs and
+# -m chains mangle them. The task id then lives in the file, not the command.
+_FILE_FLAG_RE = _re.compile(r'(?:-F|--file)(?:=|\s+)("[^"]*"|\'[^\']*\'|\S+)')
+
+
+def _strip_quotes(value: str) -> str:
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+        return value[1:-1]
+    return value
 
 
 class GitCommitGate(Gate):
     """Gate for Bash tool calls that contain a git commit.
 
     Passes through all non-commit bash calls immediately. For commit calls,
-    denies if no task:<id> pattern is found anywhere in the command string.
-    This enforces traceability — every commit must reference an active task.
+    denies if no task:<id> pattern is found in the command string OR in a
+    file the command passes via `-F`/`--file`. This enforces traceability —
+    every commit must reference an active task.
     """
     tool_name = "Bash"
 
@@ -337,12 +348,22 @@ class GitCommitGate(Gate):
             _log.debug("[Bash] non-commit bash — allow")
             return False, ""
         if _TASK_ID_RE.search(command):
-            _log.info("[Bash] git commit with task:<id> — allow")
+            _log.info("[Bash] git commit with task:<id> in command — allow")
             return False, ""
+        for match in _FILE_FLAG_RE.finditer(command):
+            path = _strip_quotes(match.group(1))
+            try:
+                text = Path(path).read_text()
+            except OSError:
+                continue
+            if _TASK_ID_RE.search(text):
+                _log.info("[Bash] git commit with task:<id> in -F file %s — allow", path)
+                return False, ""
         return (
             True,
             "Blocked: git commit is missing a task:<id> reference. "
-            "Add 'task:<id>' to the commit message body, or activate a task first with tasks__set_active.",
+            "Add 'task:<id>' to the commit message body (or the file passed via -F), "
+            "or activate a task first with tasks__set_active.",
         )
 
 
