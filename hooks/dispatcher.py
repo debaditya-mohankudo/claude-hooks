@@ -474,118 +474,14 @@ def _handle_post_tool_use(hook_input: dict) -> dict | None:
 
 _FAIL_CLOSED_TOOLS = {"imessage__send", "mail__compose"}
 
-# Required body sections per workflow type, sourced from the repo's task_templates/.
-# The template files (task_templates/<kind>.md) are the single source of truth — the
-# gate parses them at import so the scaffolds, the create tool, and this check can
-# never drift. _FALLBACK is used only if the templates dir is missing/unparseable.
-_TASK_TEMPLATES_DIR = Path(__file__).resolve().parents[1] / "task_templates"
-_TYPE_LINE_RE = re.compile(r"^Type:\s*(\w+)", re.MULTILINE)
-_SECTION_LINE_RE = re.compile(r"^([A-Z][A-Za-z ]*):$", re.MULTILINE)  # a label alone on its line
-
-_FALLBACK_TASK_BODY_SECTIONS: dict[str, tuple[tuple[str, ...], str]] = {
-    "feature": (("Task:", "Resolution:", "Motivation:", "Files:"), "Type: feature\n\nTask:\n...\n\nResolution:\n...\n\nMotivation:\n...\n\nFiles:\n..."),
-    "bug": (("Task:", "Resolution:", "Cause:", "Files:"), "Type: bug\n\nTask:\n...\n\nResolution:\n...\n\nCause:\n...\n\nFiles:\n..."),
-    "research": (("Task:", "Finding:", "Context:", "Files:"), "Type: research\n\nTask:\n...\n\nFinding:\n...\n\nContext:\n...\n\nFiles:\n(leave blank)"),
-    "misc": (("Task:", "Resolution:", "Notes:", "Files:"), "Type: misc\n\nTask:\n...\n\nResolution:\n...\n\nNotes:\n...\n\nFiles:\n..."),
-    "epic": (("Task:", "Resolution:", "Notes:", "Files:"), "Type: epic\n\nTask:\n...\n\nResolution:\n...\n\nNotes:\n...\n\nFiles:\n..."),
-}
-
-
-def _load_task_body_sections() -> dict[str, tuple[tuple[str, ...], str]]:
-    """Parse task_templates/*.md → {kind: (required_section_labels, full_template_text)}.
-
-    Each template's leading 'Type: <kind>' names the workflow kind; every label
-    alone on its own line (e.g. 'Task:', 'Resolution:') is a required section.
-    """
-    out: dict[str, tuple[tuple[str, ...], str]] = {}
-    try:
-        for md in sorted(_TASK_TEMPLATES_DIR.glob("*.md")):
-            if md.name.lower() == "readme.md":
-                continue
-            text = md.read_text(encoding="utf-8")
-            tm = _TYPE_LINE_RE.search(text)
-            if not tm:
-                continue
-            sections = tuple(f"{s}:" for s in _SECTION_LINE_RE.findall(text))
-            if sections:
-                out[tm.group(1).lower()] = (sections, text.strip())
-    except Exception as exc:
-        log.warning("_load_task_body_sections failed, falling back to defaults: %s", exc)
-    return out
-
-
-_TASK_BODY_SECTIONS = _load_task_body_sections() or _FALLBACK_TASK_BODY_SECTIONS
-_TASK_BODY_VALID_TYPES = ", ".join(_TASK_BODY_SECTIONS)
-
-
-def _check_task_body_format(tool_input: dict) -> dict | None:
-    """Deny tasks__create if body is missing required sections.
-
-    Only enforced for claude-hooks domain tasks — other project domains have
-    different conventions and should not be gated by this template check.
-
-    Body workflow type is detected from a leading 'Type: <value>' line for
-    backwards compatibility, but issue_type is now a separate param.
-    Denies if Type is missing/unknown or required sections are absent.
-    """
-    domain = (tool_input.get("domain") or "").strip().lower()
-    if domain and domain != "claude-hooks":
-        return None
-
-    body = (tool_input.get("body") or "").strip()
-    if not body:
-        # Empty body is handle_create's documented auto-fill trigger (src/tools/tasks.py:267)
-        # — only deny here if the resolved task_type has no template to fill from.
-        auto_task_type = (tool_input.get("task_type") or "misc").strip().lower()
-        if auto_task_type not in _TASK_BODY_SECTIONS:
-            return {
-                "hookSpecificOutput": {
-                    "hookEventName": "PreToolUse",
-                    "permissionDecision": "deny",
-                    "permissionDecisionReason": (
-                        f"Unknown task_type '{auto_task_type}' for auto-fill. "
-                        f"Valid types: {_TASK_BODY_VALID_TYPES}. See task_templates/<type>.md in the repo."
-                    ),
-                }
-            }
-        return None
-    m = re.search(r"^Type:\s*(\w+)", body, re.MULTILINE)
-    if not m:
-        return {
-            "hookSpecificOutput": {
-                "hookEventName": "PreToolUse",
-                "permissionDecision": "deny",
-                "permissionDecisionReason": (
-                    f"tasks__create body must start with 'Type: <type>'. "
-                    f"Valid types: {_TASK_BODY_VALID_TYPES}. See task_templates/<type>.md in the repo."
-                ),
-            }
-        }
-    task_type = m.group(1).lower()
-    if task_type not in _TASK_BODY_SECTIONS:
-        return {
-            "hookSpecificOutput": {
-                "hookEventName": "PreToolUse",
-                "permissionDecision": "deny",
-                "permissionDecisionReason": (
-                    f"Unknown task type '{task_type}'. "
-                    f"Valid types: {_TASK_BODY_VALID_TYPES}. See task_templates/<type>.md in the repo."
-                ),
-            }
-        }
-    sections, fmt = _TASK_BODY_SECTIONS[task_type]
-    missing = [s for s in sections if s not in body]
-    if missing:
-        return {
-            "hookSpecificOutput": {
-                "hookEventName": "PreToolUse",
-                "permissionDecision": "deny",
-                "permissionDecisionReason": (
-                    f"tasks__create body (type={task_type}) is missing: {', '.join(missing)}.\n\n{fmt}"
-                ),
-            }
-        }
-    return None
+# The task-body-template gate that lived here (_check_task_body_format and its
+# supporting constants) was removed with src/tools/tasks.py (task:87ec7876).
+# It existed to enforce task_templates/*.md against mcp__claude-hooks__tasks__create
+# payloads — but that tool's only implementation, handle_create_scaffolded, was
+# also in src/tools/tasks.py. With the handler gone, this server can no longer
+# receive a tasks__create call at all, so the gate was checking a call path
+# that could never fire: dead code enforcing a rule with no rule-breaker left
+# to check. task_templates/ went with it (task:d6ddb40f).
 
 
 # Drift reflection nudge (epic f66cccbe, task aac953b7) — rather than matching edited
@@ -699,19 +595,6 @@ def _handle_pre_tool_use(hook_input: dict) -> dict | None:
         short_name = tool_name
     else:
         return None
-
-    # Matched on the FULLY-QUALIFIED name, not the stripped one. More than one
-    # MCP server provides tasks__create, so matching the short name applied this
-    # repo's body-template rule to task-framework, which deliberately has no
-    # template to satisfy — its object shape IS its schema. The hierarchy check
-    # that also lived here is gone entirely: that decision belongs to
-    # task-framework. What remains governs only this repo's own templates.
-    if tool_name == "mcp__claude-hooks__tasks__create":
-        body_denied = _check_task_body_format(hook_input.get("tool_input") or {})
-        if body_denied:
-            reason = body_denied["hookSpecificOutput"]["permissionDecisionReason"]
-            log.info("tasks__create denied: %s", reason[:80])
-            return body_denied
 
     from langchain_learning.session_graph import run_gate
     result = run_gate(

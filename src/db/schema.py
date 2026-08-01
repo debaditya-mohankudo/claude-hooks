@@ -1,24 +1,20 @@
 """Central SQLite DDL definitions and migrate() functions.
 
 Purpose: this module is NOT the production schema/migration path. Every tool
-module (src/tools/tasks.py, memory.py, scratch.py, hooks.py) connects to its
-own DB directly and manages its own schema independently — most assume
-scripts/init_db.py already ran once; src/tools/tasks.py additionally
-self-heals via its own inline _ensure_db()/_migrate() on every connect. This
-split is deliberate (task:cb357eb6, commit de1ae61, 2026-06-27): it lets test
-fixtures and the one-time installer share DDL without giving schema.py any
-runtime authority over production connect-time behavior.
+module (memory.py, scratch.py, hooks.py) connects to its own DB directly and
+manages its own schema independently — most assume scripts/init_db.py already
+ran once. This split is deliberate (task:cb357eb6, commit de1ae61, 2026-06-27):
+it lets test fixtures and the one-time installer share DDL without giving
+schema.py any runtime authority over production connect-time behavior.
 
 Usage:
 - Tests: import DDL constants to build fixtures (no inline DDL in test files).
 - Setup: call migrate_*() once on first install via scripts/init_db.py.
 - Prod connect-time code (_ensure_db, _SCHEMA, etc.) is NOT replaced — it stays as-is.
 
-Adding a column/table: add it to the DDL constant + migrate_*() here, AND to the
-matching tool module's own inline schema code if that module self-heals (e.g.
-src/tools/tasks.py's _ensure_db()/_migrate()) — the two must be kept in sync by
-hand. See tests/test_task_issue_type.py::TestSchemaParity (task:9d3acbef) for
-the automated check that catches drift between the two.
+Adding a column/table: add it to the DDL constant + migrate_*() here, AND to any
+tool module's own inline schema code if that module self-heals — the two must
+be kept in sync by hand.
 """
 from __future__ import annotations
 
@@ -63,102 +59,13 @@ def migrate_memory_db(conn: sqlite3.Connection) -> None:
 
 
 # ── proj_tasks.db ─────────────────────────────────────────────────────────────
-
-# Also created by src/tools/tasks.py's own _ensure_db() — that's the actual
-# production path; this constant is for test fixtures / one-time install
-# only, per this module's docstring. Kept in sync manually; see
-# tests/test_task_issue_type.py::TestSchemaParity for the automated guard.
-OPEN_TASKS_DDL = """
-CREATE TABLE IF NOT EXISTS open_tasks (
-    id         TEXT PRIMARY KEY,
-    title      TEXT NOT NULL,
-    body       TEXT DEFAULT '',
-    tags       TEXT DEFAULT '',
-    status     TEXT DEFAULT 'open',
-    issue_type TEXT DEFAULT 'task',
-    parent_id  TEXT DEFAULT NULL REFERENCES open_tasks(id),
-    keywords   TEXT DEFAULT NULL,
-    created_at TIMESTAMP DEFAULT (datetime('now')),
-    updated_at TIMESTAMP DEFAULT (datetime('now')),
-    groomed_at TIMESTAMP DEFAULT NULL,
-    document   TEXT DEFAULT NULL,
-    introspected_at TIMESTAMP DEFAULT NULL
-)
-"""
-
-TASK_EVENTS_DDL = """
-CREATE TABLE IF NOT EXISTS task_events (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    task_id    TEXT NOT NULL,
-    prompt_id  TEXT DEFAULT '',
-    session_id TEXT DEFAULT '',
-    turn       INTEGER DEFAULT 0,
-    summary    TEXT DEFAULT '',
-    tools      TEXT DEFAULT '',
-    related    TEXT DEFAULT '',
-    memories   TEXT DEFAULT '',
-    logged_at  TIMESTAMP DEFAULT (datetime('now')),
-    FOREIGN KEY (task_id) REFERENCES open_tasks(id) ON DELETE CASCADE
-)
-"""
-
-# Also created by src/tools/tasks.py's own _ensure_db() — that's the actual
-# production path; this constant is for test fixtures / one-time install
-# only, per this module's docstring. Kept in sync manually; see
-# tests/test_task_issue_type.py::TestSchemaParity for the automated guard.
-COMMIT_TASK_MAP_DDL = """
-CREATE TABLE IF NOT EXISTS commit_task_map (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    task_id     TEXT NOT NULL,
-    commit_hash TEXT NOT NULL,
-    repo_path   TEXT DEFAULT '',
-    logged_at   TIMESTAMP DEFAULT (datetime('now')),
-    FOREIGN KEY (task_id) REFERENCES open_tasks(id) ON DELETE CASCADE,
-    UNIQUE (task_id, commit_hash)
-)
-"""
-
-# Also created by src/tools/tasks.py's own _ensure_db() (task:9d3acbef) — that's
-# the actual production path; this constant is for test fixtures / one-time
-# install only, per this module's docstring. Kept in sync manually; see the
-# schema-parity test in tests/test_task_issue_type.py for the automated guard.
-TASK_EDGES_DDL = """
-CREATE TABLE IF NOT EXISTS task_edges (
-    from_id       TEXT NOT NULL,
-    to_id         TEXT NOT NULL,
-    relation_type TEXT NOT NULL,
-    created_at    TIMESTAMP DEFAULT (datetime('now')),
-    PRIMARY KEY (from_id, to_id, relation_type)
-)
-"""
-
-
-def migrate_tasks_db(conn: sqlite3.Connection) -> None:
-    """Additive migrations for proj_tasks.db."""
-    task_cols = {r[1] for r in conn.execute("PRAGMA table_info(open_tasks)")}
-    task_additive = {
-        "issue_type": "TEXT DEFAULT 'task'",
-        "parent_id":  "TEXT DEFAULT NULL",
-        "keywords":   "TEXT DEFAULT NULL",
-        "groomed_at": "TIMESTAMP DEFAULT NULL",
-        "document":   "TEXT DEFAULT NULL",
-        "introspected_at": "TIMESTAMP DEFAULT NULL",
-    }
-    for col, typedef in task_additive.items():
-        if col not in task_cols:
-            conn.execute(f"ALTER TABLE open_tasks ADD COLUMN {col} {typedef}")
-
-    event_cols = {r[1] for r in conn.execute("PRAGMA table_info(task_events)")}
-    event_additive = {
-        "related":  "TEXT DEFAULT ''",
-        "memories": "TEXT DEFAULT ''",
-    }
-    for col, typedef in event_additive.items():
-        if col not in event_cols:
-            conn.execute(f"ALTER TABLE task_events ADD COLUMN {col} {typedef}")
-
-    conn.commit()
-
+#
+# open_tasks, task_events, commit_task_map, task_edges and migrate_tasks_db
+# removed here (task:87ec7876), along with src/tools/tasks.py — the actual
+# production path that created these tables, this module's docstring having
+# always said the constants below existed only for tests and one-time install.
+# Task storage lives in task-framework now; this repo migrated its own history
+# there rather than keeping a second copy (task:75ade3a8, 1406 rows).
 
 # ── tool_hints.sqlite ─────────────────────────────────────────────────────────
 

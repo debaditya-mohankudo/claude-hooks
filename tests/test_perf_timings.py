@@ -46,50 +46,21 @@ class TestDispatcherSkips:
 # Parallel DB writes: two independent writes should finish faster than 2× each
 # ---------------------------------------------------------------------------
 
-class TestParallelDbWrites:
-    """LogToolUsageNode._upsert_tool_hint and _upsert_task_event_tools run concurrently."""
+class TestToolHintWrites:
+    """LogToolUsageNode._upsert_tool_hint.
+
+    This class used to be TestParallelDbWrites, timing _upsert_tool_hint
+    against _upsert_task_event_tools running concurrently via a
+    ThreadPoolExecutor. That second writer was removed (task:87ec7876) — it
+    wrote to task_events, a table this repo no longer owns, on every single
+    tool call. With one writer left, the pool bought nothing and __call__ now
+    calls _upsert_tool_hint directly; there is no concurrency left to time.
+    """
 
     def _make_db(self, suffix=".sqlite") -> Path:
         f = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
         f.close()
         return Path(f.name)
-
-    def test_parallel_faster_than_sequential(self):
-        """Two 50ms sleeps in parallel should finish in ~50ms, not ~100ms."""
-        call_times: dict[str, float] = {}
-
-        def slow_hint(*args, **kwargs):
-            call_times["hint_start"] = time.monotonic()
-            time.sleep(0.05)
-            call_times["hint_end"] = time.monotonic()
-
-        def slow_task(*args, **kwargs):
-            call_times["task_start"] = time.monotonic()
-            time.sleep(0.05)
-            call_times["task_end"] = time.monotonic()
-
-        from langchain_learning.nodes.log_tool_usage import LogToolUsageNode
-
-        node = LogToolUsageNode()
-        with patch.object(node, "_upsert_tool_hint", slow_hint), \
-             patch.object(node, "_upsert_task_event_tools", slow_task):
-
-            # Simulate the parallel dispatch directly
-            from concurrent.futures import ThreadPoolExecutor
-            t0 = time.monotonic()
-            with ThreadPoolExecutor(max_workers=2) as pool:
-                f1 = pool.submit(node._upsert_tool_hint, "tool", "domain", "skill", 10.0, "prompt")
-                f2 = pool.submit(node._upsert_task_event_tools, "tool", "pid", "tid")
-                f1.result()
-                f2.result()
-            elapsed = (time.monotonic() - t0) * 1000
-
-        # Both started before either finished → overlapping
-        assert call_times["hint_start"] < call_times["task_end"], "no overlap detected"
-        assert call_times["task_start"] < call_times["hint_end"], "no overlap detected"
-
-        # Should finish in ~50ms, definitely not 100ms
-        assert elapsed < 120, f"parallel writes took {elapsed:.1f}ms — should be < 120ms"
 
     def test_upsert_tool_hint_writes_to_db(self):
         """Basic smoke: _upsert_tool_hint actually writes a row."""

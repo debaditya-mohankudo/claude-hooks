@@ -42,11 +42,9 @@ DOMAIN_MAP: dict[str, tuple[str, list[str]]] = {
     "hooks":   ("tools.hooks",   ["checkpoint_query", "read_logs_sqlite", "server_memory", "session_id"]),
     "memory":  ("tools.memory",  ["add", "add_batch", "search", "list", "get", "list_domains",
                                   "tool_hints", "read_compact", "delete"]),
-    "tasks":   ("tools.tasks",   ["create", "create_scaffolded", "create_epic", "create_feedback", "list", "get", "update", "delete", "search",
-                                  "set_active", "clear_active", "pop_active", "finish",
-                                  "log_event", "history", "add_decision", "pause",
-                                  "neighbors", "index_task", "link_tasks", "edges", "get_commits",
-                                  "update_document"]),
+    # "tasks" removed here (task:87ec7876), along with tools/tasks.py — the whole
+    # tasks__* surface (create, set_active, finish, ...) belonged to it. Task
+    # storage and its MCP tools live in task-framework now.
     "code_rag": ("tools.code_rag", ["query", "smart_search", "index_files"]),
     "diff_rag": ("tools.diff_rag", ["query", "smart_search", "index_commits"]),
     "think":    ("tools.think",    ["think"]),

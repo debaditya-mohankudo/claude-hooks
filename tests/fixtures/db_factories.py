@@ -12,9 +12,6 @@ from src.db.schema import (
     HOOK_LOGS_DDL,
     MEMORIES_DDL,
     MCP_TOOL_HINTS_DDL,
-    OPEN_TASKS_DDL,
-    TASK_EDGES_DDL,
-    TASK_EVENTS_DDL,
     TEST_RUNS_DDL,
 )
 
@@ -40,29 +37,9 @@ def make_memory_db(tmp_path: Path, memories: list[dict] | None = None) -> Path:
     return db
 
 
-def make_tasks_db(tmp_path: Path, tasks: list[dict] | None = None) -> Path:
-    """Create a proj_tasks.db fixture. tasks is a list of row dicts."""
-    db = tmp_path / "proj_tasks.db"
-    with sqlite3.connect(str(db)) as conn:
-        conn.executescript(OPEN_TASKS_DDL)
-        conn.executescript(TASK_EVENTS_DDL)
-        conn.executescript(TASK_EDGES_DDL)
-        for t in tasks or []:
-            conn.execute(
-                """INSERT INTO open_tasks
-                   (id, title, body, status, tags, parent_id)
-                   VALUES (?,?,?,?,?,?)""",
-                (
-                    t["id"],
-                    t.get("title", ""),
-                    t.get("body", ""),
-                    t.get("status", "open"),
-                    t.get("tags", ""),
-                    t.get("parent_id", None),
-                ),
-            )
-        conn.commit()
-    return db
+# make_tasks_db was removed here (task:87ec7876), along with the DDL it built
+# from — open_tasks, task_events, task_edges. Task storage lives in
+# task-framework now.
 
 
 def make_tool_hints_db(tmp_path: Path, hints: list[dict] | None = None) -> Path:

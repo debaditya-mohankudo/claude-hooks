@@ -45,25 +45,24 @@ def test_load_module_loads_tools_memory():
     assert hasattr(mod, "handle_add")
 
 
-def test_load_module_loads_tools_tasks():
-    mod = _load_module("tools.tasks")
-    assert hasattr(mod, "handle_create")
+def test_load_module_loads_tools_memory():
+    """Replaces the tools.tasks version of this test — that module is gone
+    (task:87ec7876), along with its "tasks" entry in DOMAIN_MAP below."""
+    mod = _load_module("tools.memory")
+    assert hasattr(mod, "handle_add")
 
 
 # ── DOMAIN_MAP ────────────────────────────────────────────────────────────────
 
 def test_domain_map_has_required_domains():
     assert "memory" in DOMAIN_MAP
-    assert "tasks" in DOMAIN_MAP
     assert "hooks" in DOMAIN_MAP
     assert "code_rag" in DOMAIN_MAP
 
 
-def test_domain_map_tasks_has_key_actions():
-    _, actions = DOMAIN_MAP["tasks"]
-    assert "create" in actions
-    assert "set_active" in actions
-    assert "finish" in actions
+def test_domain_map_has_no_tasks_entry():
+    """tasks__* tools have no implementation left to dispatch to (task:87ec7876)."""
+    assert "tasks" not in DOMAIN_MAP
 
 
 # ── build_dispatcher ──────────────────────────────────────────────────────────

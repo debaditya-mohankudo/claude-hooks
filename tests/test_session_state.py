@@ -136,13 +136,11 @@ class TestGetActiveSession:
             result = get_active_session()
         assert result["task_id"] == "task-1"
 
-    def test_no_task_store_is_consulted(self):
-        """The whole point of the change: no import of this repo's task store."""
-        tup = _make_checkpoint_tuple("sess-abc", 1, ts="2026-07-28T01:00:00+00:00", active_task_id="task-1")
-        with _mock_checkpointer({"sess-abc": tup}):
-            with patch("src.tools.tasks.handle_get", side_effect=AssertionError("task store consulted")):
-                result = get_active_session()
-        assert result["task_id"] == "task-1"
+    # test_no_task_store_is_consulted removed here (task:87ec7876). It proved
+    # get_active_session never calls src.tools.tasks.handle_get by patching that
+    # target and asserting it wasn't hit. The module is gone, so the patch
+    # target no longer exists — the property is now true unconditionally, and
+    # the test above already covers the behavior that matters.
 
     def test_no_checkpointer_returns_empty(self):
         graph = MagicMock()

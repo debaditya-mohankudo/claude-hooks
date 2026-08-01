@@ -366,99 +366,14 @@ class GitCommitMcpGate(Gate):
         return False, ""
 
 
-# ---------------------------------------------------------------------------
-# Jira hierarchy gate
-# ---------------------------------------------------------------------------
-
-_JIRA_RULES: dict[str, set[str]] = {
-    "story":    {"epic"},
-    "task":     {"epic"},
-    "bug":      {"epic"},
-    "subtask":  {"story", "task", "bug"},
-    "feedback": {"epic", "story", "task", "bug", "subtask"},
-}
-
-
-def validate_jira_hierarchy(issue_type: str, parent_id: str) -> str | None:
-    """Pure validation of Jira parent-child type rules.
-
-    Returns an error string if invalid, None if valid.
-
-    INTERNAL to this repo's own task tool — the sole caller is
-    handle_create_scaffolded, validating input it is about to store itself.
-    It is deliberately not wired to any gate: gating on the bare tool name
-    applied this rule to other servers' tasks__create, and task hierarchy is
-    task-framework's decision, not this repo's. Retire this with src/tools/tasks.py.
-    """
-    issue_type = (issue_type or "task").lower()
-    parent_id  = (parent_id or "").strip()
-
-    if issue_type == "epic":
-        if parent_id:
-            return "Epics cannot have a parent. Remove parent_id or change issue_type."
-        return None
-
-    required_parents = _JIRA_RULES.get(issue_type)
-    if required_parents is None:
-        return None  # unknown type — pass through
-
-    if not parent_id:
-        suggestions = ""
-        try:
-            from src.tools.tasks import _connect
-            placeholders = ", ".join("?" for _ in required_parents)
-            with _connect() as conn:
-                rows = conn.execute(
-                    f"SELECT id, title FROM open_tasks WHERE issue_type IN ({placeholders}) "
-                    f"AND status='open' ORDER BY created_at DESC LIMIT 5",
-                    tuple(required_parents),
-                ).fetchall()
-            if rows:
-                candidates = "; ".join(f"{r['id']}: {r['title']}" for r in rows)
-                suggestions = f" Candidates: {candidates}."
-        except Exception as exc:
-            _log.warning("[validate_jira_hierarchy] candidate lookup failed: %s", exc)
-        return (
-            f"issue_type='{issue_type}' requires a parent "
-            f"(must be: {', '.join(sorted(required_parents))}). "
-            f"Select a parent or change the type.{suggestions}"
-        )
-
-    try:
-        from src.tools.tasks import _connect
-        with _connect() as conn:
-            row = conn.execute(
-                "SELECT issue_type FROM open_tasks WHERE id=?", (parent_id,)
-            ).fetchone()
-    except Exception as exc:
-        _log.warning("[validate_jira_hierarchy] DB lookup failed: %s — failing open", exc)
-        return None
-
-    if row is None:
-        _log.warning("[validate_jira_hierarchy] parent_id=%s not found", parent_id)
-        return f"Parent task '{parent_id}' not found."
-
-    parent_type = (row["issue_type"] or "task").lower()
-    _log.info("[validate_jira_hierarchy] issue_type=%s parent_id=%s parent_type=%s required=%s",
-              issue_type, parent_id, parent_type, sorted(required_parents))
-    if parent_type not in required_parents:
-        return (
-            f"issue_type='{issue_type}' requires a parent of type "
-            f"{', '.join(sorted(required_parents))}, "
-            f"but '{parent_id}' is a '{parent_type}'."
-        )
-
-    return None
-
-
-# JiraHierarchyGate was removed here. It registered under the bare name
+# Jira hierarchy validation retired here (task:87ec7876), with its sole caller
+# handle_create_scaffolded — deleted along with src/tools/tasks.py. JiraHierarchyGate
+# itself went earlier (task:6240c675): it registered under the bare name
 # tasks__create, which more than one MCP server provides, so it enforced this
-# repo's hierarchy rule over task-framework's — a framework that owns the rule
-# itself and states a DIFFERENT one (an epic may not have a parent; a task
-# needs none). Task hierarchy is task-framework's decision to make; a gate here
-# was a second, contradictory home for it. handle_create_scaffolded still
-# validates its own input directly, which is this repo checking its own data.
-
+# repo's hierarchy rule over task-framework's, which owns a DIFFERENT one (an
+# epic may not have a parent; a task needs none). Task hierarchy is
+# task-framework's decision, not this repo's, and this repo no longer has any
+# task hierarchy of its own left to validate.
 
 
 # ---------------------------------------------------------------------------

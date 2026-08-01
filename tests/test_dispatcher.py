@@ -19,7 +19,6 @@ from dispatcher import (
     _extract_prompt,
     _get_claude_session_id,
     _format_system_prompt,
-    _check_task_body_format,
     _enforce_context_budget,
     _CONTEXT_TOKEN_BUDGET,
     _TASK_BODY_CHAR_CAP,
@@ -312,60 +311,12 @@ def test_task_history_multi_session_shows_session_id():
 
 
 def test_includes_rag_chunks():
-    chunk = {"name": "MyClass", "module": "src.tools.tasks", "file": "src/tools/tasks.py", "line": 42}
+    chunk = {"name": "MyClass", "module": "hooks.gates", "file": "hooks/gates.py", "line": 42}
     result = _format_system_prompt(_base_ctx(task_rag_chunks=[chunk]))
     assert "## Relevant code" in result
     assert "MyClass" in result
 
-
-# ── _check_task_body_format ───────────────────────────────────────────────────
-
-def test_allows_valid_feature_body():
-    body = "Type: feature\n\nTask: build x\n\nResolution: done\n\nMotivation: needed\n\nFiles: a.py"
-    assert _check_task_body_format({"body": body}) is None
-
-
-def test_allows_valid_bug_body():
-    body = "Type: bug\n\nTask: broken\n\nResolution: fixed\n\nCause: null ptr\n\nFiles: b.py"
-    assert _check_task_body_format({"body": body}) is None
-
-
-def test_allows_empty_body_default_task_type():
-    # Empty body is handle_create's documented auto-fill trigger — allowed when
-    # the (defaulted) task_type resolves to a known template.
-    assert _check_task_body_format({"body": ""}) is None
-
-
-def test_allows_empty_body_explicit_task_type():
-    assert _check_task_body_format({"body": "", "task_type": "feature"}) is None
-
-
-def test_denies_empty_body_unknown_task_type():
-    result = _check_task_body_format({"body": "", "task_type": "mystery"})
-    assert result is not None
-    assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
-    assert "mystery" in result["hookSpecificOutput"]["permissionDecisionReason"]
-
-
-def test_denies_missing_type_line():
-    result = _check_task_body_format({"body": "Task: something\nResolution: done"})
-    assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
-    assert "must start with 'Type:" in result["hookSpecificOutput"]["permissionDecisionReason"]
-
-
-def test_denies_unknown_type():
-    result = _check_task_body_format({"body": "Type: mystery\nTask: x"})
-    assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
-    assert "Unknown task type" in result["hookSpecificOutput"]["permissionDecisionReason"]
-
-
-def test_denies_missing_sections():
-    body = "Type: bug\n\nTask: broken\n\nResolution: fixed"  # missing Cause and Files
-    result = _check_task_body_format({"body": body})
-    assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
-    assert "missing" in result["hookSpecificOutput"]["permissionDecisionReason"]
-
-
-def test_allows_misc_type():
-    body = "Type: misc\n\nTask: do x\n\nResolution: done\n\nNotes: context\n\nFiles: x.py"
-    assert _check_task_body_format({"body": body}) is None
+# _check_task_body_format and its tests were removed here (task:87ec7876). The
+# tool it gated, mcp__claude-hooks__tasks__create, has no implementation left
+# to call — handle_create_scaffolded was in src/tools/tasks.py, deleted in the
+# same task.

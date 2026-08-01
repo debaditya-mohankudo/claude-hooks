@@ -11,32 +11,24 @@ If a node raises unhandled to LangGraph, the graph aborts entirely — these
 tests catch that regression too (they'd error out rather than asserting).
 
 Topology under test (UPS with active task):
-    load_active_task → load_task_history ────┐
-                     → load_task_code    ────┼──→ cwd_domain_detect ──┐
-                     → load_related_commits ─┘    load_memories       ├──→ set_prompt_id → END
-                                                  score_tools         ┘
+    load_active_task → load_task_code    ────┐
+                     → load_related_commits ─┼──→ cwd_domain_detect ──┐
+                                              │    load_memories       ├──→ set_prompt_id → END
+                                              │    score_tools        ┘
 """
 from __future__ import annotations
 
-import sqlite3
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
 from langgraph.checkpoint.memory import MemorySaver
 
 import langchain_learning.session_graph as sg
-from tests.fixtures.db_factories import make_tasks_db
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-def _make_tasks_db(tmp_path: Path, task_id: str = "task0001") -> Path:
-    return make_tasks_db(tmp_path, tasks=[
-        {"id": task_id, "title": "Fix auth bug", "body": "body", "status": "open"},
-    ])
-
 
 def _build_graph():
     graph = sg.build_session_graph(checkpointer=MemorySaver())
@@ -106,7 +98,6 @@ class TestSingleDependencyFailure:
         _seed_active_task(graph, session_id, "task0001")
 
         mock_cfg = MagicMock()
-        mock_cfg.tasks_db = _make_tasks_db(tmp_path)
         mock_cfg.memory_db = tmp_path / "MEMORY.sqlite"  # doesn't exist
 
         with patch("langchain_learning.nodes.load_memories._cfg", mock_cfg), \
@@ -170,7 +161,6 @@ class TestDoubleDependencyFailure:
         _seed_active_task(graph, session_id, "task0001")
 
         mock_cfg_mem = MagicMock()
-        mock_cfg_mem.tasks_db = _make_tasks_db(tmp_path)
         mock_cfg_mem.memory_db = tmp_path / "MEMORY.sqlite"  # missing
 
         with patch("langchain_learning.nodes.load_memories._cfg", mock_cfg_mem), \

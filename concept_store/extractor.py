@@ -20,7 +20,6 @@ _SOURCE_FILES = [
     "hooks/server_memory.py",
     "hooks/session_state.py",
     "src/dispatcher.py",
-    "src/tools/tasks.py",
     "src/tools/memory.py",
     "src/tools/hooks.py",
     "src/tools/code_rag.py",

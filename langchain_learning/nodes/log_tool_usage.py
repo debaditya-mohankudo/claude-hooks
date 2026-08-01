@@ -168,12 +168,7 @@ class LogToolUsageNode:
             _log.debug("[log_tool_usage] contacts__search raw result: %s", json.dumps(tool_result, default=str))
         found = _result_found(tool_name, tool_result)
 
-        from concurrent.futures import ThreadPoolExecutor
-        with ThreadPoolExecutor(max_workers=2) as _pool:
-            _f1 = _pool.submit(self._upsert_tool_hint, tool_name, domain, skill, duration_ms, prompt)
-            _f2 = _pool.submit(self._upsert_task_event_tools, tool_name, prompt_id, state.get("active_task_id", ""))
-            _f1.result()
-            _f2.result()
+        self._upsert_tool_hint(tool_name, domain, skill, duration_ms, prompt)
         _log.info("[log_tool_usage] tool=%s domain=%s latency=%.1fms found=%s prompt=%s",
                   tool_name, domain, duration_ms, found, prompt_id[:8] if prompt_id else "?")
 
@@ -193,23 +188,13 @@ class LogToolUsageNode:
 
         return {"prompt_tools": existing, "session_tools": session_tools}
 
-    def _upsert_task_event_tools(self, tool_name: str, prompt_id: str, task_id: str) -> None:
-        """Append tool_name to task_events.tools for the current prompt_id row."""
-        if not prompt_id or not task_id:
-            return
-        tasks_db = _cfg.tasks_db
-        if not tasks_db.exists():
-            return
-        try:
-            with sqlite3.connect(str(tasks_db), timeout=5) as conn:
-                conn.execute(
-                    """UPDATE task_events
-                       SET tools = CASE WHEN tools = '' THEN ? ELSE tools || ',' || ? END
-                       WHERE prompt_id = ? AND task_id = ?""",
-                    (tool_name, tool_name, prompt_id, task_id),
-                )
-        except Exception as exc:
-            _log.warning("[log_tool_usage] task_event tools upsert failed: %s", exc)
+    # _upsert_task_event_tools was removed here (task:87ec7876). It ran on
+    # EVERY tool call, writing to task_events — a table that no longer exists.
+    # It failed open on a missing file, but not on a present-but-wrong-shape
+    # one, so leaving it would have meant either a silent no-op or a warning
+    # logged on every single tool call depending on what was left on disk.
+    # Found the same way load_task_history was: this repo no longer owns
+    # task_events, and this was still writing to it.
 
     def _upsert_tool_hint(self, short_name: str, domain: str, skill: str, latency_ms: float, prompt_text: str = "") -> None:
         """Upsert tool hint row and seed keywords — single SQLite connection."""
