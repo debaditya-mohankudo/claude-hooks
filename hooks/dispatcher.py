@@ -774,28 +774,18 @@ def _handle_pre_tool_use(hook_input: dict) -> dict | None:
     else:
         return None
 
-    if short_name == "tasks__create":
-        from hooks.gates import validate_jira_hierarchy
-
-        tc_input = hook_input.get("tool_input") or {}
-        body_denied = _check_task_body_format(tc_input)
-        hierarchy_error = validate_jira_hierarchy(
-            tc_input.get("issue_type", ""), tc_input.get("parent_id", "")
-        )
-        if body_denied or hierarchy_error:
-            reasons = []
-            if body_denied:
-                reasons.append(body_denied["hookSpecificOutput"]["permissionDecisionReason"])
-            if hierarchy_error:
-                reasons.append(f"Blocked: {hierarchy_error}")
-            log.info("tasks__create denied: %s", "; ".join(r[:80] for r in reasons))
-            return {
-                "hookSpecificOutput": {
-                    "hookEventName": "PreToolUse",
-                    "permissionDecision": "deny",
-                    "permissionDecisionReason": "\n\n".join(reasons),
-                }
-            }
+    # Matched on the FULLY-QUALIFIED name, not the stripped one. More than one
+    # MCP server provides tasks__create, so matching the short name applied this
+    # repo's body-template rule to task-framework, which deliberately has no
+    # template to satisfy — its object shape IS its schema. The hierarchy check
+    # that also lived here is gone entirely: that decision belongs to
+    # task-framework. What remains governs only this repo's own templates.
+    if tool_name == "mcp__claude-hooks__tasks__create":
+        body_denied = _check_task_body_format(hook_input.get("tool_input") or {})
+        if body_denied:
+            reason = body_denied["hookSpecificOutput"]["permissionDecisionReason"]
+            log.info("tasks__create denied: %s", reason[:80])
+            return body_denied
 
     from langchain_learning.session_graph import run_gate
     result = run_gate(

@@ -383,7 +383,12 @@ def validate_jira_hierarchy(issue_type: str, parent_id: str) -> str | None:
     """Pure validation of Jira parent-child type rules.
 
     Returns an error string if invalid, None if valid.
-    Callable from both JiraHierarchyGate and the UI route — single source of truth.
+
+    INTERNAL to this repo's own task tool — the sole caller is
+    handle_create_scaffolded, validating input it is about to store itself.
+    It is deliberately not wired to any gate: gating on the bare tool name
+    applied this rule to other servers' tasks__create, and task hierarchy is
+    task-framework's decision, not this repo's. Retire this with src/tools/tasks.py.
     """
     issue_type = (issue_type or "task").lower()
     parent_id  = (parent_id or "").strip()
@@ -446,24 +451,13 @@ def validate_jira_hierarchy(issue_type: str, parent_id: str) -> str | None:
     return None
 
 
-class JiraHierarchyGate(Gate):
-    """Gate for tasks__create — enforces Jira parent-child issue type rules.
-
-    story / task / bug  → parent must be an epic
-    subtask             → parent must be a story, task, or bug
-    epic                → no parent allowed
-    Delegates to validate_jira_hierarchy() — no logic lives here.
-    """
-    tool_name = "tasks__create"
-
-    def verify(self, ctx: GateContext) -> tuple[bool, str]:
-        error = validate_jira_hierarchy(
-            ctx.tool_input.get("issue_type", ""),
-            ctx.tool_input.get("parent_id", ""),
-        )
-        if error:
-            return True, f"Blocked: {error}"
-        return False, ""
+# JiraHierarchyGate was removed here. It registered under the bare name
+# tasks__create, which more than one MCP server provides, so it enforced this
+# repo's hierarchy rule over task-framework's — a framework that owns the rule
+# itself and states a DIFFERENT one (an epic may not have a parent; a task
+# needs none). Task hierarchy is task-framework's decision to make; a gate here
+# was a second, contradictory home for it. handle_create_scaffolded still
+# validates its own input directly, which is this repo checking its own data.
 
 
 # ---------------------------------------------------------------------------
@@ -568,7 +562,6 @@ class TaskFinishGate(Gate):
 GATES: dict[str, Gate] = {g.tool_name: g for g in [
     GitCommitGate(),
     GitCommitMcpGate(),
-    JiraHierarchyGate(),
     TaskSetActiveGate(),
     TaskUpdateGate(),
     TaskFinishGate(),
