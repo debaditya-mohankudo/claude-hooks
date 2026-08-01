@@ -14,17 +14,11 @@ uv run python scripts/extract_concepts.py
 
 To re-seed after major refactors, delete `concept_store/concepts.json` and re-run the seed command.
 
-**Manual reads/writes** (correcting a concept, adding a new one, checking what's stored for a module) should go through the `concept__get`/`concept__list`/`concept__upsert`/`concept__delete`/`concept__modules` MCP tools rather than hand-writing a Python script against `concept_store/store.py` — they take `repo` explicitly (required, no default), so they work the same way against this repo or any other non-Java target repo with a `concept_store/concepts.json`. This repo does not provide those tools itself (task:756c14db removed the duplicate `src/tools/concept.py` wrapper); task-framework's MCP server does, on the identical on-disk format, so the calls above are unqualified `concept__*` names resolved by whichever server provides them in the session.
+**Manual reads/writes** (correcting a concept, adding a new one, checking what's stored for a module) should go through the `concept__get`/`concept__list`/`concept__upsert`/`concept__delete`/`concept__modules` MCP tools rather than hand-writing a Python script against `concept_store/store.py` — they take `repo` explicitly (required, no default), so they work the same way against this repo or any other non-Java target repo with a `concept_store/concepts.json`. This repo does not provide those tools itself (task:756c14db removed the duplicate `src/tools/concept.py` wrapper); the separate [task-framework](https://github.com/debaditya-mohankudo/Lite-Task-Framework-w-Claude-hooks) project's MCP server does, on the identical on-disk format, so the calls above are unqualified `concept__*` names resolved by whichever server provides them in the session.
 
 ## Task Tracking
 
-`/task-framework` is the entry point for all multi-step work — start here to create, activate, and manage a task. Use `/task-create` when creating tasks that need the full body template with motivation, files, and design decisions.
-
-Before starting work on subtasks, run `/task-grooming epic:<id>` (or `/task-grooming task:<id>`) — activates each task, audits the body for gaps, and reports readiness. Findings are read from and written to the task's structured **document** (`document.grooming`, via `tasks__get`/`tasks__update_document`) — not appended into the body.
-
-After closing a task, run `/task-introspection` — surfaces unlogged decisions, grades the prior grooming pass's `document.grooming.risks`, checks for stale memories, and writes its own findings to `document.introspection`.
-
-Tasks persist across sessions, surface automatically when referenced, and build a development trail. Use TodoWrite only for ephemeral within-session sub-steps.
+Task tracking (create/activate/groom/close, `task:<id>` in commits) lives in the separate [task-framework](https://github.com/debaditya-mohankudo/Lite-Task-Framework-w-Claude-hooks) project, not in this repo. Install it and its `taskfw-mcp` server for `/task-framework`, `/task-create`, `/task-grooming`, `/task-introspection`, and the `mcp__taskfw__tasks__*` / `mcp__taskfw__task_memory__*` tools. This repo's hooks pipeline reads active-task state through those tools when the server is present; it doesn't require it. Use TodoWrite only for ephemeral within-session sub-steps.
 
 ## Running Tests
 

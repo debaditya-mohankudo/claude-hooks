@@ -27,17 +27,16 @@ If nothing is pending (Claude was idle), skip to Step 3.
 
 ### Step 2 — Save to active task (if one exists)
 
-If there is an active task (visible in `## Active task` in the system prompt):
+If there is an active task (visible in `## Active task` in the system prompt), task tracking is provided by the separate [task-framework](https://github.com/debaditya-mohankudo/Lite-Task-Framework-w-Claude-hooks) project's MCP server:
 
 ```python
-mcp__claude-hooks__tasks__pause(
+mcp__taskfw__tasks__update(
     task_id="<active_task_id>",
-    pending=["<item 1>", "<item 2>"],
-    session_id="<session_id from Turn state>"
+    notes="Pending:\n- <item 1>\n- <item 2>"
 )
 ```
 
-Keep the list under 5 items — quick-scan reminder, not a transcript. The tool formats the `## Pending before paused` section and overwrites any previous pause state.
+Keep the list under 5 items — quick-scan reminder, not a transcript. `notes` is replace-not-append, so this overwrites any previous pause state rather than accumulating.
 
 If no active task exists, skip this step.
 
@@ -77,6 +76,5 @@ Waiting for your input.
 
 ## Notes
 
-- The `## Pending before paused` section in the task body is overwritten on each `/pause` — it reflects the most recent pause state, not a log.
+- The task's `notes` field is overwritten on each `/pause` — it reflects the most recent pause state, not a log.
 - This skill does not close or deactivate the task. The task remains active and its history continues after the user resumes.
-- If you were in the middle of a `/task-framework` decomposition step, note which step was reached.

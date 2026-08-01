@@ -73,7 +73,7 @@ ls <repo_dir> 2>/dev/null && echo "exists" || echo "missing"
 - If missing: run the clone:
 
 ```bash
-git clone git@github.com:debaditya-mohankudo/Lite-Task-Framework-w-Claude-hooks.git <repo_dir>
+git clone git@github.com:debaditya-mohankudo/claude-hooks.git <repo_dir>
 ```
 
 Then install dependencies:
@@ -193,7 +193,6 @@ Tell them: "Merge this into `~/.claude/claude_desktop_config.json`. Then restart
 
 On restart, the MCP server will:
 - Auto-start Ollama if it isn't running
-- Rebuild the task embeddings index if it's missing
 
 > **Reference:** `docs/setup.md` — Section 4
 
@@ -233,7 +232,7 @@ Then ask them to open a fresh Claude Code session and check that `## Injected me
 
 Tell the user:
 
-> The project works without this step — hooks, memory injection, and task tracking all run fine out of the box. But if you want Claude to be able to semantically search the codebase and git history, you can build two optional indexes now.
+> The project works without this step — hooks and memory injection run fine out of the box. But if you want Claude to be able to semantically search the codebase and git history, you can build two optional indexes now.
 >
 > **Code RAG** — lets Claude find relevant files and functions by meaning, not just filename:
 > ```
@@ -267,4 +266,4 @@ Say:
 > mcp__claude-hooks__hooks__read_logs_sqlite
 > ```
 >
-> Run `/task-create` when you're ready to start your first task. Good luck!
+> Want task tracking (epics, tasks, decision logging)? That's a separate project: [task-framework](https://github.com/debaditya-mohankudo/Lite-Task-Framework-w-Claude-hooks). Good luck!

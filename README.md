@@ -1,27 +1,14 @@
-# Lite Task Framework - For the SOLO Developer
+# claude-hooks
 
-A lightweight task framework for Claude Code — persistent task tracking, memory injection, and structured decision logging via Claude hooks.
+A small FastAPI server that intercepts Claude Code's hook events — persistent memory injection, tool-use gates, and observability across sessions.
 
 > **macOS only** — requires Claude Code, uv, Ollama, and iCloud Drive. See [setup](docs/setup.md) for prerequisites.
 
-
-
-
 ---
 
-## The perspective
+## Looking for task tracking?
 
-Jira was the right idea. But it was always human-operated and AI-opaque. Now agents can close that gap natively.
-
-Jira was the original development graph. It worked for teams. Epics, tasks, subtasks — every piece of work traced to a reason.
-
-But Jira content is human-readable, not agent-readable. It breaks the moment an AI tries to operate on it without the right tooling around it.
-
-Jira does expose MCP tools now. The graph can technically be agent-operated. But it's heavyweight — the infrastructure, the licensing, the setup — built for organisations, not for a solo developer running an AI-assisted workflow.
-
-The real unlock is agents that create the full epic graph from a requirement, evaluate each item, and execute — with `task:<id>` in every commit, tying every change to a coherent piece of work. Nothing unattributed. Nothing untraceable.
-
-That's not a workaround for bad process. It's the natural evolution of what Jira was always trying to do — lightweight, native, and built around how AI-assisted development actually works.
+Task tracking (epics/tasks/subtasks, grooming, decision logging, retrospectives) has moved to its own project: [task-framework](https://github.com/debaditya-mohankudo/Lite-Task-Framework-w-Claude-hooks). It's MCP-native and host-agnostic — install it separately and its `taskfw-mcp` server plugs into this repo's hooks the same way any other MCP server does. This repo no longer ships the `/task-framework`, `/task-create`, `/task-grooming`, `/task-implementation`, `/task-introspection`, or `/task-log-decision` skills — they live there now.
 
 ---
 
@@ -32,62 +19,6 @@ That's not a workaround for bad process. It's the natural evolution of what Jira
 ```
 
 Run this in Claude Code after cloning the repo. It detects your OS, checks prerequisites, walks you through hooks and MCP server registration with your real paths filled in, and verifies the setup — one step at a time.
-
----
-
-## Task framework — it's just skills, nothing to configure
-
-There's no separate task engine running underneath this. The whole framework is a handful of markdown files that Claude reads and follows, calling the same tools you could call yourself. When you start a task, Claude isn't invoking some hidden state machine — it's activating the task (so context gets injected automatically every turn) and then working through three phases, each one a skill: groom it first, work it with a steady head, retrospect on it after.
-
-Say what you want done, and mention the framework:
-
-```text
-migrate the auth module to use the new token schema  /task-framework
-```
-
-Claude proposes a split if the work has real phases, creates the tasks, and grooms the first one before touching any code — pulling in related past work and flagging gaps (a missing decision, a file that another task already owns) while it's still cheap to fix:
-
-```text
-This touches 3 areas — proposing subtasks:
-  1. Audit current token usage across auth module
-  2. Replace legacy token calls with new schema
-  3. Update tests and integration points
-
-Create as subtasks under a parent epic?
-```
-
-You confirm, and it activates the first one:
-
-```text
-task:4a2c done  →  Audit current token usage
-task:7f1e active  →  Replace legacy token calls with new schema
-
-Tracking turns and tools. Say "task:7f1e done" when finished.
-```
-
-From here Claude works the same way it always would — read, edit, test — except now a fixed north-star stays pinned in its context for the whole task ("keep the objective in focus, prefer the smallest next step, finish decisively rather than optimizing endlessly"), so a long task doesn't quietly drift into exploring forever. A load-bearing decision along the way gets logged explicitly:
-
-```text
-use opaque tokens stored in Redis rather than stateless JWTs  /log-decision
-```
-
-```text
-Decision logged to task:7f1e: "Chose opaque tokens over JWT — avoids key rotation
-complexity on short-lived sessions; Redis eviction handles expiry"
-```
-
-That survives context compression and reappears under `## Task decisions` every subsequent turn — Claude never asks why again. Commit, close, done:
-
-```text
-task:7f1e done
-```
-
-```text
-task:7f1e closed — Replace legacy token calls
-epic:4a1b closed — Migrate auth module to new token schema  ✓
-```
-
-And when it's closed, the retrospective isn't optional busywork — it's Claude asking itself what would make the *next* task like this one easier: were there decisions worth logging that got missed, is any memory now stale, is there a pattern worth remembering next time.
 
 ---
 
@@ -130,7 +61,7 @@ Both of these are declared entirely in a YAML config, not Python — adding a ga
 
 ## claude-hooks, briefly
 
-Underneath the task framework and the gates is a small FastAPI server that intercepts all four Claude Code hook events (`UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop`) and runs them through one LangGraph pipeline. It injects relevant memories and past task context into every prompt, tracks which MCP tools get used so it can recommend the right one next time, and keeps all of that state durable across restarts in a single SQLite-backed checkpoint — so nothing above (tasks, gates, memory) depends on Claude's own context window to stay coherent.
+Underneath the gates is a small FastAPI server that intercepts all four Claude Code hook events (`UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop`) and runs them through one LangGraph pipeline. It injects relevant memories and (if [task-framework](https://github.com/debaditya-mohankudo/Lite-Task-Framework-w-Claude-hooks) is installed) active-task context into every prompt, tracks which MCP tools get used so it can recommend the right one next time, and keeps all of that state durable across restarts in a single SQLite-backed checkpoint — so nothing above (gates, memory) depends on Claude's own context window to stay coherent.
 
 **The full architecture** — components, design decisions, database inventory, the graph topology itself: [Architecture](docs/ARCHITECTURE.md).
 
@@ -154,23 +85,7 @@ Pending (saved to task:7f1e):
 Waiting for your input.
 ```
 
-Claude saves the pending work to the task body and stops — no half-finished reasoning, no context dropped.
-
-### Resuming next session
-
-```text
-continue task:7f1e
-```
-
-```text
-Resuming task:7f1e — Replace legacy token calls with new schema
-
-Pending from last session:
-- Update logout endpoint to revoke Redis tokens
-- Add token TTL config to settings.py
-
-Starting with logout endpoint...
-```
+Claude captures what's still pending and stops — no half-finished reasoning, no context dropped. If [task-framework](https://github.com/debaditya-mohankudo/Lite-Task-Framework-w-Claude-hooks) is installed and a task is active, the pending list is also saved to the task so it resurfaces next session.
 
 ---
 
@@ -190,29 +105,17 @@ Skills are listed in the order you'd use them across a real session.
 | ------------------------ | ----------------------------------------------------------------------------------- |
 | `/what-am-i-working-on`  | Show recent prompts, tool calls, and activated tasks — your Monday-morning restore  |
 
-### Task lifecycle
-
-| Skill                  | What it does                                                                                    |
-| ---------------------- | ----------------------------------------------------------------------------------------------- |
-| `/task-framework`      | Start a tracked task — assesses complexity, proposes subtasks, activates the first              |
-| `/task-create`         | Create Jira-style issues — epic / story / task / bug / subtask with hierarchy and parent links  |
-| `/task-grooming`       | Pre-work audit — finds related tasks, injects relevant memories, flags gaps before you start    |
-| `/task-implementation` | Behavioral guide for the work itself — smallest next step, validate early, finish decisively    |
-| `/task-introspection`  | Post-task retrospective — surfaces unlogged decisions, stale memories, encodes learnings        |
-
 ### Mid-task
 
-| Skill                | What it does                                                                               |
-| -------------------- | -------------------------------------------------------------------------------------------|
-| `/pause`             | Finish the current action, save pending intent to the active task, and wait for your input |
-| `/task-log-decision` | Persist a key design decision to the active task so it survives context compression        |
+| Skill    | What it does                                                                               |
+| -------- | -------------------------------------------------------------------------------------------|
+| `/pause` | Finish the current action, save pending intent (to the active task, if one exists), and wait for your input |
 
 ### Git workflow
 
-| Skill     | What it does                                                                        |
-| --------- | ----------------------------------------------------------------------------------- |
-| `/gc`     | Commit — runs pre-commit tests, embeds the active `task:<id>` in the commit message |
-| `/deploy` | Ship dev→test→main — runs unit gate, full integration suite, then merges to main    |
+| Skill | What it does                                                                        |
+| ----- | ------------------------------------------------------------------------------------ |
+| `/gc` | Commit — runs pre-commit tests, embeds the active `task:<id>` in the commit message |
 
 ---
 
