@@ -95,20 +95,24 @@
     "gates-commit-traceability": {
       "confidence": 0.96,
       "contracts": [
-        "Returns (True, reason) for commits missing task:<id>",
-        "Returns (False, '') for all non-commit Bash calls"
+        "Returns (True, reason) for commits missing task:<id> in both the command string and any -F/--file target",
+        "Returns (False, '') for all non-commit Bash calls",
+        "Returns (False, '') when task:<id> is found in the command string OR inside a file passed via -F/--file",
+        "A missing or unreadable -F file is treated as no match (deny), not a crash"
       ],
       "created_at": "2026-06-29T09:47:25.285858+00:00",
-      "description": "GitCommitGate enforces that every version-control commit (via Bash or the MCP tool) includes a task:<id> reference for traceability. Regex detects commit commands; passes through all non-commit Bash calls immediately.",
+      "description": "GitCommitGate enforces that every version-control commit (via Bash or the MCP tool) includes a task:<id> reference for traceability. Regex detects commit commands; passes through all non-commit Bash calls immediately. The reference may live in the Bash command string itself, or in a file named via -F/--file (git commit -F <path>) — the form task-framework's own /commit skill recommends for multi-paragraph messages, since heredocs and -m chains mangle them.",
       "evidence": [
-        "hooks/gates.py:325",
-        "hooks/gates.py:334"
+        "hooks/gates.py:318 (_FILE_FLAG_RE)",
+        "hooks/gates.py:325 (GitCommitGate)",
+        "tests/test_gates.py (-F/--file coverage)"
       ],
       "invariants": [
-        "Every commit must reference task:<id> in the command string",
-        "Non-commit Bash calls are never blocked by this gate"
+        "Every commit must reference task:<id> somewhere the gate can see — the command string or a -F/--file target, not necessarily the command string alone",
+        "Non-commit Bash calls are never blocked by this gate",
+        "Gate logic runs inside a long-running uvicorn hooks.server:app process (port 8766) — editing hooks/gates.py has no effect until that process restarts; client.py is only a thin HTTP wrapper per call"
       ],
-      "last_validated": "2026-06-29T09:47:25.285858+00:00",
+      "last_validated": "2026-08-01T12:48:42.668733+00:00",
       "module": "hooks/gates.py",
       "name": "gates-commit-traceability"
     },
@@ -524,6 +528,7 @@
   "meta": {
     "commit": "5f62c6b5150a20fe7198d7bd6c155c4b3c0d3101",
     "extracted_at": "2026-07-23T05:42:23Z",
-    "note": "incremental upsert (task:a2fd402d)"
+    "note": "incremental upsert (task:a2fd402d)",
+    "updated_at": "2026-08-01T12:48:42.670112+00:00"
   }
 }
