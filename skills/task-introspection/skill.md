@@ -157,7 +157,13 @@ Include `task:<id>` as the last tag for traceability. Avoid recording task-speci
 
 The concept store is a **live body meant to grow, not just get corrected** — a task can leave behind either a CHANGE (an existing concept was wrong or incomplete) or GROWTH (a module had zero concept coverage and this task is the first to understand it well enough to write one down). Do both checks; don't stop at "did anything change."
 
-**Always use the MCP tools to look up concepts — never hand-parse `concept_store/concepts.json`.** Its top-level shape is `{"concepts": [...], "meta": {...}}` — a list under a `concepts` key, not a flat name-keyed map. A hand-written `json.loads(...).values()` script silently matches nothing against this shape (it iterates over `"concepts"`/`"meta"` as if they were concept dicts). This exact bug independently missed a real, badly-stale match twice in one session (task:da29c842's own introspection pass, and `/deploy`'s concept audit step) before being caught by chance via `concept__list`. Use `concept__list(repo="<repo>")` / `concept__get(repo="<repo>", name="<slug>")` for the JSON format; for SQLite-format repos, `ConceptStore.list_concepts()`/`get_evidence(concept_id)` as before.
+**Always use the MCP tools to look up concepts — never hand-parse `concept_store/concepts.json`.** Use `concept__list(repo="<repo>")` / `concept__get(repo="<repo>", name="<slug>")` for the JSON format; for SQLite-format repos, `ConceptStore.list_concepts()`/`get_evidence(concept_id)` as before.
+
+The shape is `{"concepts": {"<slug>": {...}}, "meta": {...}}` — `concepts` is a **name-keyed map**, and each entry repeats its own slug in a `name` field. Verified against `concept_store/store.py`, which types `_data` as `dict[str, dict]`, assigns it `raw["concepts"]`, and calls `.values()` on it.
+
+The bug this warning exists for is calling `.values()` on the **top level** — it then iterates `"concepts"`/`"meta"` as if they were concept dicts and matches nothing. The fix is `raw["concepts"].values()`, not a different shape. It independently missed a real, badly-stale match twice in one session (task:da29c842's own introspection pass, and `/deploy`'s concept audit step) before being caught by chance via `concept__list`.
+
+*(Corrected 2026-08-01: this paragraph previously said `concepts` was "a list under a `concepts` key, not a flat name-keyed map" — the exact opposite of the truth, while describing the top-level-`.values()` mechanism correctly. Following it while seeding a new repo produced a store every reader rejected with `'list' object has no attribute 'values'`.)*
 
 Detect format first (corrected 2026-07-24 — this step previously only checked `concept_store/concepts.json` and silently produced nothing for SQLite-format repos like SeniorDevAgent):
 

@@ -90,7 +90,13 @@ test -f "<repo>/concepts.db" -a -f "<repo>/concept_store.py" && echo sqlite
 
 **JSON format** (claude-hooks-dev pattern):
 
-**Always use `concept__list(repo="<repo>")`/`concept__get(repo="<repo>", name=...)` (task:2813ece5) — never hand-parse `concept_store/concepts.json` directly.** Its top-level shape is `{"concepts": [...], "meta": {...}}` — a list under a `concepts` key, not a flat name-keyed map. A `json.loads(...).values()` script silently matches nothing against this shape. This bug independently missed a real, badly-stale match twice in one session (task:da29c842's own grooming/introspection pass, and `/deploy`'s concept audit step) before being caught by chance — don't repeat it. This applies to claude-hooks-dev's own store too, not just non-Java target repos.
+**Always use `concept__list(repo="<repo>")`/`concept__get(repo="<repo>", name=...)` (task:2813ece5) — never hand-parse `concept_store/concepts.json` directly.** This applies to claude-hooks-dev's own store too, not just non-Java target repos.
+
+The shape is `{"concepts": {"<slug>": {...}}, "meta": {...}}` — `concepts` is a **name-keyed map**, and each entry repeats its own slug in a `name` field. Verified against `concept_store/store.py`, which types `_data` as `dict[str, dict]`, assigns it `raw["concepts"]`, and calls `.values()` on it.
+
+The bug this warning exists for is calling `.values()` on the **top level** — that yields the concepts-map and the meta-dict as if they were two concepts, matching nothing. The fix is `raw["concepts"].values()`, not a different shape. It independently missed a real, badly-stale match twice in one session (task:da29c842's own grooming/introspection pass, and `/deploy`'s concept audit step) before being caught by chance.
+
+*(Corrected 2026-08-01: this paragraph previously said `concepts` was "a list under a `concepts` key, not a flat name-keyed map" — the exact opposite of the truth. Following it while seeding a new repo produced a store every reader rejected with `'list' object has no attribute 'values'`. If hand-parsing ever becomes unavoidable, verify the shape against a working store rather than trusting prose — including this prose.)*
 
 Prefer a `Concepts:` section in the task body if present — look those slugs up directly via `concept__get`. Otherwise match the task's `Files:` section against each concept's `module` field from `concept__list`'s output.
 

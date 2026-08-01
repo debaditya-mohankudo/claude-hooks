@@ -214,7 +214,11 @@ When creating a task for the claude-hooks repo, check if any files in the `Files
 ```python
 import json
 from pathlib import Path
-concepts = json.loads(Path("/Users/debaditya/workspace/claude-hooks-dev/concept_store/concepts.json").read_text())
+# NOTE the ["concepts"] — the file's top level is {"concepts": {...}, "meta": {...}},
+# so omitting it iterates "concepts"/"meta" as if they were concepts and raises
+# KeyError on c["module"]. Corrected 2026-08-01. Prefer concept__list(repo=...).
+store = json.loads(Path("/Users/debaditya/workspace/claude-hooks-dev/concept_store/concepts.json").read_text())
+concepts = store["concepts"]          # name-keyed map: {"<slug>": {...}}
 touched = [f.strip() for f in files_section.split(",")]
 hits = [(name, c) for name, c in concepts.items() if c["module"] in touched]
 ```

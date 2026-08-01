@@ -19,7 +19,9 @@ Read the diff between dev and test to find changed files:
 git -C ~/workspace/claude-hooks-dev diff origin/test --name-only | grep '\.py$'
 ```
 
-For each changed `.py` file, look up stored concepts whose `module` matches. **Use the `concept__list` MCP tool — never hand-parse `concept_store/concepts.json` directly.** Its top-level shape is `{"concepts": [...], "meta": {...}}`, not a flat name-keyed map; a `json.loads(...).values()` script silently matches nothing (this exact bug let task:da29c842 ship without its concept-store update caught here — found by chance afterward):
+For each changed `.py` file, look up stored concepts whose `module` matches. **Use the `concept__list` MCP tool — never hand-parse `concept_store/concepts.json` directly.**
+
+On disk the shape is `{"concepts": {"<slug>": {...}}, "meta": {...}}` — `concepts` is a **name-keyed map**. The `concept__list` tool's *response* wraps results in a list, which is why the snippet below iterates one; do not confuse the two. Hand-parsing goes wrong by calling `.values()`/`.items()` on the **top level**, which yields `"concepts"`/`"meta"` as if they were concepts — the fix is `raw["concepts"]`, not a different shape. That bug let task:da29c842 ship without its concept-store update caught here, found by chance afterward. *(Shape claim corrected 2026-08-01; the code below was always right.)*
 
 ```python
 concepts = mcp__claude-hooks__concept__list(repo="/Users/debaditya/workspace/claude-hooks-dev")["concepts"]
