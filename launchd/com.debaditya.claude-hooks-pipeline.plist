@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.debaditya.claude-hooks-pipeline</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/debaditya/.local/bin/uv</string>
+    <string>run</string>
+    <string>uvicorn</string>
+    <string>hooks.server:app</string>
+    <string>--host</string>
+    <string>127.0.0.1</string>
+    <string>--port</string>
+    <string>8766</string>
+    <string>--log-level</string>
+    <string>warning</string>
+    <string>--reload</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/debaditya/workspace/claude-hooks</string>
+
+  <!-- Restart automatically if the process crashes -->
+  <key>KeepAlive</key>
+  <true/>
+
+  <!-- Start at login -->
+  <key>RunAtLoad</key>
+  <true/>
+
+  <!-- Stdout/stderr go to a log file you can tail -->
+  <key>StandardOutPath</key>
+  <string>/tmp/claude-hooks-pipeline.log</string>
+
+  <key>StandardErrorPath</key>
+  <string>/tmp/claude-hooks-pipeline.err</string>
+
+  <!-- Give it a clean environment; inherit PATH from launchd -->
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key>
+    <string>/Users/debaditya</string>
+    <key>PATH</key>
+    <string>/Users/debaditya/.local/bin:/usr/local/bin:/usr/bin:/bin</string>
+  </dict>
+</dict>
+</plist>

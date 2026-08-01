@@ -1,0 +1,529 @@
+{
+  "concepts": {
+    "config-db-paths-and-domains": {
+      "confidence": 0.98,
+      "contracts": [
+        "config.memory_db, config.tasks_db, config.tool_hints_db, config.log_db are valid Paths",
+        "config.cwd_domain_map returns the mtime-cached dict loaded from cwd_domains.json (icloud_db_dir), falling back to _CWD_DOMAIN_MAP_DEFAULT if missing/unreadable"
+      ],
+      "created_at": "2026-06-29T09:47:25.287104+00:00",
+      "description": "Central configuration via pydantic-settings. Defines all database paths, valid domains, CWD-to-domain mapping, and memory scoring tunables. All other modules import from config singleton.",
+      "evidence": [
+        "src/config.py: _load_cwd_domain_map(path)",
+        "src/config.py: cwd_domain_map"
+      ],
+      "invariants": [
+        "cwd_domains.json (icloud_db_dir, same pattern as memory_scoring.json) is the source of truth for repo-to-domain classification — add an entry there when onboarding a repo, no code change/redeploy needed",
+        "_CWD_DOMAIN_MAP_DEFAULT is only a fallback seed, used if cwd_domains.json is missing or fails to parse",
+        "Config is frozen (immutable after construction)"
+      ],
+      "last_validated": "2026-06-29T09:47:25.287104+00:00",
+      "module": "src/config.py",
+      "name": "config-db-paths-and-domains"
+    },
+    "db-schema-ddl-and-migrations": {
+      "confidence": 0.95,
+      "contracts": [],
+      "created_at": "2026-06-29T09:47:25.287416+00:00",
+      "description": "Central DDL constants and additive migration functions for MEMORY.sqlite, tool_hints.sqlite, and claude_hooks.sqlite. Tests import DDL from here — no inline DDL in test files. proj_tasks.db's tables (open_tasks, task_events, commit_task_map, task_edges) and migrate_tasks_db were removed (task:87ec7876) along with src/tools/tasks.py, the actual production path that created them — this module's docstring always said those constants existed only for tests and one-time install.",
+      "evidence": [
+        "src/db/schema.py:1",
+        "src/db/schema.py:65"
+      ],
+      "invariants": [
+        "ADDITIVE-ONLY MIGRATION enforced structurally: migrate() can only CREATE TABLE IF NOT EXISTS or ALTER TABLE ADD COLUMN",
+        "This module is not the production schema/migration path for the DBs it still covers"
+      ],
+      "last_validated": "2026-08-01T05:48:37.366730+00:00",
+      "module": "src/db/schema.py",
+      "name": "db-schema-ddl-and-migrations"
+    },
+    "dispatcher-hook-event-routing": {
+      "confidence": 0.97,
+      "contracts": [
+        "Reads hook payload from stdin, writes JSON to stdout",
+        "Returns additionalSystemPrompt for UserPromptSubmit",
+        "Returns permissionDecision=deny for blocked PreToolUse",
+        "PreToolUse handlers may also return permissionDecision=allow with additionalContext to inject a non-blocking reminder into Claude's context without denying the tool call"
+      ],
+      "created_at": "2026-06-29T09:47:25.284287+00:00",
+      "description": "Single entry point for all Claude Code hook events. Routes each event type (UserPromptSubmit, PreToolUse, PostToolUse, Stop, SessionStart, SessionEnd) to its dedicated handler via a dispatch table.",
+      "evidence": [
+        "hooks/dispatcher.py:564",
+        "hooks/dispatcher.py:574"
+      ],
+      "invariants": [
+        "Every hook event must map to exactly one handler in _HANDLERS",
+        "PreToolUse handlers that fail on irreversible tools must deny, not allow",
+        "Handlers return None to pass through or a dict with hookSpecificOutput to act",
+        "Two distinct PreToolUse response categories: gates (deny-capable checks like _check_task_body_format, run_gate) must resolve to a strict allow/deny decision; reminders (like _maybe_drift_reflection_nudge for Write/Edit/MultiEdit) are allow-only and use additionalContext to surface non-blocking context — reminders never deny",
+        "Two distinct handler return shapes exist: PreToolUse/UserPromptSubmit handlers return None or a dict wrapping hookSpecificOutput; Stop handlers (_handle_stop) return None or a plain top-level {\"decision\": \"block\", \"reason\": ...} dict per Claude Code's Stop-hook schema (not wrapped in hookSpecificOutput). The turn-completion chime no longer uses Stop-hook blocking: since 150df2a the sound plays server-side via PlaySoundNode (detached afplay subprocess, start_new_session=True — no Claude round-trip). NoopNode marks the first Stop of a turn by setting state['stop_alert_sent']=True, which gates PlaySoundNode (next node in the stop chain) so the chime fires exactly once per turn; sound_played guards replays within the same turn, and run_session() resets stop_alert_sent=False on the next UserPromptSubmit. run_stop() in session_graph.py still surfaces-and-clears pending_hook_output for any node that sets one (task:aacf3ef3 history; refactored by 150df2a).",
+        "PostToolUse also runs unconditional side-effect capture functions before the mcp__-prefix gate: _record_bash_commit (Bash tool, matches _GIT_COMMIT_RE/_TASK_ID_RE, shells out to git rev-parse HEAD) and _record_mcp_commit (short_name == \"git__commit\" from any MCP server, reads commit_sha directly from tool_response). Both call src.tools.tasks.record_commit() to insert into commit_task_map — a direct dispatcher-level function call, not a LangGraph node, and not routed through the __hook__/mcp_hook_bridge convention (that convention is one-way, prompt-injection only, no side effects). task:a2fd402d"
+      ],
+      "last_validated": "2026-07-23T12:34:17.827196+00:00",
+      "module": "hooks/dispatcher.py",
+      "name": "dispatcher-hook-event-routing"
+    },
+    "dispatcher-system-prompt-assembly": {
+      "confidence": 0.95,
+      "contracts": [
+        "Returns a string (may be empty) to be injected as additionalSystemPrompt",
+        "All sections are markdown-formatted"
+      ],
+      "created_at": "2026-06-29T09:47:25.284960+00:00",
+      "description": "Assembles the UserPromptSubmit additionalSystemPrompt from SessionState context (memories, task context, related tasks/commits, rag chunks) into markdown sections, applying a token budget before rendering.",
+      "evidence": [
+        "hooks/dispatcher.py:_format_system_prompt",
+        "hooks/dispatcher.py:_enforce_context_budget"
+      ],
+      "invariants": [
+        "Sections are only emitted when their data is non-empty",
+        "Related tasks section is populated when LoadRelatedTasksNode finds semantically similar done tasks via TurboVec neighbor search (capped at 3); empty when no active task, no rag index, or no matching done neighbors",
+        "Task context summary takes precedence over raw task history when both exist",
+        "New-project note is emitted when ctx['cwd_unmapped'] is true (set by CwdDomainDetectNode only on the first turn a session's cwd is unmapped, tracked via cwd_domain_reminder_sent in checkpoint state so it fires once per session, not every turn)",
+        "Before assembly, _enforce_context_budget(ctx) trims ctx['memories'] from the tail (lowest-scored, since the list is pre-sorted descending) until the combined token count of memories+task_memories+related_tasks+related_commits+task_rag_chunks fits _CONTEXT_TOKEN_BUDGET (4000 tokens), or memories is empty. task_memories/related_tasks/related_commits/task_rag_chunks are counted toward the budget but never trimmed themselves — they're already small/capped by their producing nodes.",
+        "task_body is hard-truncated to _TASK_BODY_CHAR_CAP (3000 chars) at render time, appending an \"...[truncated]\" marker when cut — it has no upstream length cap (a task's body can be arbitrarily long, e.g. a large epic scaffold).",
+        "mid_task_decisions (Task decisions section) is capped to the most recent _MAX_DECISIONS (15) entries by langchain_learning/nodes/decision_task.py, sliced on every tasks__add_decision append — not trimmed in dispatcher.py itself. This checkpoint state exists solely for prompt injection; the durable decision history lives in the task's DB record, unaffected by the slice.",
+        "execution_contract is rendered as its own section, independent of task_body and _enforce_context_budget — it is NOT subject to _TASK_BODY_CHAR_CAP truncation or memories-budget eviction, by design (a fixed north-star template built once at task activation by activate_task.py._build_execution_contract, must stay byte-identical every turn). Cleared alongside the other active-task fields at all three deactivation sites: DeactivateTaskNode (tasks__clear_active/tasks__finish), ActivateTaskNode's pop-to-empty-stack, and LogTaskEventsNode's \"task:<id> done\" auto-close (task:eb46ac47 — this third site was originally missed).",
+        "After _format_system_prompt, the UPS handler appends one-shot node output: if ctx['pending_hook_output'].hookSpecificOutput has hookEventName == 'UserPromptSubmit', its additionalContext is appended to the assembled system prompt (e.g. LogTaskEventsNode's /task-introspection nudge after a \"task:<id> done\" auto-close, task:eb46ac47). run_session() surfaces-and-clears the checkpoint copy (mirroring run_post_tool/run_stop), so the payload renders exactly once and cannot leak into the next PostToolUse response; the hookEventName gate prevents a stale cross-event payload from ever being rendered here.",
+        "The '## Repo memories' section and repo_task_memories (task:850ddd65's per-repo memory split) were removed by task:a7ddc132 — task_memories now always comes from the global MEMORY.sqlite scorer, with no per-repo alternative source."
+      ],
+      "last_validated": "2026-07-29T18:34:33.582070+00:00",
+      "module": "hooks/dispatcher.py",
+      "name": "dispatcher-system-prompt-assembly"
+    },
+    "gates-commit-traceability": {
+      "confidence": 0.96,
+      "contracts": [
+        "Returns (True, reason) for commits missing task:<id>",
+        "Returns (False, '') for all non-commit Bash calls"
+      ],
+      "created_at": "2026-06-29T09:47:25.285858+00:00",
+      "description": "GitCommitGate enforces that every version-control commit (via Bash or the MCP tool) includes a task:<id> reference for traceability. Regex detects commit commands; passes through all non-commit Bash calls immediately.",
+      "evidence": [
+        "hooks/gates.py:325",
+        "hooks/gates.py:334"
+      ],
+      "invariants": [
+        "Every commit must reference task:<id> in the command string",
+        "Non-commit Bash calls are never blocked by this gate"
+      ],
+      "last_validated": "2026-06-29T09:47:25.285858+00:00",
+      "module": "hooks/gates.py",
+      "name": "gates-commit-traceability"
+    },
+    "gates-jira-hierarchy": {
+      "confidence": 0.9,
+      "contracts": [],
+      "created_at": "2026-06-29T09:47:25.285609+00:00",
+      "description": "INTERNAL VALIDATION ONLY — no longer a gate. validate_jira_hierarchy() once backed JiraHierarchyGate, which registered under the bare name tasks__create and so enforced this repo's hierarchy rule over any MCP server providing that name, including task-framework. Task hierarchy is task-framework's decision, and its rule differs (an epic may not have a parent; a task needs none), so the gate was removed (task:6240c675). The function's sole remaining caller, handle_create_scaffolded, was itself deleted with src/tools/tasks.py (task:87ec7876) — this concept now describes dead code kept only as history until the next reseed drops it.",
+      "evidence": [
+        "hooks/gates.py:369"
+      ],
+      "invariants": [
+        "Not registered in GATES and not reachable from any PreToolUse path",
+        "No remaining caller as of task:87ec7876 — src/tools/tasks.py, its sole caller, was deleted"
+      ],
+      "last_validated": "2026-08-01T05:48:37.364384+00:00",
+      "module": "hooks/gates.py",
+      "name": "gates-jira-hierarchy"
+    },
+    "gates-prereq-chain-enforcement": {
+      "confidence": 0.97,
+      "contracts": [
+        "check(tool, ctx) returns (deny: bool, reason: str)",
+        "deny=True means the tool must be blocked; reason is shown to Claude"
+      ],
+      "created_at": "2026-06-29T09:47:25.285339+00:00",
+      "description": "Anti-hallucination send-gate system. Verifies tool calls against session history before allowing them. Each gate is a composable chain of verifier factories loaded from gate_rules.yaml or hardcoded subclasses.",
+      "evidence": [
+        "hooks/gates.py:1",
+        "hooks/gates.py:566"
+      ],
+      "invariants": [
+        "Gates operate only on tool call records written by the hook infrastructure, never on model memory",
+        "External gate rules from gate_rules.yaml never override internal Python gates",
+        "All gates fail open on DB errors — a broken gate never blocks tools"
+      ],
+      "last_validated": "2026-06-29T09:47:25.285339+00:00",
+      "module": "hooks/gates.py",
+      "name": "gates-prereq-chain-enforcement"
+    },
+    "hook-logs-sqlite-autoprune-at-50k": {
+      "confidence": 0.9,
+      "contracts": [
+        "Callers reading hook_logs (e.g. hooks__read_logs_sqlite MCP tool) should treat it as a rolling ~40-50k row window of recent activity, not a complete historical log -- older entries are permanently gone once pruned, not archived."
+      ],
+      "created_at": "2026-07-21T22:35:38.512586+00:00",
+      "description": "SQLiteHandler.emit() writes every log record to hook_logs in claude_hooks.sqlite (iCloud-synced), then checks COUNT(*) on every single insert. Once the table reaches 50,000 rows, it prunes down to the newest 40,000 rows in one DELETE, keyed by ts DESC (not id DESC).",
+      "evidence": [
+        "src/logger.py:108-126"
+      ],
+      "invariants": [
+        "hook_logs is capped at 50,000 rows -- it auto-prunes to 40,000 on the insert that crosses the threshold, so the table oscillates between ~40k and 50k rows over time, never growing unbounded.",
+        "Pruning keeps the newest rows by ts (timestamp), not by id/rowid -- id values become non-contiguous after a prune, so id (or max(id)) is not a valid proxy for total row count or table age.",
+        "The COUNT(*) check runs on every emit() call (every log line), not on a schedule/batch -- this is an O(n) check per write, acceptable at this volume but a scaling consideration if log volume grows sharply.",
+        "Pruning is silent -- emit() swallows all exceptions (bare except: pass), so a failed prune or count-check never surfaces as an error."
+      ],
+      "last_validated": "2026-07-25T18:53:11.617148+00:00",
+      "module": "src/logger.py",
+      "name": "hook-logs-sqlite-autoprune-at-50k"
+    },
+    "hooks-client-cwd-forwarding": {
+      "confidence": 0.9,
+      "contracts": [
+        "Usage: python3 client.py <HookEvent>",
+        "Reads hook payload JSON from stdin, POSTs to {CLAUDE_HOOKS_SERVER or http://127.0.0.1:8766}/hook/{EVENT}, prints the response JSON to stdout",
+        "Prints 'claude-hooks: client.py invoked for {EVENT}' to stderr on every invocation, regardless of success/failure"
+      ],
+      "created_at": "2026-07-08T11:29:24.786447+00:00",
+      "description": "Thin HTTP client for the FastAPI hook server. Reads the hook JSON payload from stdin (which already carries the real per-session cwd from Claude Code) and POSTs it to localhost:8766/hook/{event}.",
+      "evidence": [
+        "hooks/client.py:1-47"
+      ],
+      "invariants": [
+        "CLAUDE_CWD env var is a fallback only, used when payload['cwd'] from stdin is missing/empty — it must never unconditionally overwrite a cwd Claude Code already supplied, since CLAUDE_CWD reflects whatever cwd the long-running server process happened to launch from, not the calling session's cwd (bug found 2026-07-08: unconditional overwrite clobbered every session's reported cwd with a stale/empty env var)",
+        "Fails open: if the server is unreachable, exits 0 with an empty JSON object rather than blocking the hook event",
+        "Every invocation prints a one-line 'claude-hooks: client.py invoked for {EVENT}' announcement to stderr immediately after EVENT is resolved, unconditionally (before the try/except) — this exists because server-side dispatcher logs only show the server's view, giving no signal that client.py itself ran for a given hook event (task:fb7d3777)"
+      ],
+      "last_validated": "2026-07-25T20:50:36.296661+00:00",
+      "module": "hooks/client.py",
+      "name": "hooks-client-cwd-forwarding"
+    },
+    "hooks-mcp-tools-observability": {
+      "confidence": 0.95,
+      "contracts": [
+        "handle_server_memory(n_events) returns a markdown table or {error: ...}",
+        "handle_read_logs_sqlite(level, logger, search, limit, format=\"toon\") returns a TOON-encoded string by default (\"count: N\\nrows[N]{...}:\\n  ...\"), or {count, rows} dict when format=\"json\"",
+        "handle_session_id() returns {session_id, turn} or {error: ...} after one retry on empty first response",
+        "handle_checkpoint_query(thread_id=\"\") returns {thread_id, turn_count, prompt_id, domains, keywords, memories, tool_hints, session_context, ...} or {error: ...}; thread_id doubles as session_id, omitted thread_id resolves to the current session via GET /session/current"
+      ],
+      "created_at": "2026-06-29T09:47:25.288414+00:00",
+      "description": "MCP tools for querying hook state: server_memory (live chronological timeline via HTTP), checkpoint_query (thin HTTP wrapper over the live server's GET /session/{session_id}, reading in-process MemorySaver state — no longer a SQLite reader as of task:da29c842), and read_logs_sqlite (filtered log reader from claude_hooks.sqlite). Also session_id (added 2026-07-05, task:61703ef7): returns current session_id via GET /session/current with a built-in one-shot retry, absorbing the checkpoint-write race for a brand-new session.",
+      "evidence": [
+        "src/tools/hooks.py:1",
+        "src/tools/hooks.py: handle_session_id()",
+        "src/tools/hooks.py: handle_read_logs_sqlite() format param",
+        "src/tools/hooks.py: handle_checkpoint_query() — GET /session/{session_id}, no sqlite3/_DB_PATH",
+        "src/toon.py: shared rows_to_toon/toon_cell encoder",
+        "tests/test_checkpoint_query_integration.py: live smoke test against the real running server"
+      ],
+      "invariants": [
+        "server_memory hits the live FastAPI server at 127.0.0.1:8766 — fails if server is down",
+        "read_logs_sqlite reads directly from iCloud DB path",
+        "session_id retries once (0.5s sleep) if the first /session/current response has no session_id — absorbs the race where a brand-new session's first checkpoint write lags behind the query",
+        "checkpoint_query is a thin HTTP wrapper over GET /session/{session_id} — it does NOT read ~/.claude/langgraph_checkpoints.db directly (that sqlite path was retired in production by task:b3964f85; the prior invariant here claiming checkpoint_query reads that file as 'the live DB SqliteSaver writes to in production' was true when confirmed 2026-07-05 (task:61703ef7) but went stale after task:b3964f85's later migration — corrected 2026-07-27, task:da29c842, after the stale assumption caused an unhandled 'no such table: checkpoints' error). checkpoint_query has no 'latest checkpoint across all threads' mode anymore — omitted thread_id resolves only to the current session, matching hooks__session_id's semantics.",
+        "read_logs_sqlite's `format` param defaults to \"toon\" (task:d2165715): rows share a uniform schema (id, ts, level, logger, message), which TOON's tabular header+rows encoding compresses well versus repeating JSON keys per row. format=\"json\" is kept as an explicit fallback returning the original {count, rows} dict shape — callers needing the dict shape (e.g. programmatic filtering) must pass format=\"json\" explicitly.",
+        "The TOON encoder itself (rows_to_toon/toon_cell) was extracted to src/toon.py (task:4b5bf21f) so src/tools/tasks.py's handle_list could reuse it — hooks.py now imports rows_to_toon rather than defining its own copy.",
+        "A docstring/comment's 'confirmed on <date>' claim is only as fresh as the last re-check against the code it describes — checkpoint_query's docstring cited a specific confirmation date (task:61703ef7) that read as settled fact but silently went stale after a later migration nobody circled back to update. Re-verify dated confirmations against current runtime behavior, don't trust the date alone."
+      ],
+      "last_validated": "2026-07-27T02:18:33.159507+00:00",
+      "module": "src/tools/hooks.py",
+      "name": "hooks-mcp-tools-observability"
+    },
+    "load-active-task-pass-through": {
+      "confidence": 0.95,
+      "contracts": [
+        "__call__(state) -> {} always"
+      ],
+      "created_at": "2026-08-01T05:48:37.368670+00:00",
+      "description": "Pass-through node — active_task_id already lives in checkpoint state. Used to suppress the task for a turn when its project:<name> tag disagreed with the current cwd, reading proj_tasks.db to get the tag. That suppression, _project_from_cwd, and the _cfg import it needed were all removed (task:87ec7876): the tag was a guess derived from a working directory, and the lookup read a store this repo no longer owns. task-framework scopes the active task by workspace path directly, so what this approximated is now answered exactly by the system that owns it. The node now only logs.",
+      "evidence": [
+        "langchain_learning/nodes/load_active_task.py:1"
+      ],
+      "invariants": [
+        "Touches no database — returns {} unconditionally, active task or not"
+      ],
+      "last_validated": "2026-08-01T05:48:37.368670+00:00",
+      "module": "langchain_learning/nodes/load_active_task.py",
+      "name": "load-active-task-pass-through"
+    },
+    "log-tool-usage-single-writer": {
+      "confidence": 0.92,
+      "contracts": [
+        "__call__(state) -> {prompt_tools, session_tools} state update"
+      ],
+      "created_at": "2026-08-01T05:48:37.369390+00:00",
+      "description": "Upserts a tool_hints.sqlite row per tool call and seeds keywords in the same connection. Used to also run _upsert_task_event_tools concurrently via a ThreadPoolExecutor, writing to task_events on EVERY tool call — removed (task:87ec7876) because task_events no longer exists. Found by grep for _cfg.tasks_db rather than the open_tasks/_connect patterns task:6240c675's sweep used, which is why it survived that earlier pass. With one writer left, the pool bought nothing; __call__ now calls _upsert_tool_hint directly.",
+      "evidence": [
+        "langchain_learning/nodes/log_tool_usage.py:137",
+        "langchain_learning/nodes/log_tool_usage.py:145"
+      ],
+      "invariants": [
+        "Writes to tool_hints.sqlite only — no task store dependency",
+        "Test sessions (api-test-/test-/pytest- prefixes) skip the upsert entirely"
+      ],
+      "last_validated": "2026-08-01T05:48:37.369390+00:00",
+      "module": "langchain_learning/nodes/log_tool_usage.py",
+      "name": "log-tool-usage-single-writer"
+    },
+    "logger-sqlite-handler": {
+      "confidence": 0.97,
+      "contracts": [
+        "setup(name) returns a logger with SQLiteHandler for hook scripts",
+        "get_logger(name) returns a 'lc.*' prefixed logger for the LCEL pipeline"
+      ],
+      "created_at": "2026-06-29T09:47:25.287736+00:00",
+      "description": "Shared SQLiteHandler that writes all hook and LangChain pipeline logs to claude_hooks.sqlite in iCloud. Singleton per DB path. Redirects to test DB when CLAUDE_HOOKS_TEST_LOG_DB env var is set. Auto-trims at 50k rows.",
+      "evidence": [
+        "src/logger.py:45",
+        "src/logger.py:132"
+      ],
+      "invariants": [
+        "SQLiteHandler is a singleton per db_path — never creates duplicate handlers",
+        "emit() never raises — handleError() is a no-op",
+        "Log table is auto-trimmed to 40k rows when it exceeds 50k",
+        "Test redirect affects only the default singleton, not custom-path handlers"
+      ],
+      "last_validated": "2026-06-29T09:47:25.287736+00:00",
+      "module": "src/logger.py",
+      "name": "logger-sqlite-handler"
+    },
+    "mcp-dispatcher-domain-tool-map": {
+      "confidence": 0.98,
+      "contracts": [
+        "build_dispatcher(mcp) registers all tools from DOMAIN_MAP onto the FastMCP instance"
+      ],
+      "created_at": "2026-06-29T09:47:25.286803+00:00",
+      "description": "FastMCP tool registry. Maps domain names to (module, [action]) pairs. Each action becomes an MCP tool named domain__action. All tool modules live under src/tools/. The 'tasks' entry was removed (task:87ec7876) along with tools/tasks.py — build_dispatcher imports every DOMAIN_MAP module unconditionally at startup, so a stale entry here would have broken server boot, not just one tool call.",
+      "evidence": [
+        "src/dispatcher.py:41",
+        "src/dispatcher.py:59"
+      ],
+      "invariants": [
+        "Tool names follow domain__action convention",
+        "New tools require adding an entry to DOMAIN_MAP — no auto-discovery",
+        "Handler functions must be named handle_<action> in their module",
+        "Every DOMAIN_MAP entry's module must be importable — build_dispatcher loads all of them unconditionally at startup"
+      ],
+      "last_validated": "2026-08-01T05:48:37.366067+00:00",
+      "module": "src/dispatcher.py",
+      "name": "mcp-dispatcher-domain-tool-map"
+    },
+    "mcp-server-bootstrap": {
+      "confidence": 0.95,
+      "contracts": [
+        "mcp.run() starts the FastMCP server when invoked as __main__"
+      ],
+      "created_at": "2026-06-29T09:47:25.288066+00:00",
+      "description": "MCP server entry point. Calls build_dispatcher to register all tools, then bootstraps by ensuring Ollama is running and rebuilding the task TurboVec embedding index if missing.",
+      "evidence": [
+        "mcp_server.py:55",
+        "mcp_server.py:74"
+      ],
+      "invariants": [
+        "Ollama must be running for semantic task neighbor search to work",
+        "Task index is rebuilt at startup only if missing — not on every start",
+        "Bootstrap failures are logged and swallowed — never crash the server"
+      ],
+      "last_validated": "2026-06-29T09:47:25.288066+00:00",
+      "module": "mcp_server.py",
+      "name": "mcp-server-bootstrap"
+    },
+    "memory-scoring-per-domain-batch-limit": {
+      "confidence": 0.9,
+      "contracts": [
+        "Callers of score_memories() can add unbounded domains without any single domain silently excluding another from scoring, as long as no one domain individually exceeds batch_limit."
+      ],
+      "created_at": "2026-07-21T22:21:23.339835+00:00",
+      "description": "score_memories() fetches candidate memory rows per-domain (not one aggregate query across the whole memories table) before applying combination-signal scoring. Each distinct domain gets its own SELECT ... WHERE domain IS ? ORDER BY updated DESC LIMIT batch_limit, and the per-domain result sets are concatenated before scoring.",
+      "evidence": [
+        "langchain_learning/nodes/_memory_scoring.py:154-167"
+      ],
+      "invariants": [
+        "batch_limit (memory_scoring.json / src.config.memory_batch_limit) is a per-domain cap, not an aggregate cap across the whole memories table.",
+        "Truncation (when a domain exceeds batch_limit rows) always drops the stalest rows in that domain first, via ORDER BY updated DESC -- never an arbitrary rowid-order slice.",
+        "A small or new domain must never be starved out of the candidate pool by a large domain growing past batch_limit -- each domain is queried independently."
+      ],
+      "last_validated": "2026-07-25T18:53:24.366214+00:00",
+      "module": "langchain_learning/nodes/_memory_scoring.py",
+      "name": "memory-scoring-per-domain-batch-limit"
+    },
+    "rag-core-turbovec-index": {
+      "confidence": 0.97,
+      "contracts": [
+        "load_index(tvim_path, meta_path) returns (IdMapIndex | None, dict)",
+        "save_index(index, meta, tvim_path, meta_path) is atomic",
+        "query_index(index, meta, q_vec, k) returns list[dict] with id, score, plus meta fields"
+      ],
+      "created_at": "2026-06-29T09:47:25.288769+00:00",
+      "description": "Generic TurboVec RAG core shared by code_rag and diff_rag. Provides load/save/query operations on IdMapIndex (.tvim) + .meta.json sidecar pairs. Atomic saves via tmp-then-rename. Callers supply precomputed query vectors.",
+      "evidence": [
+        "src/tools/rag_core.py:23",
+        "src/tools/rag_core.py:35"
+      ],
+      "invariants": [
+        "Index and metadata sidecar are always written together atomically",
+        "load_index returns (None, {}) on any error — callers must handle missing index",
+        "query_index is stateless — no caching, no side effects"
+      ],
+      "last_validated": "2026-06-29T09:47:25.288769+00:00",
+      "module": "src/tools/rag_core.py",
+      "name": "rag-core-turbovec-index"
+    },
+    "server-fastapi-hook-server": {
+      "confidence": 0.95,
+      "contracts": [
+        "POST /hook/{event} calls dispatcher handler and returns hookSpecificOutput, a top-level decision/reason dict (Stop only), or {}",
+        "GET /health returns {status: ok}",
+        "GET /session/memory returns last N events from server_memory",
+        "GET /session/current returns {session_id, turn} from the most recent checkpoint — no active task required, unlike GET /session/active",
+        "_safe_json(request) -> dict — always returns a dict, never raises; malformed/empty/missing body returns {} with a logged warning"
+      ],
+      "created_at": "2026-06-29T09:47:25.286219+00:00",
+      "description": "Persistent FastAPI server replacing per-invocation subprocess dispatcher. Routes POST /hook/{event} to dispatcher handlers. Uses MemorySaver (in-process, in-memory LangGraph checkpointer) — does NOT survive server restarts. Replaced SqliteSaver (task:b3964f85) after two corruption incidents. Per-thread checkpoint history is capped at 5000 rows, enforced from NoopNode on every Stop event. Single uvicorn worker process, event loop is uvloop (task:53c9f817). All 6 hook endpoints parse the request body via a shared _safe_json() helper (task:33419f95) that fails open to {} on malformed/empty JSON instead of raising — matches hooks/client.py's own fail-open design.",
+      "evidence": [
+        "hooks/server.py:1-14",
+        "hooks/server.py:41-59 (lifespan, MemorySaver construction)",
+        "hooks/server.py: session_current() -> get_current_session()",
+        "hooks/server.py: session_active() -> get_active_session()",
+        "pyproject.toml: uvloop dependency",
+        "~/Library/LaunchAgents/com.debaditya.claude-hooks-pipeline.plist: uvicorn launch args, single process, no --workers",
+        "hooks/server.py: _safe_json() — shared JSON-parse helper used by all 6 /hook/{event} endpoints",
+        "tests/test_server_api.py: TestMalformedRequestBody"
+      ],
+      "invariants": [
+        "Checkpoint state lives only in-process memory (MemorySaver) — discarded on every server restart/reload; nothing about session/task-activation state persists across a restart except what server_memory.py separately logs to SQLite",
+        "Per-thread checkpoint history is capped at 5000 rows via NoopNode on every Stop event, not by the server itself",
+        "Server runs on port 8766 as a single uvicorn worker process — deliberately not multi-worker/per-session",
+        "GET /session/active and GET /session/current both read live in-memory MemorySaver state (not a DB); /session/active requires an active task, /session/current does not",
+        "Event loop is uvloop, not stdlib asyncio — controlled entirely by whether uvloop is installed",
+        "All 6 /hook/{event} endpoints (UserPromptSubmit, PreToolUse, PostToolUse, Stop, SessionStart, SessionEnd) parse their body via the shared _safe_json(request) helper, which catches any JSON-parse failure and returns {} instead of letting it propagate to the generic exception handler as a 500 — found missing (task:33419f95, log audit 2026-07-26) after an empty/malformed body crashed pre_tool_use with an unhandled JSONDecodeError. Any NEW hook endpoint added here must use _safe_json too, not a bare `await request.json()`, to preserve this fail-open guarantee."
+      ],
+      "last_validated": "2026-07-26T15:41:07.300412+00:00",
+      "module": "hooks/server.py",
+      "name": "server-fastapi-hook-server"
+    },
+    "server-memory-consolidated-timeline": {
+      "confidence": 0.96,
+      "contracts": [
+        "record_prompt/record_tool/record_task write to both layers",
+        "get(n_events) returns from in-memory cache only (no DB hit at read time)"
+      ],
+      "created_at": "2026-06-29T09:47:25.286494+00:00",
+      "description": "Two-layer consolidated context store (SQLite + in-memory cache) answering 'what was I working on?'. Stores prompts, MCP tool calls, and task activations as a chronological event sequence. Write-through: every insert hits both SQLite and the in-memory cache.",
+      "evidence": [
+        "hooks/server_memory.py:1",
+        "hooks/server_memory.py:40"
+      ],
+      "invariants": [
+        "Test sessions (prefixed test-, pytest-, api-test-) are never written to the store",
+        "Rolling window capped at 1000 events — oldest deleted on overflow",
+        "Cache is hydrated from SQLite at server startup so context survives reloads"
+      ],
+      "last_validated": "2026-06-29T09:47:25.286494+00:00",
+      "module": "hooks/server_memory.py",
+      "name": "server-memory-consolidated-timeline"
+    },
+    "server-memory-tool-recording": {
+      "confidence": 0.92,
+      "contracts": [
+        "record_tool_from_hook(body) and record_task_from_hook(body) take raw PostToolUse dicts"
+      ],
+      "created_at": "2026-06-29T09:47:25.289140+00:00",
+      "description": "Hook payload helpers that extract and record tool calls from raw PostToolUse payloads. MCP tools recorded with compact JSON args. Read/Edit/Write recorded with file_path. Bash only recorded for version-control operations. tasks__set_active recorded as task type not tool type, from ANY MCP server providing that name — this is an observability layer, not a rule enforcer, so recording activity from other servers' tasks is correct. Title used to be resolved authoritatively from proj_tasks.db (task:87ec7876 removed that lookup, _title_for_task); it now comes only from the tool's own response, which was already the fallback path for any task the DB lookup missed.",
+      "evidence": [
+        "hooks/server_memory.py:298",
+        "hooks/server_memory.py:243"
+      ],
+      "invariants": [
+        "record_task_from_hook never queries a task store — title comes from the tool response only"
+      ],
+      "last_validated": "2026-08-01T05:48:37.367986+00:00",
+      "module": "hooks/server_memory.py",
+      "name": "server-memory-tool-recording"
+    },
+    "session-graph-test-production-routing": {
+      "confidence": 0.9,
+      "contracts": [
+        "get_session_graph(session_id: str = '') -> a compiled, checkpointer-backed StateGraph, production or test depending on session_id prefix"
+      ],
+      "created_at": "2026-07-28T01:58:19.215098+00:00",
+      "description": "get_session_graph(session_id) is the single chokepoint every hook entry point (run_session, run_gate, run_post_tool, run_stop, prewarm_session) already calls to obtain the compiled LangGraph StateGraph. Since task:b63088a1, it also decides WHICH of two graph instances to return based on session_id's prefix, isolating integration-test checkpoint traffic from the shared production MemorySaver without changing any endpoint URL or code path.",
+      "evidence": [
+        "langchain_learning/session_graph.py:get_session_graph",
+        "langchain_learning/session_graph.py:TEST_SESSION_PREFIX",
+        "hooks/server.py:session_detail",
+        "hooks/dispatcher.py:_handle_session_end",
+        "tests/test_session_graph_test_isolation.py"
+      ],
+      "invariants": [
+        "Any session_id starting with TEST_SESSION_PREFIX ('integration-test-') routes to _test_graph, a separate lazily-built graph/MemorySaver instance; every other session_id (including '') routes to the production _graph, exactly as before this routing existed.",
+        "Both _graph and _test_graph are built lazily on first use via the identical build_session_graph(checkpointer=MemorySaver()) pattern — no special-casing between them except which module-level global gets populated.",
+        "A checkpoint written under a test-prefixed session_id is genuinely invisible to the production graph, not just conventionally separated — they are two distinct MemorySaver instances with independent .storage dicts.",
+        "No eviction/cleanup logic exists for _test_graph and none is needed: both graphs reset to empty on every server restart, since MemorySaver has no persistence and none is intended for either.",
+        "Callers that reference the underlying singleton directly (sg._graph) rather than through get_session_graph(session_id) will NOT get isolation-aware routing — hooks/server.py's session_detail endpoint and hooks/dispatcher.py's _handle_session_end both had to be updated to route through get_session_graph(session_id) (or check the correct global explicitly) for the isolation guarantee to hold end-to-end."
+      ],
+      "last_validated": "2026-07-28T01:58:19.215098+00:00",
+      "module": "langchain_learning/session_graph.py",
+      "name": "session-graph-test-production-routing"
+    },
+    "session-state-latest-checkpoint-lookup": {
+      "confidence": 0.9,
+      "contracts": [
+        "get_current_session() -> {session_id, turn} or {} if no checkpoint exists anywhere",
+        "get_active_session() -> {task_id, title, session_id, turn} or {} if no active task on the latest checkpoint"
+      ],
+      "created_at": "2026-07-28T01:58:12.018834+00:00",
+      "description": "get_current_session/get_active_session back GET /session/current and GET /session/active — the only signals available for 'what session am I in' before any thread_id is known. Both use _latest_checkpoint_tuple() to find the single most-recently-written checkpoint across all threads. get_active_session used to resolve the checkpoint's task id against proj_tasks.db to drop done/abandoned tasks (task:87ec7876) — that made it look authoritative about a fact this repo no longer owns. It now reports the checkpoint verbatim: a stale checkpoint can name a finished task, which is correct for a session echo feeding a UI endpoint rather than a second active-task pointer with nothing to reconcile it against.",
+      "evidence": [
+        "hooks/session_state.py:48"
+      ],
+      "invariants": [
+        "Never resolves active_task_id against any task store — reports the checkpoint as-is"
+      ],
+      "last_validated": "2026-08-01T05:48:37.367361+00:00",
+      "module": "hooks/session_state.py",
+      "name": "session-state-latest-checkpoint-lookup"
+    },
+    "toon-encoding-shared-module": {
+      "confidence": 0.9,
+      "contracts": [
+        "toon_cell(value) -> str: stringifies value, wraps in double quotes with internal quotes doubled if it contains a comma, newline, or quote character",
+        "rows_to_toon(rows: list[dict]) -> str: returns 'rows[0]{}:' for an empty list, otherwise 'rows[N]{field1,field2,...}:' header line followed by one two-space-indented comma-joined line per row"
+      ],
+      "created_at": "2026-07-26T02:53:41.011542+00:00",
+      "description": "Shared TOON (Token-Oriented Object Notation) encoder for MCP tool responses that return arrays of uniform-schema dicts. Extracted from src/tools/hooks.py (task:d2165715) so src/tools/tasks.py's handle_list (task:4b5bf21f) could reuse it without duplicating the comma/quote/newline escaping logic.",
+      "evidence": [
+        "src/toon.py:1-37",
+        "src/tools/hooks.py: imports rows_to_toon",
+        "src/tools/tasks.py: handle_list format param"
+      ],
+      "invariants": [
+        "Only worth using for a list of dicts sharing the same keys, returned to an LLM caller rather than a human reading raw output — nested/heterogeneous data (e.g. concept_store/concepts.json entries) loses to plain JSON under TOON, so this is not a blanket replacement for JSON responses repo-wide.",
+        "rows_to_toon() uses the FIRST row's keys as the header and does not fill in missing keys for later rows — callers MUST normalize every row to an identical, consistent key set before calling it, or the tabular header will not match later rows (handle_list in src/tools/tasks.py does this for the optional _context_only field, defaulting it to False on every row).",
+        "Any existing MCP tool being defaulted to TOON output must have its internal (non-MCP, in-process Python) callers grepped for and updated to pass format=\"json\" explicitly — the unit test suite alone is not sufficient signal for this, since unit tests typically only exercise the tool module directly, not other in-process callers integrating with it (discovered task:4b5bf21f: hooks/ui/routes.py called tasks.py's handle_list() directly in 5 places expecting list[dict], only caught by the integration suite at deploy time, not the unit gate)."
+      ],
+      "last_validated": "2026-07-26T02:53:41.011542+00:00",
+      "module": "src/toon.py",
+      "name": "toon-encoding-shared-module"
+    },
+    "ups-nodes-cwd-first-repo-resolution": {
+      "confidence": 0.95,
+      "contracts": [
+        "LoadTaskCodeNode.__call__ resolves .code_embeddings.tvim/.meta.json from Path(state['cwd']) first",
+        "LoadRelatedCommitsNode._resolve_diff_index(cwd) resolves .diff_embeddings.tvim/.meta.json from Path(cwd) first, returns (index, meta)",
+        "Both fall back to a hardcoded claude-hooks default path only when no index exists at the cwd-derived path"
+      ],
+      "created_at": "2026-07-02T11:30:00.000000+00:00",
+      "description": "Repeated pattern across UPS task-context fan-out nodes: any node resolving a repo-scoped index/resource must try state['cwd']'s repo first, falling back to a hardcoded default repo (claude-hooks) only if nothing exists at cwd. LoadTaskCodeNode (langchain_learning/nodes/load_task_code.py) established this; LoadRelatedCommitsNode (langchain_learning/nodes/load_related_commits.py) was fixed to match it in task:4b7ccfe8 after being found to always query claude-hooks' diff index regardless of the active task's actual repo.",
+      "evidence": [
+        "langchain_learning/nodes/load_task_code.py: cwd = state.get(\"cwd\", \"\")",
+        "langchain_learning/nodes/load_related_commits.py: def _resolve_diff_index(cwd: str)"
+      ],
+      "invariants": [
+        "A task can be activated from any repo, not just claude-hooks — a node that skips the cwd check silently returns data from the wrong repo instead of failing loudly or returning empty",
+        "cwd-derived resolution is tried first and only falls back to the default repo path if the cwd-scoped resource is missing, never the other way around",
+        "New UPS nodes that read a repo-local file/index (TurboVec .tvim, git log, etc.) must follow this same resolution order"
+      ],
+      "last_validated": "2026-07-02T11:30:00.000000+00:00",
+      "module": "langchain_learning/nodes/load_task_code.py",
+      "name": "ups-nodes-cwd-first-repo-resolution"
+    }
+  },
+  "meta": {
+    "commit": "5f62c6b5150a20fe7198d7bd6c155c4b3c0d3101",
+    "extracted_at": "2026-07-23T05:42:23Z",
+    "note": "incremental upsert (task:a2fd402d)"
+  }
+}

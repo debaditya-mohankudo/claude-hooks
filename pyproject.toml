@@ -1,0 +1,51 @@
+[project]
+name = "claude-hooks"
+version = "0.1.0"
+description = "Claude Code hooks and LangChain pipeline for memory loading and session tracking"
+requires-python = ">=3.10"
+dependencies = [
+    "mcp>=1.0.0",
+    "fastmcp>=0.1.0",
+    "langchain-core>=0.3.0",
+    "langchain-anthropic>=0.3.0",
+    "langchain-community>=0.3.0",
+    "langchain-classic>=0.3.0",
+    "langgraph>=0.2.0",
+    "rank-bm25>=0.2.2",
+    "anthropic>=0.104.1",
+    "pydantic-settings>=2.0.0",
+    "fastapi>=0.136.3",
+    "langserve[all]>=0.3.3",
+    "langgraph-checkpoint-sqlite>=3.1.0",
+    "llama-index-embeddings-ollama>=0.9.0",
+    "numpy>=1.26.0",
+    "turbovec>=0.8.0",
+    "msgpack>=1.1.2",
+    "httpx2>=2.4.0",
+    "pytest-xdist>=3.8.0",
+    "jinja2>=3.1.6",
+    "python-multipart>=0.0.30",
+    "markdown>=3.10.2",
+    "tiktoken>=0.8.0",
+    "uvloop>=0.22.1",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.23.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+asyncio_mode = "auto"
+pythonpath = [".", "src"]
+addopts = "-m 'not integration'"
+markers = ["integration: slow end-to-end tests that spin up the full FastAPI server"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+    "pytest-cov>=7.1.0",
+]

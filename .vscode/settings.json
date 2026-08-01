@@ -1,0 +1,4 @@
+{
+    "jira-plugin.workingProject": "",
+    "python.analysis.extraPaths": ["hooks", "src"]
+}

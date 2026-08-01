@@ -1,0 +1,33 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd /Users/debaditya/workspace/claude-hooks-dev && uv run python concept_store/diff_hook.py"
+          }
+        ]
+      }
+    ]
+  },
+  "permissions": {
+    "allow": [
+      "mcp__claude-hooks__hooks__server_memory",
+      "mcp__claude-hooks__logs__read",
+      "mcp__claude-hooks__memory__add",
+      "mcp__claude-hooks__memory__list_domains",
+      "mcp__claude-hooks__memory__read_compact",
+      "mcp__claude-hooks__memory__search",
+      "mcp__claude-hooks__memory__tool_hints",
+      "mcp__claude-hooks__session__list",
+      "mcp__claude-hooks__session__list_all",
+      "mcp__claude-hooks__session__list_ids",
+      "mcp__claude-hooks__session__save_summary",
+      "mcp__claude-hooks__session__search",
+      "mcp__claude-hooks__tasks__create_epic",
+      "mcp__claude-hooks__tasks__execute_review"
+    ]
+  }
+}

@@ -1,0 +1,26 @@
+.claude/dev/
+.claude/MEMORY.md
+.claude/worktrees/
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+.uv/
+uv.lock
+*.db
+*.sqlite
+.env
+.code_graph.json
+.code_embeddings.tvim
+.code_embeddings.meta.json
+# tasks_embeddings.tvim/.meta.json live in iCloud Databases — not in repo
+.tasks_embeddings.tvim
+.tasks_embeddings.meta.json
+.diff_embeddings.tvim
+.diff_embeddings.meta.json
+.fullrepo_embeddings.tvim
+.fullrepo_embeddings.meta.json
+tests/test_logs.db
+file:testlogs*
+tests/replay_baseline.json
+.coverage

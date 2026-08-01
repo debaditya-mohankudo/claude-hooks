@@ -1,0 +1,15 @@
+{
+    "servers": {
+        "claude-hooks": {
+            "type": "stdio",
+            "command": "uv",
+            "args": [
+                "run",
+                "--project",
+                "${workspaceFolder}",
+                "python",
+                "${workspaceFolder}/mcp_server.py"
+            ]
+        }
+    }
+}
