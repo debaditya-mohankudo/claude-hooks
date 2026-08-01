@@ -1,108 +1,82 @@
 # claude-hooks
 
-## Concept Store
+This repo gives a coding agent a memory and a context. Hooks fire on every turn,
+assemble what's worth knowing — memories, active task, architectural concepts,
+related commits — and inject it before the model sees the prompt.
 
-Architectural concepts for this repo are stored in `concept_store/concepts.json`.
+That premise has one hard consequence, and it shapes everything here: **context
+the agent trusts but that isn't true is worse than no context at all.** A missing
+memory costs a lookup. A confidently wrong one costs a wrong decision, made fast,
+with no reason to double-check. Most of the design below is an answer to that.
 
-**Seed (run once):**
+## What this project believes
 
-```bash
-uv run python scripts/extract_concepts.py
-```
+**Anything asserted must be checkable by something that runs.**
+A rule stated in a doc and enforced by nothing is a comment. It stays plausible
+while the code drifts underneath it, and the drift surfaces only when someone
+acts on it and gets hurt. Concept drift detection runs on every edit; the gates
+run on every tool call; the model tests run on every commit. When you add a claim
+about how this system behaves, add the thing that fails when it stops being true.
 
-**Drift detection** runs automatically after every Edit/Write via a post-tool-use hook — prints `[concept-drift]` to stderr if a changed file's concepts diverge from the baseline. No output = no drift.
+**Prefer the durable record to the cache.**
+Git history is the record; the commit map is a cache over it and is rebuildable
+from scratch. The same shape recurs — derive from the source of truth rather than
+maintaining a second copy that can silently disagree. When you must cache, make
+losing it cheap.
 
-To re-seed after major refactors, delete `concept_store/concepts.json` and re-run the seed command.
+**Fail open, never block the human.**
+Every hook in this pipeline sits between the user and their own tools. A gate
+that errors, a server that's down, a parse that fails — none may turn into a
+blocked call. Degrade, log, and get out of the way. The one exception is a
+deliberate deny with a reason the agent can act on, and even that must be
+precise: a gate that fires on the wrong thing trains people to route around it,
+which costs more than the check was ever worth.
 
-**Manual reads/writes** (correcting a concept, adding a new one, checking what's stored for a module) should go through the `concept__get`/`concept__list`/`concept__upsert`/`concept__delete`/`concept__modules` MCP tools rather than hand-writing a Python script against `concept_store/store.py` — they take `repo` explicitly (required, no default), so they work the same way against this repo or any other non-Java target repo with a `concept_store/concepts.json`. This repo does not provide those tools itself (task:756c14db removed the duplicate `src/tools/concept.py` wrapper); the separate [task-framework](https://github.com/debaditya-mohankudo/Lite-Task-Framework-w-Claude-hooks) project's MCP server does, on the identical on-disk format, so the calls above are unqualified `concept__*` names resolved by whichever server provides them in the session.
+**Say what was removed, and why.**
+This codebase is full of tombstones — comments where a function used to be,
+naming the task that removed it and the reason. They're kept on purpose. Without
+them the next reader cannot tell "deliberately absent" from "nobody got to it
+yet", and re-adds what was removed for good reason. Deleting code is easy;
+deleting the knowledge of why is the expensive mistake.
 
-## Task Tracking
+**Own one thing.**
+Task tracking and the concept tools live in the sibling task-framework project,
+not here, and duplicates that grew back were removed rather than maintained in
+parallel. Two implementations of one idea will disagree eventually, and the
+disagreement will be discovered by whoever trusted the wrong one. When something
+here starts to look like a second copy of something there, delete this one.
 
-Task tracking (create/activate/groom/close, `task:<id>` in commits) lives in the separate [task-framework](https://github.com/debaditya-mohankudo/Lite-Task-Framework-w-Claude-hooks) project, not in this repo. Install it and its `taskfw-mcp` server for `/task-framework`, `/task-create`, `/task-grooming`, `/task-introspection`, and the `mcp__taskfw__tasks__*` / `mcp__taskfw__task_memory__*` tools. This repo's hooks pipeline reads active-task state through those tools when the server is present; it doesn't require it. Use TodoWrite only for ephemeral within-session sub-steps.
+**Verify the premise, especially your own.**
+The most expensive errors in this repo's history came from confident claims
+nobody checked — a file that "obviously" existed, a path that was "clearly" the
+production one. A premise you wrote an hour ago is exactly as unverified as one
+you inherited, and feels more trustworthy, which makes it worse. One concrete
+check — read the file, grep the callers, look at the running process — is
+usually the whole cost.
 
-## Running Tests
+## Where truth actually lives
 
-The hook server runs from the **test worktree** (`~/workspace/claude-hooks-test`, port 8766). Dev worktree edits never affect the running server.
+Not in this file. This file goes stale the same way any prose does, so it holds
+principles rather than specifics, and points at things that are checked:
 
-Run unit tests in dev at any time (fast, no server needed):
+- **`concept_store/concepts.json`** — architectural facts per module, with
+  invariants and contracts. Drift-checked on every edit. Read and write it
+  through the `concept__*` MCP tools.
+- **`models/*.sysml`** — the structural model and its requirements, enforced by
+  `tests/test_models.py`.
+- **`tests/`** — the compatibility contract. When behaviour is load-bearing,
+  it's pinned there, and the test names say why.
+- **The running system** — `launchctl list | grep claude-hooks`, the log tables,
+  the live process. Editing this repo's hook code does not change the running
+  server until it restarts; that gap has fooled people before.
 
-```bash
-cd ~/workspace/claude-hooks-dev
-uv run python -m pytest tests/ -q -m "not integration"
-```
+Read logs through the `hooks__read_logs_sqlite` MCP tool and memories through the
+`memory__*` tools rather than opening the databases directly — the tools apply
+the filtering and encoding the raw tables don't.
 
-To deploy and run the full suite, use `/deploy`.
+## Working here
 
-## Recent Activity / Conversation History
-
-To see "what was I working on?" — use `/what-am-i-working-on`. It fetches recent prompts, MCP tool calls, and activated tasks as a single chronological timeline from the hook server's event log.
-
-Returns `{error}` if the server is down — check `launchctl list | grep claude-hooks`.
-
-## Development Workflow (git worktree)
-
-The hook server runs from `~/workspace/claude-hooks-test` (test branch) with
-**MemorySaver** (in-process, in-memory — task:b3964f85 retired SqliteSaver after
-two corruption incidents). Checkpoint state does NOT survive server restarts;
-`~/.claude/langgraph_checkpoints.db` is a retired file nothing writes to anymore.
-Server runs on port **8766**. `/deploy` restarts it after each merge.
-
-Develop in the isolated worktree at `~/workspace/claude-hooks-dev` (dev branch):
-
-```bash
-# 0. Merge main into dev first (task:701215e2) — catches any commits main has
-#    that dev doesn't (e.g. an out-of-band direct-to-main edit) before they can
-#    cause a real conflict at /deploy --ship time instead of here, where it's
-#    cheap and obvious to resolve.
-cd ~/workspace/claude-hooks-dev
-git merge main --no-edit
-
-# 1. Edit in dev worktree
-
-# 2. Quick unit tests (no server needed)
-uv run python -m pytest tests/ -q -m "not integration"
-
-# 3. Commit
-/gc
-
-# 4. Deploy to test + full suite + ship to main
-/deploy
-```
-
-**Key rules:**
-
-- Edits go in `~/workspace/claude-hooks-dev` (dev branch) — never touch main or test directly
-- **Merge main into dev before committing new work**, not just before `/deploy` — main can drift ahead via direct edits (it has, more than once), and catching that early avoids a conflict resolution during `/deploy --ship`
-- `/gc` commits target `--repo ~/workspace/claude-hooks-dev`
-- Server runs from `claude-hooks-test` — dev edits never disrupt live Claude Code hooks
-- main is never touched except by `/deploy`
-
-## Observability
-
-All hook logs write to `claude_hooks.sqlite` in iCloud via `sqlite_log_handler.py`.
-
-**Always use the MCP tool to read logs — never query the DB directly with sqlite3:**
-
-```text
-mcp__claude-hooks__hooks__read_logs_sqlite
-```
-
-## Memory Store
-MEMORY.sqlite - Use memory__ mcp tools
-
-## UserPromptSubmit Flow
-
-`hooks/client.py` → `hooks/server.py` (FastAPI) → `hooks/dispatcher.py:_handle_user_prompt_submit()`,
-which invokes `langchain_learning/session_graph.py:run_session()` — a LangGraph
-`StateGraph`, **not** an LCEL chain (no LCEL usage exists anywhere in this repo).
-Graph shape is documented in `session_graph.py`'s module docstring:
-`load_turn` → `load_active_task`/`load_related_tasks` → fan-out loaders →
-`summarize_task_context` → fan-out (`cwd_domain_detect`, `load_memories`,
-`score_tools`) → `set_prompt_id` → `log_task_events` → END. After the graph
-returns, the dispatcher (not a graph node) adds `vault_context`, enforces the
-context budget, and formats `additionalSystemPrompt` via `_format_system_prompt()`.
-
-**Do not confuse this with `hooks/memory_loader_lc.py`** — that file, described
-in the user's global `~/.claude/CLAUDE.md` as an "LCEL pipeline," does not exist
-in this repo (confirmed via filesystem search) and belongs to a separate, global
-`~/.claude/` memory system, unrelated to this repo's architecture.
+Small, verified steps beat large plausible ones. Run the unit suite — it's fast
+and needs no server. Put `task:<id>` in every commit message; that reference is
+the durable link between code and the reasoning behind it, and everything else
+about commit tracking is derived from it.
