@@ -1,26 +1,5 @@
 {
   "concepts": {
-    "commit-task-traceability-capture": {
-      "confidence": 0.9,
-      "contracts": [
-        "record_commit(task_id, commit_hash, repo_path=\"\") -> {ok, task_id, commit_hash} or {error}",
-        "handle_get_commits(task_id) -> list of {commit_hash, repo_path, logged_at}, most recent first"
-      ],
-      "created_at": "2026-07-23T04:38:06.635342+00:00",
-      "description": "commit_task_map table (task_id, commit_hash, repo_path, logged_at; UNIQUE(task_id, commit_hash)) records which commit SHA implemented which task, populated post-commit by hooks/dispatcher.py (_record_bash_commit for Bash git-commit calls, _record_mcp_commit for the MCP git__commit tool from any server), queryable via the tasks__get_commits MCP tool (handle_get_commits). Complements GitCommitGate/gates-commit-traceability, which only enforces task:<id> presence pre-commit — this concept is the post-commit half that closes the loop.",
-      "evidence": [
-        "src/tools/tasks.py",
-        "hooks/dispatcher.py"
-      ],
-      "invariants": [
-        "INSERT OR IGNORE via the UNIQUE(task_id, commit_hash) constraint makes recording idempotent — safe to call twice for the same commit",
-        "record_commit() returns an error dict (never raises) if task_id is unknown or either field is empty; both dispatcher capture functions treat any failure as fail-open (log a warning, never block the tool response)",
-        "Table name deliberately avoids task_commits — that name was already used (and removed) for an unrelated LangGraph checkpoint-state key (task:c5628e95)"
-      ],
-      "last_validated": "2026-07-25T18:53:03.872258+00:00",
-      "module": "src/tools/tasks.py",
-      "name": "commit-task-traceability-capture"
-    },
     "config-db-paths-and-domains": {
       "confidence": 0.98,
       "contracts": [
@@ -43,22 +22,19 @@
       "name": "config-db-paths-and-domains"
     },
     "db-schema-ddl-and-migrations": {
-      "confidence": 0.97,
+      "confidence": 0.95,
       "contracts": [],
       "created_at": "2026-06-29T09:47:25.287416+00:00",
-      "description": "Central DDL constants and additive migration functions for all SQLite databases (MEMORY.sqlite, proj_tasks.db, tool_hints.sqlite, claude_hooks.sqlite). Tests import DDL from here — no inline DDL in test files.",
+      "description": "Central DDL constants and additive migration functions for MEMORY.sqlite, tool_hints.sqlite, and claude_hooks.sqlite. Tests import DDL from here — no inline DDL in test files. proj_tasks.db's tables (open_tasks, task_events, commit_task_map, task_edges) and migrate_tasks_db were removed (task:87ec7876) along with src/tools/tasks.py, the actual production path that created them — this module's docstring always said those constants existed only for tests and one-time install.",
       "evidence": [
         "src/db/schema.py:1",
-        "src/db/schema.py:33",
-        "scripts/init_db.py: sole caller of migrate_memory_db/migrate_tool_hints_db/migrate_hooks_db",
-        "src/tools/tasks.py: _ensure_db() executes OPEN_TASKS_DDL/TASK_EVENTS_DDL/TASK_EDGES_DDL/COMMIT_TASK_MAP_DDL and calls migrate_tasks_db() directly (task:1310d3a3) — proj_tasks.db is no longer an exception"
+        "src/db/schema.py:65"
       ],
       "invariants": [
-        "All migrations are additive-only (ALTER TABLE ADD COLUMN) — never destructive",
-        "migrate_*() functions are safe to run repeatedly (idempotent)",
-        "DDL constants ARE the authoritative schema definition for every DB this module covers, including proj_tasks.db (task:1310d3a3 reversed the task:1219383a-era exception — src/tools/tasks.py's _ensure_db() now executes these DDL constants and calls migrate_tasks_db() directly rather than maintaining a parallel copy). The one nuance: proj_tasks.db's VALUE backfills (keywords, parent_id-from-tags) and status normalization stay in src/tools/tasks.py itself, since they depend on tasks.py's own helper functions and moving them here would create a circular import — schema.py owns structure (what columns exist), tasks.py owns those specific backfills (what values populate them). See tasks-db-schema-and-migration for the full detail."
+        "ADDITIVE-ONLY MIGRATION enforced structurally: migrate() can only CREATE TABLE IF NOT EXISTS or ALTER TABLE ADD COLUMN",
+        "This module is not the production schema/migration path for the DBs it still covers"
       ],
-      "last_validated": "2026-07-26T16:26:04.163581+00:00",
+      "last_validated": "2026-08-01T05:48:37.366730+00:00",
       "module": "src/db/schema.py",
       "name": "db-schema-ddl-and-migrations"
     },
@@ -116,27 +92,6 @@
       "module": "hooks/dispatcher.py",
       "name": "dispatcher-system-prompt-assembly"
     },
-    "dispatcher-task-body-gate": {
-      "confidence": 0.93,
-      "contracts": [
-        "Returns None to allow or a deny hookSpecificOutput dict",
-        "Deny message includes the full template scaffold for the detected type"
-      ],
-      "created_at": "2026-06-29T09:47:25.285155+00:00",
-      "description": "Pre-tool gate that enforces task body format for tasks__create. Parses task_templates/*.md at import time to derive required section labels per task type. Denies creation if body is missing Type: line or required sections.",
-      "evidence": [
-        "hooks/dispatcher.py:363",
-        "hooks/dispatcher.py:407"
-      ],
-      "invariants": [
-        "task_templates/*.md is the single source of truth for required sections",
-        "Gate only applies to claude-hooks domain tasks (other domains pass through)",
-        "Gate runs before JiraHierarchyGate in the PreToolUse chain"
-      ],
-      "last_validated": "2026-06-29T09:47:25.285155+00:00",
-      "module": "hooks/dispatcher.py",
-      "name": "dispatcher-task-body-gate"
-    },
     "gates-commit-traceability": {
       "confidence": 0.96,
       "contracts": [
@@ -158,23 +113,18 @@
       "name": "gates-commit-traceability"
     },
     "gates-jira-hierarchy": {
-      "confidence": 0.98,
-      "contracts": [
-        "validate_jira_hierarchy(issue_type, parent_id) returns None (valid) or error string"
-      ],
+      "confidence": 0.9,
+      "contracts": [],
       "created_at": "2026-06-29T09:47:25.285609+00:00",
-      "description": "Enforces Jira-style parent-child issue type rules on tasks__create. Stories/tasks/bugs must have epic parents; subtasks must have story/task/bug parents; epics cannot have parents. validate_jira_hierarchy() is the single source of truth shared with the UI.",
+      "description": "INTERNAL VALIDATION ONLY — no longer a gate. validate_jira_hierarchy() once backed JiraHierarchyGate, which registered under the bare name tasks__create and so enforced this repo's hierarchy rule over any MCP server providing that name, including task-framework. Task hierarchy is task-framework's decision, and its rule differs (an epic may not have a parent; a task needs none), so the gate was removed (task:6240c675). The function's sole remaining caller, handle_create_scaffolded, was itself deleted with src/tools/tasks.py (task:87ec7876) — this concept now describes dead code kept only as history until the next reseed drops it.",
       "evidence": [
-        "hooks/gates.py:373",
-        "hooks/gates.py:382"
+        "hooks/gates.py:369"
       ],
       "invariants": [
-        "Epic has no parent",
-        "story/task/bug parent must be epic",
-        "subtask parent must be story, task, or bug",
-        "feedback can attach to any type"
+        "Not registered in GATES and not reachable from any PreToolUse path",
+        "No remaining caller as of task:87ec7876 — src/tools/tasks.py, its sole caller, was deleted"
       ],
-      "last_validated": "2026-07-25T18:57:11.423541+00:00",
+      "last_validated": "2026-08-01T05:48:37.364384+00:00",
       "module": "hooks/gates.py",
       "name": "gates-jira-hierarchy"
     },
@@ -271,25 +221,41 @@
       "module": "src/tools/hooks.py",
       "name": "hooks-mcp-tools-observability"
     },
-    "log-task-events-test-prefix-skip": {
-      "confidence": 0.9,
+    "load-active-task-pass-through": {
+      "confidence": 0.95,
       "contracts": [
-        "__call__(state) returns {} (no-op) for any state['session_id'] matching TEST_SESSION_PREFIX, identical to the existing no-active-task-id and missing-DB no-op paths"
+        "__call__(state) -> {} always"
       ],
-      "created_at": "2026-07-28T02:07:45.324984+00:00",
-      "description": "LogTaskEventsNode writes one task_events row per UPS turn to proj_tasks.db whenever an active_task_id is set in state. Since task:a10a6638, it skips this DB write entirely for any session_id starting with TEST_SESSION_PREFIX (langchain_learning.session_graph.TEST_SESSION_PREFIX) — added because tests/replay_harness.py deliberately seeds active_task_id to exercise task-aware nodes during replay, which was writing real, permanent rows into the persistent, cross-process proj_tasks.db under session_id='replay-<session>', cluttering real task history (tasks__history).",
+      "created_at": "2026-08-01T05:48:37.368670+00:00",
+      "description": "Pass-through node — active_task_id already lives in checkpoint state. Used to suppress the task for a turn when its project:<name> tag disagreed with the current cwd, reading proj_tasks.db to get the tag. That suppression, _project_from_cwd, and the _cfg import it needed were all removed (task:87ec7876): the tag was a guess derived from a working directory, and the lookup read a store this repo no longer owns. task-framework scopes the active task by workspace path directly, so what this approximated is now answered exactly by the system that owns it. The node now only logs.",
       "evidence": [
-        "langchain_learning/nodes/log_task_events.py:LogTaskEventsNode.__call__",
-        "tests/test_log_task_events_node.py:test_skips_db_write_for_test_prefixed_session"
+        "langchain_learning/nodes/load_active_task.py:1"
       ],
       "invariants": [
-        "The skip check happens AFTER the no-active-task-id early return but BEFORE any DB connection is opened — no proj_tasks.db access at all occurs for test-prefixed sessions, not just a rollback or filtered read later.",
-        "The prefix check is imported lazily inside __call__, not at module level — langchain_learning.session_graph imports the node registry, which imports this module, so a top-level import would be circular.",
-        "This guard only affects THIS node's DB write — it does not affect whether other nodes run, or whether the checkpoint/state itself gets test-graph routing (that's session_graph.get_session_graph's separate, unrelated job, task:b63088a1)."
+        "Touches no database — returns {} unconditionally, active task or not"
       ],
-      "last_validated": "2026-07-28T02:07:45.324984+00:00",
-      "module": "langchain_learning/nodes/log_task_events.py",
-      "name": "log-task-events-test-prefix-skip"
+      "last_validated": "2026-08-01T05:48:37.368670+00:00",
+      "module": "langchain_learning/nodes/load_active_task.py",
+      "name": "load-active-task-pass-through"
+    },
+    "log-tool-usage-single-writer": {
+      "confidence": 0.92,
+      "contracts": [
+        "__call__(state) -> {prompt_tools, session_tools} state update"
+      ],
+      "created_at": "2026-08-01T05:48:37.369390+00:00",
+      "description": "Upserts a tool_hints.sqlite row per tool call and seeds keywords in the same connection. Used to also run _upsert_task_event_tools concurrently via a ThreadPoolExecutor, writing to task_events on EVERY tool call — removed (task:87ec7876) because task_events no longer exists. Found by grep for _cfg.tasks_db rather than the open_tasks/_connect patterns task:6240c675's sweep used, which is why it survived that earlier pass. With one writer left, the pool bought nothing; __call__ now calls _upsert_tool_hint directly.",
+      "evidence": [
+        "langchain_learning/nodes/log_tool_usage.py:137",
+        "langchain_learning/nodes/log_tool_usage.py:145"
+      ],
+      "invariants": [
+        "Writes to tool_hints.sqlite only — no task store dependency",
+        "Test sessions (api-test-/test-/pytest- prefixes) skip the upsert entirely"
+      ],
+      "last_validated": "2026-08-01T05:48:37.369390+00:00",
+      "module": "langchain_learning/nodes/log_tool_usage.py",
+      "name": "log-tool-usage-single-writer"
     },
     "logger-sqlite-handler": {
       "confidence": 0.97,
@@ -319,17 +285,18 @@
         "build_dispatcher(mcp) registers all tools from DOMAIN_MAP onto the FastMCP instance"
       ],
       "created_at": "2026-06-29T09:47:25.286803+00:00",
-      "description": "FastMCP tool registry. Maps domain names to (module, [action]) pairs. Each action becomes an MCP tool named domain__action. All tool modules live under src/tools/.",
+      "description": "FastMCP tool registry. Maps domain names to (module, [action]) pairs. Each action becomes an MCP tool named domain__action. All tool modules live under src/tools/. The 'tasks' entry was removed (task:87ec7876) along with tools/tasks.py — build_dispatcher imports every DOMAIN_MAP module unconditionally at startup, so a stale entry here would have broken server boot, not just one tool call.",
       "evidence": [
         "src/dispatcher.py:41",
-        "src/dispatcher.py:55"
+        "src/dispatcher.py:59"
       ],
       "invariants": [
         "Tool names follow domain__action convention",
         "New tools require adding an entry to DOMAIN_MAP — no auto-discovery",
-        "Handler functions must be named handle_<action> in their module"
+        "Handler functions must be named handle_<action> in their module",
+        "Every DOMAIN_MAP entry's module must be importable — build_dispatcher loads all of them unconditionally at startup"
       ],
-      "last_validated": "2026-06-29T09:47:25.286803+00:00",
+      "last_validated": "2026-08-01T05:48:37.366067+00:00",
       "module": "src/dispatcher.py",
       "name": "mcp-dispatcher-domain-tool-map"
     },
@@ -449,22 +416,20 @@
       "name": "server-memory-consolidated-timeline"
     },
     "server-memory-tool-recording": {
-      "confidence": 0.94,
+      "confidence": 0.92,
       "contracts": [
         "record_tool_from_hook(body) and record_task_from_hook(body) take raw PostToolUse dicts"
       ],
       "created_at": "2026-06-29T09:47:25.289140+00:00",
-      "description": "Hook payload helpers that extract and record tool calls from raw PostToolUse payloads. MCP tools recorded with compact JSON args. Read/Edit/Write recorded with file_path. Bash only recorded for version-control operations. tasks__set_active recorded as task type not tool type.",
+      "description": "Hook payload helpers that extract and record tool calls from raw PostToolUse payloads. MCP tools recorded with compact JSON args. Read/Edit/Write recorded with file_path. Bash only recorded for version-control operations. tasks__set_active recorded as task type not tool type, from ANY MCP server providing that name — this is an observability layer, not a rule enforcer, so recording activity from other servers' tasks is correct. Title used to be resolved authoritatively from proj_tasks.db (task:87ec7876 removed that lookup, _title_for_task); it now comes only from the tool's own response, which was already the fallback path for any task the DB lookup missed.",
       "evidence": [
-        "hooks/server_memory.py:266",
-        "hooks/server_memory.py:310"
+        "hooks/server_memory.py:298",
+        "hooks/server_memory.py:243"
       ],
       "invariants": [
-        "tasks__set_active is recorded as 'task' event, not 'tool' event",
-        "Bash non-VCS calls are silently skipped",
-        "Args truncated to 300 chars to cap storage"
+        "record_task_from_hook never queries a task store — title comes from the tool response only"
       ],
-      "last_validated": "2026-06-29T09:47:25.289140+00:00",
+      "last_validated": "2026-08-01T05:48:37.367986+00:00",
       "module": "hooks/server_memory.py",
       "name": "server-memory-tool-recording"
     },
@@ -497,112 +462,19 @@
       "confidence": 0.9,
       "contracts": [
         "get_current_session() -> {session_id, turn} or {} if no checkpoint exists anywhere",
-        "get_active_session() -> {task_id, title, session_id, turn} or {} if no active task on the latest checkpoint, or that task is done/abandoned"
+        "get_active_session() -> {task_id, title, session_id, turn} or {} if no active task on the latest checkpoint"
       ],
       "created_at": "2026-07-28T01:58:12.018834+00:00",
-      "description": "get_current_session/get_active_session back GET /session/current and GET /session/active — the only signals available for 'what session am I in' before any thread_id is known. Both use _latest_checkpoint_tuple() to find the single most-recently-written checkpoint ACROSS ALL THREADS in a MemorySaver instance.",
+      "description": "get_current_session/get_active_session back GET /session/current and GET /session/active — the only signals available for 'what session am I in' before any thread_id is known. Both use _latest_checkpoint_tuple() to find the single most-recently-written checkpoint across all threads. get_active_session used to resolve the checkpoint's task id against proj_tasks.db to drop done/abandoned tasks (task:87ec7876) — that made it look authoritative about a fact this repo no longer owns. It now reports the checkpoint verbatim: a stale checkpoint can name a finished task, which is correct for a session echo feeding a UI endpoint rather than a second active-task pointer with nothing to reconcile it against.",
       "evidence": [
-        "hooks/session_state.py:_latest_checkpoint_tuple",
-        "hooks/session_state.py:get_current_session",
-        "hooks/session_state.py:get_active_session",
-        "tests/test_session_state.py"
+        "hooks/session_state.py:48"
       ],
       "invariants": [
-        "MemorySaver.list(None) (no config) iterates checkpointer.storage's thread_ids in Python dict-insertion order, then yields that FIRST thread's own checkpoint history before ever considering other threads — next(iter(checkpointer.list(None))) is NOT 'the most recent checkpoint globally', it's 'thread_ids[0]'s own most recent checkpoint', where thread_ids[0] never changes once set (dict insertion order is stable across key updates). This was task:a4531510's root cause: a long-lived thread (from a test fixture posting a hardcoded session_id every run) permanently occupied thread_ids[0], so get_current_session got stuck returning it forever regardless of real traffic.",
-        "_latest_checkpoint_tuple() fixes this by enumerating checkpointer.storage.keys() and calling get_tuple() per thread (O(1) latest-checkpoint lookup, not full-history iteration), comparing each thread's checkpoint['ts'] ISO timestamp to find the true global latest.",
-        "get_active_session additionally filters out done/abandoned tasks even when the checkpoint itself is stale — a checkpoint with an active_task_id pointing at a closed task still yields {} from this function."
+        "Never resolves active_task_id against any task store — reports the checkpoint as-is"
       ],
-      "last_validated": "2026-07-28T01:58:12.018834+00:00",
+      "last_validated": "2026-08-01T05:48:37.367361+00:00",
       "module": "hooks/session_state.py",
       "name": "session-state-latest-checkpoint-lookup"
-    },
-    "task-create-hierarchy-validation-scope": {
-      "confidence": 0.85,
-      "contracts": [
-        "handle_create(body='') always delegates to handle_create_scaffolded(task_type=task_type or 'misc', ...) — never duplicates template-fill or hierarchy logic inline",
-        "handle_create_scaffolded validates hierarchy via validate_jira_hierarchy(issue_type, parent_id) before building the body or inserting",
-        "handle_create's explicit-body path (body non-empty) does NOT run validate_jira_hierarchy inline — it relies on the external tasks__create PreToolUse gate (JiraHierarchyGate) for that check, since it's only reachable when called directly as the tasks__create MCP tool"
-      ],
-      "created_at": "2026-07-28T16:44:05.024324+00:00",
-      "description": "handle_create is a thin wrapper: when body is omitted it delegates entirely to handle_create_scaffolded, which builds the template body from task_templates/<task_type>.md AND validates Jira parent/child hierarchy (validate_jira_hierarchy from hooks/gates.py) before inserting. handle_create only retains its own insert logic for the explicit-body case, which create_scaffolded can't express (fixed template section labels).",
-      "evidence": [
-        "src/tools/tasks.py:handle_create",
-        "src/tools/tasks.py:handle_create_scaffolded",
-        "hooks/gates.py:validate_jira_hierarchy",
-        "hooks/gates.py:JiraHierarchyGate",
-        "task:5fc68a7c"
-      ],
-      "invariants": [
-        "PreToolUse gates in hooks/gates.py are keyed by external MCP tool name (e.g. JiraHierarchyGate.tool_name = 'tasks__create') and only fire on the MCP-dispatched call path — any internal Python function call to a gated handler (e.g. handle_create_scaffolded calling handle_create directly) bypasses that gate entirely and needs its own explicit check if the same invariant must hold",
-        "Adding a hierarchy/gate check to handle_create's core (rather than scoped to handle_create_scaffolded) breaks unit tests that call handle_create directly with permissive defaults (issue_type='task', no parent) — confirmed empirically: 62 test failures in tests/test_task_issue_type.py before scoping the fix down"
-      ],
-      "last_validated": "2026-07-28T16:44:05.024324+00:00",
-      "module": "src/tools/tasks.py",
-      "name": "task-create-hierarchy-validation-scope"
-    },
-    "task-document-schema": {
-      "confidence": 0.9,
-      "contracts": [
-        "TaskDocument.to_json()/to_dict() round-trip losslessly through TaskDocument.from_json() for every field, including nested Risk.graded, IntrospectionReport.grooming_accuracy, and Implementation.total/done (tests/test_task_document.py::TestRoundTrip)",
-        "Grooming.grade_risks(grades_by_text: dict[str,str]) -> list[str] — returns unmatched keys, never silently drops them",
-        "_count_checklist(body: str) -> tuple[int, int] — (total_unique, done_unique), whole-body scan, fence-stripped, text-deduped with done-wins"
-      ],
-      "created_at": "2026-07-26T14:50:24.721796+00:00",
-      "description": "Typed Python representation of the open_tasks.document JSON column (epic:f42b6958, adopted per task:2f275e17). Plain dataclasses (TaskDocument/Grooming/Risk/GroomingAccuracy/Introspection/IntrospectionReport/Implementation/Related) with to_json()/from_json()/to_dict(), not pydantic — matches the repo's existing convention of plain-dict domain objects rather than adding a validation-layer dependency. schema_version=1 field allows future migration without touching every existing row. Namespaces: grooming (wholesale-replace each pass), introspection.reports[] (append-only history), implementation.progress (task:4d3a6fc5 — auto-derived checklist tally, always-overwrite, no history), related (additive/deduped reference lists). Body stays focused on Type/Task/Motivation/Resolution/Files (including the human-readable checklist itself); structured grooming/introspection/implementation-progress/decision-reference data lives in this column instead, read/written exclusively through src/tools/tasks.py's handle_update_document (grooming/introspection/related) or handle_update (implementation, recomputed automatically) — never direct SQL.",
-      "evidence": [
-        "src/tools/task_document.py: TaskDocument, Grooming, Risk, GroomingAccuracy, Introspection, IntrospectionReport, Implementation, Related dataclasses",
-        "src/tools/tasks.py: _get_document(), _set_document(), handle_update_document(), _count_checklist(), handle_update() — the only read/write paths for this column",
-        "tests/test_task_document.py: TestRisk, TestGroomingGradeRisks, TestImplementation, TestTaskDocumentDefaults, TestFromJsonNullHandling, TestRoundTrip",
-        "tests/test_task_issue_type.py: TestUpdateDocument, TestImplementationProgress"
-      ],
-      "invariants": [
-        "TaskDocument.from_json(None or '') returns a fresh empty TaskDocument, never raises — every open_tasks row has no document until something writes one, so NULL must be a valid, ordinary input, not an error path (task:74dad096's backward-compatibility requirement).",
-        "Grooming.grade_risks()/handle_update_document's graded_risks param must NEVER touch last_run_at or any other Grooming field besides the matched Risk.graded values (task:3c46c40d).",
-        "handle_update_document's `grooming` param REPLACES document.grooming WHOLESALE (task:74dad096) — anything worth preserving from a prior pass must be copied into prior_art explicitly before the overwrite.",
-        "document.introspection.reports[] is APPEND-only (unlike grooming) — accumulates real history across multiple retrospectives on the same task.",
-        "Related.merge() is additive/deduped per list (commits/memories/concepts/decision_event_ids) — both /task-grooming and /task-introspection write to document.related independently without erasing what the other added.",
-        "Risk.graded is restricted to {'materialized', 'avoided', 'wrong', None} — 'missed' is deliberately not valid; it belongs in IntrospectionReport.missed_surprises. Grooming.hidden_assumptions is informational only, never graded.",
-        "document.implementation.progress (task:4d3a6fc5) is a DERIVED tally, not a copy of the body's Resolution: checklist — the checklist itself stays in the body as the single human-readable source of truth. Recomputed unconditionally inside handle_update from whatever body ends up stored (idempotent parse via _count_checklist), independent of whether the `body` param was passed that call. Does NOT go through handle_update_document — it's the one namespace written from handle_update instead, since it derives from the body handle_update already owns.",
-        "_count_checklist() dedupes checklist items by TEXT using a dict (text -> checked bool, OR-merged) — explicitly not a set of (text, checked) tuples, which would fail to dedup a line appearing both checked and unchecked. Fenced code blocks (```...```) are stripped before scanning so example checklist lines in documentation aren't counted."
-      ],
-      "last_validated": "2026-07-26T15:25:08.584802+00:00",
-      "module": "src/tools/task_document.py",
-      "name": "task-document-schema"
-    },
-    "tasks-db-schema-and-migration": {
-      "confidence": 0.93,
-      "contracts": [
-        "handle_update(id, title='', body='', status='', issue_type='', tags='') -> {ok, id, status, issue_type, tags} — no groomed/document-adjacent flags as of task:5e2a3216 (mark_groomed moved to handle_update_document)",
-        "_task_row(row)/_task_row_full(row) include groomed_at and introspected_at (None if never run)",
-        "handle_list's TOON/json output includes groomed_at and introspected_at in the uniform row schema",
-        "_ensure_db() creates open_tasks, task_events, commit_task_map, AND task_edges by executing schema.py's DDL constants — all four tables production code depends on",
-        "handle_update_document(id, grooming=None, graded_risks=None, introspection_report=None, related=None, mark_groomed=False) -> {ok, id, document: dict, groomed: bool, unmatched_risk_grades?: list[str]} — only touches the namespaces/flags passed; sets introspected_at when introspection_report is not None, sets groomed_at when mark_groomed is True (task:5e2a3216, folded in from handle_update to remove a two-tool ambiguity during /task-grooming)",
-        "_task_row_full(row) additionally includes document: dict — handle_get is the only reader of the full document",
-        "handle_update recomputes and writes document.implementation on every call via _count_checklist(new_body) — a side effect of handle_update, not a separate MCP param"
-      ],
-      "created_at": "2026-07-26T03:03:10.089937+00:00",
-      "description": "open_tasks/task_events/commit_task_map/task_edges schema and migrations for proj_tasks.db, the task management DB. Includes the groomed_at TIMESTAMP column (task:46634a19), the introspected_at TIMESTAMP column (task:e3a0233b), and the document TEXT DEFAULT NULL column (epic:f42b6958, task:544a21c0) storing a JSON-serialized TaskDocument (see task_document.py's own concept). As of task:1310d3a3, src/db/schema.py IS the single structural source of truth for these 4 tables (DDL + column-existence migration) — src/tools/tasks.py's _ensure_db() executes schema.py's DDL constants and calls schema.py's migrate_tasks_db() directly, rather than maintaining a parallel duplicate copy (the prior task:9d3acbef-era split, guarded only by a parity test, is gone).",
-      "evidence": [
-        "src/tools/tasks.py: _ensure_db() — imports and executes OPEN_TASKS_DDL/TASK_EVENTS_DDL/TASK_EDGES_DDL/COMMIT_TASK_MAP_DDL from src.db.schema, calls schema.migrate_tasks_db(conn)",
-        "src/db/schema.py: OPEN_TASKS_DDL, TASK_EVENTS_DDL, TASK_EDGES_DDL, COMMIT_TASK_MAP_DDL, migrate_tasks_db() — the actual production structural path now, not test-fixture-only",
-        "tests/test_task_issue_type.py: TestSchemaParity (column-equality now true by construction, kept as cheap drift guard), TestBackfillAndNormalization (real regression coverage for what stays tasks.py-only), TestIntrospectedAt, TestGroomedAt (mark_groomed tests now call handle_update_document, task:5e2a3216)",
-        "src/tools/tasks.py: _get_document(), _set_document(), handle_update_document() — document column read/write, uses TaskDocument.from_json/to_json",
-        "src/tools/tasks.py: _count_checklist(), Implementation import — handle_update recomputes document.implementation.progress on every call (task:4d3a6fc5)"
-      ],
-      "invariants": [
-        "src/db/schema.py's DDL constants + migrate_tasks_db() ARE now the production structural path for proj_tasks.db (task:1310d3a3) — tasks.py's _ensure_db() executes them directly rather than duplicating. The prior invariant here (schema.py is NOT the prod path, task:9d3acbef) is SUPERSEDED; that task explicitly rejected wholesale consolidation for a broader reason (repo-wide self-healing-per-connect convention across memory.py/scratch.py/hooks.py/tasks.py) but didn't evaluate this narrower tasks.py↔schema.py-only version, which doesn't touch the other 3 modules.",
-        "What does NOT move to schema.py: BACKFILL (computing values for newly-added columns — keywords via _extract_keywords, parent_id via _extract_parent_id) and the wip/active→open status normalization. These depend on tasks.py's own helpers; moving them into schema.py would create a circular import (schema.py would need to import from tasks.py, which already imports schema.py's DDL). _ensure_db() snapshots open_tasks/task_events columns BEFORE calling migrate_tasks_db(), so it knows which columns were newly-added and only backfills those.",
-        "Any new open_tasks/task_events/task_edges/commit_task_map column or table now needs to be added to schema.py ONLY (single source) — tasks.py picks it up automatically via the DDL constants + migrate_tasks_db() it already calls. Only add tasks.py-side code if the new column also needs a VALUE backfill (like keywords/parent_id did).",
-        "task_edges was missing entirely from tasks.py's self-healing _ensure_db() until task:9d3acbef; commit_task_map had no schema.py DDL constant at all until task:1310d3a3 added COMMIT_TASK_MAP_DDL as part of this consolidation.",
-        "groomed_at is set via handle_update_document(id, mark_groomed=True) as of task:5e2a3216 (2026-07-27) — moved off handle_update, which previously carried this flag alongside unrelated title/body/status/tags edits, causing a two-tool ambiguity during /task-grooming's structured-write steps. Staleness still detected by comparing groomed_at against updated_at.",
-        "groomed_at is added inside _task_row() unconditionally, always present for TOON's uniform-header requirement. introspected_at follows the same unconditional-presence pattern.",
-        "document follows the same NULL-safe contract as every other column here: TaskDocument.from_json(None) returns a fresh empty TaskDocument, no migration/backfill needed. document is excluded from _task_row() (list/search) — only _task_row_full() (handle_get) decodes and includes it.",
-        "handle_update UNCONDITIONALLY recomputes document.implementation.progress on every call (task:4d3a6fc5). This is the ONE document-adjacent write left on handle_update rather than handle_update_document — it's a derived tally from the body handle_update already owns, not a caller-supplied flag like mark_groomed was.",
-        "introspected_at (task:e3a0233b) and groomed_at (task:5e2a3216) are both now set from inside handle_update_document — introspected_at automatically whenever introspection_report is passed (no separate flag, since passing the report already is the definitive signal), groomed_at via the explicit mark_groomed flag (no report-shaped payload exists for grooming to key off of the same way)."
-      ],
-      "last_validated": "2026-07-27T07:44:29.196620+00:00",
-      "module": "src/tools/tasks.py",
-      "name": "tasks-db-schema-and-migration"
     },
     "toon-encoding-shared-module": {
       "confidence": 0.9,
