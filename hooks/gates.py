@@ -519,7 +519,14 @@ class TaskSetActiveGate(Gate):
             _log.warning("[TaskSetActiveGate] DB lookup failed: %s — failing open", exc)
             return False, ""
         if row is None:
-            return True, f"Blocked: task '{task_id}' not found."
+            # NOT this repo's task, rather than a bad id. tasks__set_active is
+            # a bare name that more than one MCP server provides, and open_tasks
+            # stopped being the only task store — task-framework keeps its own.
+            # Blocking on absence made this gate deny every taskfw activation,
+            # the same defect JiraHierarchyGate had. An unknown id belongs to
+            # whoever owns it, and that owner validates it.
+            _log.info("[TaskSetActiveGate] task=%s not in open_tasks — not ours, allow", task_id)
+            return False, ""
         if row["status"] not in ("open", "blocked", "wip"):
             return True, (
                 f"Blocked: task '{task_id}' has status '{row['status']}' and cannot be activated. "

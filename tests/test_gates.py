@@ -6,7 +6,7 @@ import pytest
 
 from hooks.gates import (
     Gate, GateContext, ToolCall, GATES, check,
-    GitCommitGate, GitCommitMcpGate, TaskUpdateGate,
+    GitCommitGate, GitCommitMcpGate, TaskSetActiveGate, TaskUpdateGate,
     DEFAULT_WINDOW_S, _load_external_gates,
     _make_input_arg_check, _make_prereq_check, _build_gate_chain,
 )
@@ -1034,3 +1034,64 @@ class TestGateAdversarialInputs:
             ctx = _ctx(tool)
             deny, reason = check(tool, ctx)
             assert deny is False, f"{tool} should not be gated but got deny=True: {reason}"
+
+
+# ---------------------------------------------------------------------------
+# TaskSetActiveGate
+#
+# This gate had no tests at all, and its "task not found" branch denied every
+# activation of a task-framework id — open_tasks is no longer the only task
+# store. The behaviour below is the fix, so it is pinned here.
+# ---------------------------------------------------------------------------
+
+def _set_active_ctx(task_id: str) -> GateContext:
+    return _ctx(tool_name="tasks__set_active", tool_input={"task_id": task_id})
+
+
+def _open_tasks_db(tmp_path, rows: list[tuple[str, str]]):
+    """Build an open_tasks db containing (id, status) rows."""
+    import sqlite3
+    db = tmp_path / "proj_tasks.db"
+    conn = sqlite3.connect(str(db))
+    conn.executescript(OPEN_TASKS_DDL)
+    for task_id, status in rows:
+        conn.execute(
+            "INSERT INTO open_tasks (id, title, status) VALUES (?, ?, ?)",
+            (task_id, f"task {task_id}", status),
+        )
+    conn.commit()
+    conn.close()
+    return db
+
+
+def test_set_active_unknown_id_is_allowed(tmp_path):
+    """An id absent from open_tasks belongs to another store, not to nobody.
+
+    tasks__set_active is a bare name more than one MCP server provides. Denying
+    on absence made this gate block every task-framework activation — the same
+    defect JiraHierarchyGate had. This gate speaks only for tasks it owns.
+    """
+    from unittest.mock import patch
+    db = _open_tasks_db(tmp_path, [])
+    with patch("src.tools.tasks._DB", db):
+        deny, reason = TaskSetActiveGate().verify(_set_active_ctx("02e7d15e"))
+    assert not deny, reason
+
+
+def test_set_active_open_task_allowed(tmp_path):
+    from unittest.mock import patch
+    db = _open_tasks_db(tmp_path, [("abc123", "open")])
+    with patch("src.tools.tasks._DB", db):
+        deny, reason = TaskSetActiveGate().verify(_set_active_ctx("abc123"))
+    assert not deny, reason
+
+
+def test_set_active_done_task_denied(tmp_path):
+    """A task this gate DOES own is still checked. Failing open on absence must
+    not become failing open on everything."""
+    from unittest.mock import patch
+    db = _open_tasks_db(tmp_path, [("abc123", "done")])
+    with patch("src.tools.tasks._DB", db):
+        deny, reason = TaskSetActiveGate().verify(_set_active_ctx("abc123"))
+    assert deny
+    assert "cannot be activated" in reason
