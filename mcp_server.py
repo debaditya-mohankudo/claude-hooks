@@ -56,22 +56,18 @@ def _ensure_ollama() -> bool:
 
 
 def _bootstrap() -> None:
-    """Ensure Ollama is running, then rebuild task embeddings index if missing."""
-    from tools.tasks import _TASKS_TVIM, rebuild_task_index
+    """Ensure Ollama is running, then seed tool_hints keywords."""
     from logger import get_logger
     log = get_logger(__name__)
 
     _ensure_ollama()
 
-    try:
-        if not _TASKS_TVIM.exists():
-            log.info("[bootstrap] task index missing — rebuilding")
-            result = rebuild_task_index()
-            log.info("[bootstrap] task index built: %s", result)
-        else:
-            log.debug("[bootstrap] task index present, skipping rebuild")
-    except Exception as exc:
-        log.warning("[bootstrap] task index rebuild failed: %s", exc)
+    # Task-index rebuild removed here (task:87ec7876, found post-deploy — this
+    # import crashed every fresh claude-hooks MCP connection). rebuild_task_index
+    # and _TASKS_TVIM lived in src/tools/tasks.py, deleted along with the whole
+    # semantic-index capability task:d6ddb40f decided to drop: task-framework's
+    # FTS index is written inside TaskStore.save(), so it cannot go stale the
+    # way this rebuild-on-missing scheme could.
 
     try:
         from langchain_learning.nodes.log_tool_usage import seed_all_tool_keywords
