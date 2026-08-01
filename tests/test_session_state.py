@@ -122,12 +122,28 @@ class TestGetActiveSession:
             result = get_active_session()
         assert result == {}
 
-    def test_done_task_returns_empty(self):
+    def test_a_finished_task_is_still_reported_from_the_checkpoint(self):
+        """This function reports the checkpoint, not the truth.
+
+        It used to resolve the id against proj_tasks.db and drop done and
+        abandoned tasks. That made it look authoritative about a fact this repo
+        no longer owns — task-framework holds the active task and is the only
+        thing that can say whether one is still open. Filtering here would mean
+        a second active-task pointer with nothing to reconcile it against, so
+        a stale checkpoint now reports what it holds and the caller resolves it.
+        """
         tup = _make_checkpoint_tuple("sess-abc", 1, ts="2026-07-28T01:00:00+00:00", active_task_id="task-1")
         with _mock_checkpointer({"sess-abc": tup}):
-            with patch("src.tools.tasks.handle_get", return_value={"status": "done"}):
+            result = get_active_session()
+        assert result["task_id"] == "task-1"
+
+    def test_no_task_store_is_consulted(self):
+        """The whole point of the change: no import of this repo's task store."""
+        tup = _make_checkpoint_tuple("sess-abc", 1, ts="2026-07-28T01:00:00+00:00", active_task_id="task-1")
+        with _mock_checkpointer({"sess-abc": tup}):
+            with patch("src.tools.tasks.handle_get", side_effect=AssertionError("task store consulted")):
                 result = get_active_session()
-        assert result == {}
+        assert result["task_id"] == "task-1"
 
     def test_no_checkpointer_returns_empty(self):
         graph = MagicMock()

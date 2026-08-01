@@ -408,74 +408,6 @@ def _handle_user_prompt_submit(hook_input: dict) -> dict | None:
 # PostToolUse
 # ---------------------------------------------------------------------------
 
-def _record_bash_commit(hook_input: dict, tool_input: dict, session_id: str) -> None:
-    """After a Bash `git commit ... task:<id>` call, look up HEAD and record the mapping.
-
-    Best-effort: the GitCommitGate already denies commits lacking task:<id> pre-emptively,
-    so this only needs to capture the SHA — failures here never block the tool response.
-    """
-    from hooks.gates import _GIT_COMMIT_RE, _TASK_ID_RE
-
-    command = tool_input.get("command", "") if isinstance(tool_input, dict) else ""
-    if not _GIT_COMMIT_RE.search(command):
-        return
-    matches = _TASK_ID_RE.findall(command)
-    if not matches:
-        return
-    # Last match, not first — a commit body legitimately mentioning another
-    # task in prose (e.g. "task:X marked abandoned, pointing here" while
-    # reverting/superseding it) must not shadow this commit's own closing
-    # task:<id> tag, which by convention appears last (task:a7ddc132).
-    task_id = matches[-1].split(":", 1)[1]
-    cwd = hook_input.get("cwd") or os.environ.get("CLAUDE_CWD") or os.getcwd()
-
-    try:
-        import subprocess
-        result = subprocess.run(
-            ["git", "-C", cwd, "rev-parse", "HEAD"],
-            capture_output=True, text=True, timeout=5,
-        )
-        if result.returncode != 0:
-            log.warning("_record_bash_commit: rev-parse failed cwd=%s stderr=%s", cwd, result.stderr.strip())
-            return
-        commit_hash = result.stdout.strip()
-    except Exception as exc:
-        log.warning("_record_bash_commit: rev-parse raised: %s", exc)
-        return
-
-    try:
-        from src.tools.tasks import record_commit
-        outcome = record_commit(task_id=task_id, commit_hash=commit_hash, repo_path=cwd)
-        log.info("_record_bash_commit: session=%s task=%s commit=%s outcome=%s",
-                  session_id[:8], task_id, commit_hash[:12], outcome)
-    except Exception as exc:
-        log.warning("_record_bash_commit: record_commit raised: %s", exc)
-
-
-def _record_mcp_commit(tool_input: dict, tool_response: dict, session_id: str, cwd: str) -> None:
-    """After a successful git__commit MCP call (any server), record the SHA it returns.
-
-    handle_commit (claude_for_mac_local/src/tools/git.py) adds "commit_sha" to its
-    response on success — mirrors _record_bash_commit but reads the SHA straight
-    from the tool result instead of shelling out to rev-parse again.
-    """
-    if not isinstance(tool_response, dict) or not tool_response.get("ok"):
-        return
-    commit_hash = tool_response.get("commit_sha", "")
-    task_id = (tool_input.get("task_id") or "").strip() if isinstance(tool_input, dict) else ""
-    if task_id.startswith("task:"):
-        task_id = task_id[len("task:"):]
-    if not commit_hash or not task_id:
-        return
-    try:
-        from src.tools.tasks import record_commit
-        outcome = record_commit(task_id=task_id, commit_hash=commit_hash, repo_path=cwd)
-        log.info("_record_mcp_commit: session=%s task=%s commit=%s outcome=%s",
-                  session_id[:8], task_id, commit_hash[:12], outcome)
-    except Exception as exc:
-        log.warning("_record_mcp_commit: record_commit raised: %s", exc)
-
-
 def _handle_post_tool_use(hook_input: dict) -> dict | None:
     from core.tool_registry import strip_mcp_prefix
 
@@ -501,17 +433,11 @@ def _handle_post_tool_use(hook_input: dict) -> dict | None:
         except Exception as exc:
             log.debug("tool_response content parse failed, using raw shape: %s", exc)
 
-    if tool_name == "Bash":
-        _record_bash_commit(hook_input, tool_input, session_id)
-
     if not tool_name or not tool_name.startswith("mcp__"):
         log.info("PTU skip: non-MCP tool=%s", tool_name)
         return None
 
     short_name = strip_mcp_prefix(tool_name) or tool_name
-    if short_name == "git__commit":
-        cwd = hook_input.get("cwd") or os.environ.get("CLAUDE_CWD") or os.getcwd()
-        _record_mcp_commit(tool_input, tool_response, session_id, cwd)
     if short_name.startswith("memory__"):
         log.info("PTU skip: memory tool=%s", short_name)
         return None

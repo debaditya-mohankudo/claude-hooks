@@ -161,7 +161,15 @@ def test_rows_persist_across_server_sessions(monkeypatch):
 
 # ── task title resolution ─────────────────────────────────────────────────────
 
-def test_title_resolved_from_db_wins_over_response(tmp_path):
+def test_title_comes_from_the_response_not_a_task_store(tmp_path):
+    """The DB lookup that used to win here is gone.
+
+    _title_for_task read titles straight out of proj_tasks.db, a store this
+    repo no longer owns. Its one caller already fell back to the tool response
+    whenever the lookup came up empty, so this is not a new degraded path — it
+    is the path that already ran for any task the DB did not have. A title is a
+    display convenience, and losing one must never be more than that.
+    """
     import sqlite3
     db = tmp_path / "proj_tasks.db"
     conn = sqlite3.connect(str(db))
@@ -180,7 +188,8 @@ def test_title_resolved_from_db_wins_over_response(tmp_path):
     }
     with patch("langchain_learning.config.config", cfg):
         sm.record_task_from_hook(body)
-    assert sm.get_server_memory()["events"][-1]["content"] == "From DB"
+    # The row exists and is deliberately ignored.
+    assert sm.get_server_memory()["events"][-1]["content"] == "from response"
 
 
 def test_record_task_from_hook_fully_qualified_and_wrapped():

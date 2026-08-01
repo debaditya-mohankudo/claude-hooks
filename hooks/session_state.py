@@ -46,25 +46,31 @@ def _latest_checkpoint_tuple(checkpointer):
 
 
 def get_active_session() -> dict:
-    """Return the active task from the most recent session checkpoint.
+    """Return what the most recent session checkpoint believes is active.
 
-    Skips done/abandoned tasks even if the checkpoint is stale.
+    REPORTS THE CHECKPOINT, NOT THE TRUTH. This used to resolve the task
+    against proj_tasks.db to drop done and abandoned ones, which made it look
+    authoritative about a fact this repo no longer owns: task-framework holds
+    the active task, scoped per workspace, and it is the only thing that can
+    answer whether one is still open.
+
+    A stale checkpoint can therefore name a task that has since finished. That
+    is honest for what this is — a session echo used by the UI endpoint — and
+    the alternative was a second active-task pointer disagreeing with the real
+    one, with nothing to reconcile them. Callers wanting the live answer ask
+    task-framework.
     """
     try:
         import langchain_learning.session_graph as sg
         checkpointer = getattr(sg._graph, "checkpointer", None)
         if not checkpointer:
             return {}
-        from src.tools.tasks import handle_get
         latest = _latest_checkpoint_tuple(checkpointer)
         if not latest:
             return {}
         state = latest.checkpoint.get("channel_values", {})
         task_id = state.get("active_task_id", "")
         if not task_id:
-            return {}
-        t = handle_get(task_id)
-        if t.get("status") in ("done", "abandoned"):
             return {}
         return {
             "task_id": task_id,

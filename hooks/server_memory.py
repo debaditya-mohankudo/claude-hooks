@@ -240,23 +240,12 @@ def _title_from_response(tresp) -> str:
     return tresp.get("title", "") if isinstance(tresp, dict) else ""
 
 
-def _title_for_task(task_id: str) -> str:
-    """Authoritative title lookup from proj_tasks.db (read-only), like activate_task does."""
-    if not task_id:
-        return ""
-    try:
-        from langchain_learning.config import config as _cfg
-        if not _cfg.tasks_db.exists():
-            return ""
-        conn = sqlite3.connect(f"file:{_cfg.tasks_db}?mode=ro", uri=True)
-        try:
-            row = conn.execute("SELECT title FROM open_tasks WHERE id = ?", (task_id,)).fetchone()
-        finally:
-            conn.close()
-        return row[0] if row else ""
-    except Exception as exc:
-        _log.warning("server_memory: title lookup failed for %s: %s", task_id, exc)
-        return ""
+# _title_for_task was removed here. It read the title straight out of
+# proj_tasks.db, which this repo no longer owns — task-framework does, and
+# nothing here depends on it. The one caller already fell back to
+# _title_from_response when the lookup came up empty, so the degraded path is
+# not new code: it is the path that already ran whenever the task was absent.
+# A title is a display convenience, and losing one must never be more than that.
 
 
 _ARGS_MAX = 300  # truncation limit for tool_input JSON in server memory
@@ -325,5 +314,5 @@ def record_task_from_hook(body: dict) -> None:
         return
     tin = body.get("tool_input") or {}
     task_id = tin.get("task_id", "") if isinstance(tin, dict) else ""
-    title = _title_for_task(task_id) or _title_from_response(body.get("tool_response"))
+    title = _title_from_response(body.get("tool_response"))
     record_task(body.get("session_id", ""), task_id, title)
