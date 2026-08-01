@@ -18,14 +18,21 @@ package Requirements {
     part system : System;
 
     requirement def CommitTaskTraceabilityRequirement {
-        doc /* Source: concept gates-commit-traceability (hooks/gates.py) +
-             * commit-task-traceability-capture (src/tools/tasks.py).
-             * Every version-control commit (Bash or MCP git__commit) must
-             * include task:<id>; the commit_task_map table then records
-             * which commit implemented which task, post-commit. */
+        doc /* Source: hooks/gates.py (GitCommitGate, GitCommitMcpGate).
+             * Every version-control commit — Bash or the MCP git__commit
+             * tool — must carry a task:<id> reference.
+             *
+             * The requirement is about the REFERENCE, not about any table.
+             * An earlier revision allocated this to a second part as well,
+             * because it also described commit_task_map recording the link
+             * post-commit; that storage and its dispatcher-side capture were
+             * removed with the task subsystem (task:87ec7876). Nothing was
+             * lost: the reference in the message is the durable record, and
+             * task-framework's backfill re-derives every link from git log
+             * alone. Allocated to hookServer only — the gates are the whole
+             * mechanism. */
     }
     satisfy requirement CommitTaskTraceabilityRequirement by system.hookServer;
-    satisfy requirement CommitTaskTraceabilityRequirement by system.taskGraph;
 
     requirement def AdditiveOnlyMigrationRequirement {
         doc /* Source: concept db-schema-ddl-and-migrations invariant
@@ -35,17 +42,23 @@ package Requirements {
     satisfy requirement AdditiveOnlyMigrationRequirement by system.foundation;
 
     requirement def LogReadViaMCPOnlyRequirement {
-        doc /* Source: CLAUDE.md "Observability" section: "Always use the
-             * MCP tool to read logs — never query the DB directly with
-             * sqlite3" (mcp__claude-hooks__hooks__read_logs_sqlite). */
+        doc /* Source: src/tools/hooks.py (handle_read_logs_sqlite). Logs are
+             * read through the MCP tool, never by opening the database
+             * directly: the tool applies the level/logger/search filtering and
+             * the TOON encoding that the raw table does not, and the table is
+             * a rolling window that auto-prunes, so a direct reader silently
+             * sees a partial history. */
     }
     satisfy requirement LogReadViaMCPOnlyRequirement by system.mcpTools;
 
     requirement def CheckpointNonPersistenceRequirement {
-        doc /* Source: CLAUDE.md "Development Workflow" section: the hook
-             * server runs with MemorySaver (in-process, in-memory) after
-             * two SqliteSaver corruption incidents (task:b3964f85).
-             * Checkpoint state does NOT survive server restarts. */
+        doc /* Source: hooks/server.py (lifespan, MemorySaver construction).
+             * The graph is compiled with an in-process, in-memory
+             * checkpointer, so checkpoint state does NOT survive a server
+             * restart. This is chosen, not incidental: SqliteSaver was retired
+             * after two corruption incidents (task:b3964f85), on the view that
+             * losing a session's checkpoint is cheap and recoverable while a
+             * corrupt one is neither. */
     }
     satisfy requirement CheckpointNonPersistenceRequirement by system.pipeline;
 
@@ -57,11 +70,15 @@ package Requirements {
     }
     satisfy requirement MemoryScoringPerDomainRequirement by system.stores;
 
-    requirement def JiraHierarchyRequirement {
-        doc /* Source: concept gates-jira-hierarchy (hooks/gates.py):
-             * stories/tasks/bugs must have an epic parent — enforced on
-             * tasks__create, not just a convention. */
-    }
-    satisfy requirement JiraHierarchyRequirement by system.taskGraph;
-    satisfy requirement JiraHierarchyRequirement by system.hookServer;
+    // DELIBERATELY ABSENT — JiraHierarchyRequirement (stories/tasks/bugs must
+    // have an epic parent) was removed with the gate that enforced it. The gate
+    // went first (task:6240c675) because it registered under the bare name
+    // tasks__create and so policed any MCP server providing that name; the
+    // validation function followed with its last caller (task:87ec7876). Task
+    // hierarchy is task-framework's rule to state, not this repo's. Removed
+    // from the model by task:79d7aa34.
+    //
+    // DELIBERATELY ABSENT — no requirement covers repo_memory. Its per-turn
+    // injection was removed by task:a7ddc132 and the directory deleted once it
+    // proved to hold only stale bytecode.
 }

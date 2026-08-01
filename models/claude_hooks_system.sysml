@@ -1,8 +1,17 @@
 package ClaudeHooksSystem {
     doc /* BDD-equivalent textual model of the claude-hooks agentic system,
-         * derived from the subsystem inventory (task:b47afe5f). Five
+         * derived from the subsystem inventory (task:b47afe5f). Four
          * subsystems, each composing the shared Foundation layer, composed
-         * into a top-level System part. */
+         * into a top-level System part.
+         *
+         * DELIBERATELY ABSENT — a fifth part, TaskGraph, modelled Jira-style
+         * issue tracking over proj_tasks.db. Task tracking left this repo
+         * (task:87ec7876, commit 060e823) and lives in task-framework, so the
+         * part was retired (task:79d7aa34) rather than left describing a
+         * subsystem this repo does not own. What survives here is residue, not
+         * structure: one unused config field pointing at the old database, and
+         * prose tombstones in the modules that used to read it. Do not re-add
+         * a part for it — tests/test_models.py fails if the name returns. */
 
     private import Foundation::Foundation;
 
@@ -14,29 +23,26 @@ package ClaudeHooksSystem {
     }
 
     part def MCPTools {
-        doc /* FastMCP dispatcher (src/dispatcher.py), 9 domains / 56 actions
-             * (hooks, memory, tasks, code_rag, diff_rag, think, scratch,
-             * concept, repo_memory). */
-        part foundation : Foundation;
-    }
-
-    part def TaskGraph {
-        doc /* Jira-style issue tracking backed by proj_tasks.db
-             * (open_tasks, task_events, commit_task_map, task_edges).
-             * Reflexive: this very epic is tracked here. */
+        doc /* FastMCP dispatcher (src/dispatcher.py), 6 domains / 25 actions
+             * (hooks 4, memory 9, code_rag 3, diff_rag 3, think 1, scratch 5).
+             *
+             * The count is asserted against DOMAIN_MAP by tests/test_models.py
+             * rather than left as prose: it read "9 domains / 56 actions" for a
+             * month after the real figure fell, because nothing checked it. */
         part foundation : Foundation;
     }
 
     part def MemoryConceptRAGStores {
-        doc /* Four distinct persistent stores (task:850ddd65 split repo_memory
-             * out as a fourth): memory store (MEMORY.sqlite, BM25-scored,
-             * per-turn UPS injection — now feedback/user/non-repo-domain
-             * facts only), repo_memory store (repo_memory/memories.json,
-             * committed per-repo, project/reference facts about that repo's
-             * own code, lifecycle-scoped only — task-activation/grooming/
-             * introspection, never per-turn scored), concept store
-             * (concepts.json, architectural knowledge), and RAG stores
-             * (code_rag, diff_rag, shared TurboVec core). */
+        doc /* Three distinct persistent stores: the memory store
+             * (MEMORY.sqlite, BM25-scored, injected per turn), the concept
+             * store (concept_store/concepts.json, architectural knowledge,
+             * drift-checked on edit), and the RAG stores (code_rag, diff_rag,
+             * over a shared TurboVec core).
+             *
+             * A fourth, repo_memory, was split out by task:850ddd65 and is
+             * gone: task:a7ddc132 removed its per-turn injection, and the
+             * directory held nothing but stale bytecode by the time it was
+             * deleted (task:79d7aa34). */
         part foundation : Foundation;
     }
 
@@ -51,7 +57,6 @@ package ClaudeHooksSystem {
     part def System {
         part hookServer : HookServer;
         part mcpTools : MCPTools;
-        part taskGraph : TaskGraph;
         part stores : MemoryConceptRAGStores;
         part pipeline : LangGraphPipeline;
         part foundation : Foundation;
