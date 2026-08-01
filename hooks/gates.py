@@ -314,12 +314,74 @@ def _load_external_gates(path: Path | None = None) -> dict[str, Gate]:
 
 
 import re as _re
+import shlex as _shlex
 
-_GIT_COMMIT_RE = _re.compile(
-    r'git\s+(?:(?!commit\b)\S+\s+)*commit\b|git_local\.sh',
-    _re.IGNORECASE,
-)
 _TASK_ID_RE = _re.compile(r'task:[a-f0-9]{6,}')
+
+# Commit detection asks a question about each shell segment's COMMAND WORD,
+# not about whether "git" and "commit" both appear somewhere in the blob.
+#
+# The previous regex — git\s+(?:(?!commit\b)\S+\s+)*commit\b — had an unbounded
+# middle group over \S+\s+, and \s matches newlines, so it bridged any distance
+# between a `git` token and a later `commit` token: across newlines, &&, ;, and
+# shell comments. `git status` followed by `echo "nothing to commit"` was denied,
+# as was a read-only script that merely contained the words as string literals.
+# That contradicted this gate's own contract that non-commit calls pass through
+# (task:e247268e).
+_SEGMENT_SPLIT_RE = _re.compile(r'\n|;|&&|\|\||\||\(|\)|&')
+
+#: git global flags that consume the FOLLOWING token as their value. The `--x=y`
+#: spellings need no entry — the value rides along in the same token.
+_GIT_VALUE_FLAGS = frozenset({"-C", "-c", "--git-dir", "--work-tree",
+                              "--exec-path", "--namespace"})
+
+#: Wrappers that may precede git without changing what is being run.
+_COMMAND_WRAPPERS = frozenset({"sudo", "env", "time", "nohup", "command", "exec"})
+
+#: Matches a leading VAR=value environment assignment.
+_ENV_ASSIGN_RE = _re.compile(r'^[A-Za-z_][A-Za-z0-9_]*=')
+
+
+def _segment_is_git_commit(segment: str) -> bool:
+    """True when this one shell segment actually invokes a commit."""
+    try:
+        tokens = _shlex.split(segment, comments=True)
+    except ValueError:
+        # Unbalanced quotes are routine here: heredocs and $(...) fragments get
+        # split mid-quote. Degrade to a dumb split rather than raise — this gate
+        # denies Bash, so an escaping exception would break every Bash call.
+        tokens = segment.split()
+
+    i = 0
+    while i < len(tokens) and (_ENV_ASSIGN_RE.match(tokens[i]) or tokens[i] in _COMMAND_WRAPPERS):
+        i += 1
+    if i >= len(tokens):
+        return False
+
+    # git_local.sh is a commit tool in its own right — match it on the command
+    # word, never as a substring, or `echo "git_local.sh"` resurrects the bug.
+    command_word = tokens[i].rsplit("/", 1)[-1].lower()
+    if command_word == "git_local.sh":
+        return True
+    if command_word != "git":
+        return False
+
+    # First non-flag argument is the subcommand.
+    j = i + 1
+    while j < len(tokens):
+        token = tokens[j]
+        if token in _GIT_VALUE_FLAGS:
+            j += 2
+        elif token.startswith("-"):
+            j += 1
+        else:
+            return token.lower() == "commit"
+    return False
+
+
+def _is_git_commit(command: str) -> bool:
+    """True when any segment of `command` invokes a commit."""
+    return any(_segment_is_git_commit(seg) for seg in _SEGMENT_SPLIT_RE.split(command))
 # `git commit -F <path>` / `--file <path>` — the form task-framework's own
 # /commit skill recommends for multi-paragraph messages, since heredocs and
 # -m chains mangle them. The task id then lives in the file, not the command.
@@ -344,7 +406,7 @@ class GitCommitGate(Gate):
 
     def verify(self, ctx: GateContext) -> tuple[bool, str]:
         command: str = ctx.tool_input.get("command", "")
-        if not _GIT_COMMIT_RE.search(command):
+        if not _is_git_commit(command):
             _log.debug("[Bash] non-commit bash — allow")
             return False, ""
         if _TASK_ID_RE.search(command):

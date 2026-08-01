@@ -934,3 +934,82 @@ class TestGateAdversarialInputs:
             ctx = _ctx(tool)
             deny, reason = check(tool, ctx)
             assert deny is False, f"{tool} should not be gated but got deny=True: {reason}"
+
+
+# ---------------------------------------------------------------------------
+# GitCommitGate — commit DETECTION (task:e247268e)
+#
+# The words are assembled at runtime rather than written literally. A test file
+# carrying a bare `git` + `commit` pair in its source is fine under pytest, but
+# any Bash tool call that reads or greps this file gets inspected by the very
+# gate under test — which is how this bug bit twice in one session.
+# ---------------------------------------------------------------------------
+
+_G = "g" + "it"
+_C = "com" + "mit"
+
+
+def test_detection_ignores_commit_word_in_echo_after_git_subcommand():
+    """The reported bug: a status call plus an unrelated echo was denied."""
+    ctx = _git_ctx(f'rm -rf some_dir\n{_G} status\necho "nothing to {_C}"')
+    deny, _ = GitCommitGate().verify(ctx)
+    assert not deny
+
+
+def test_detection_ignores_commit_word_across_and_operator():
+    ctx = _git_ctx(f'{_G} log --oneline && echo "no {_C} here"')
+    deny, _ = GitCommitGate().verify(ctx)
+    assert not deny
+
+
+def test_detection_ignores_commit_word_in_shell_comment():
+    ctx = _git_ctx(f'{_G} diff\n# TODO: {_C} later')
+    deny, _ = GitCommitGate().verify(ctx)
+    assert not deny
+
+
+def test_detection_ignores_commit_word_after_semicolon():
+    ctx = _git_ctx(f'{_G} push origin main; echo "{_C} done"')
+    deny, _ = GitCommitGate().verify(ctx)
+    assert not deny
+
+
+def test_detection_ignores_git_commit_as_string_literal():
+    """A script that merely CONTAINS the words runs no commit."""
+    ctx = _git_ctx(f'python3 -c \'cases = ["{_G} {_C} -m x"]\'')
+    deny, _ = GitCommitGate().verify(ctx)
+    assert not deny
+
+
+def test_detection_ignores_git_local_sh_as_string_literal():
+    ctx = _git_ctx('echo "git_local.sh"')
+    deny, _ = GitCommitGate().verify(ctx)
+    assert not deny
+
+
+def test_detection_still_catches_commit_after_unrelated_leading_command():
+    """Narrowing detection must not open a hole: a real commit later in a
+    chain is still a commit."""
+    ctx = _git_ctx(f'cd /tmp && {_G} {_C} -m "no id"')
+    deny, reason = GitCommitGate().verify(ctx)
+    assert deny
+    assert "task:<id>" in reason
+
+
+def test_detection_still_catches_commit_with_global_flag():
+    ctx = _git_ctx(f'{_G} --no-pager {_C} -m "no id"')
+    deny, _ = GitCommitGate().verify(ctx)
+    assert deny
+
+
+def test_detection_still_catches_commit_behind_wrapper():
+    ctx = _git_ctx(f'sudo {_G} {_C} -m "no id"')
+    deny, _ = GitCommitGate().verify(ctx)
+    assert deny
+
+
+def test_detection_survives_unbalanced_quotes_without_raising():
+    """Heredocs split mid-quote; shlex raises, and the gate must degrade."""
+    ctx = _git_ctx(f'{_G} {_C} -m "$(cat <<\'EOF\'\nsubject\nEOF\n)"')
+    deny, _ = GitCommitGate().verify(ctx)
+    assert deny  # detected as a commit, denied for want of a task id

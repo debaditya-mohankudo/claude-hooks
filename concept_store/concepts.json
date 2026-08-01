@@ -96,23 +96,29 @@
       "confidence": 0.96,
       "contracts": [
         "Returns (True, reason) for commits missing task:<id> in both the command string and any -F/--file target",
-        "Returns (False, '') for all non-commit Bash calls",
+        "Returns (False, '') for all non-commit Bash calls, including calls that merely contain the words git and commit in unrelated segments",
         "Returns (False, '') when task:<id> is found in the command string OR inside a file passed via -F/--file",
-        "A missing or unreadable -F file is treated as no match (deny), not a crash"
+        "A missing or unreadable -F file is treated as no match (deny), not a crash",
+        "Detection catches `git commit`, `git -C <path> commit`, `git --no-pager commit`, commits behind wrappers (sudo/env/time/nohup) or leading VAR=value assignments, commits after a leading `cd ... &&`, and git_local.sh"
       ],
       "created_at": "2026-06-29T09:47:25.285858+00:00",
-      "description": "GitCommitGate enforces that every version-control commit (via Bash or the MCP tool) includes a task:<id> reference for traceability. Regex detects commit commands; passes through all non-commit Bash calls immediately. The reference may live in the Bash command string itself, or in a file named via -F/--file (git commit -F <path>) — the form task-framework's own /commit skill recommends for multi-paragraph messages, since heredocs and -m chains mangle them.",
+      "description": "GitCommitGate enforces that every version-control commit (via Bash or the MCP tool) includes a task:<id> reference for traceability. Commit DETECTION is per shell segment and command-word based (_is_git_commit / _segment_is_git_commit, task:e247268e): the command is split on newline / ; / && / || / | / parens, and a segment counts only if its leading token is `git` (with global flags skipped before reading the subcommand) or a path whose basename is git_local.sh. The task:<id> SEARCH still runs against the whole command string, not per segment, because heredoc messages put the id on a different line from the invocation. The reference may instead live in a file named via -F/--file (git commit -F <path>) — the form task-framework's own /commit skill recommends for multi-paragraph messages, since heredocs and -m chains mangle them.",
       "evidence": [
-        "hooks/gates.py: _FILE_FLAG_RE",
+        "hooks/gates.py: _is_git_commit / _segment_is_git_commit",
         "hooks/gates.py: class GitCommitGate",
-        "tests/test_gates.py: -F/--file coverage"
+        "hooks/gates.py: _FILE_FLAG_RE",
+        "hooks/server_memory.py: record_tool_from_hook imports _is_git_commit",
+        "tests/test_gates.py: detection regression block (task:e247268e)"
       ],
       "invariants": [
         "Every commit must reference task:<id> somewhere the gate can see — the command string or a -F/--file target, not necessarily the command string alone",
-        "Non-commit Bash calls are never blocked by this gate",
+        "Non-commit Bash calls are never blocked by this gate. This is now true by construction rather than by intent: detection asks whether a shell segment's COMMAND WORD is git/git_local.sh, so the words appearing inside an echo, a string literal, or a shell comment cannot trigger it. Before task:e247268e the regex bridged shell separators and newlines, and denied things like `git status` followed by `echo \"nothing to commit\"`.",
+        "_segment_is_git_commit never raises: shlex.split throws ValueError on the unbalanced quotes that heredocs and $(...) fragments routinely produce, so it falls back to a plain split. A gate that denies Bash must degrade rather than except, or one malformed command breaks every Bash call.",
+        "hooks/server_memory.py's record_tool_from_hook shares this detector by importing _is_git_commit — it is the second consumer, and it inherited the same false positives until task:e247268e. Changing detection changes what lands on the session timeline as a 'git commit' event, not just what the gate blocks.",
+        "git_local.sh is matched on the segment's command word (basename), never as a substring anywhere in the command — otherwise `echo \"git_local.sh\"` reintroduces the false-positive class.",
         "Gate logic runs inside a long-running uvicorn hooks.server:app process (port 8766) — editing hooks/gates.py has no effect until that process restarts; client.py is only a thin HTTP wrapper per call"
       ],
-      "last_validated": "2026-08-01T17:51:11.430353+00:00",
+      "last_validated": "2026-08-01T18:10:34.358832+00:00",
       "module": "hooks/gates.py",
       "name": "gates-commit-traceability"
     },
@@ -513,6 +519,6 @@
     "commit": "5f62c6b5150a20fe7198d7bd6c155c4b3c0d3101",
     "extracted_at": "2026-07-23T05:42:23Z",
     "note": "incremental upsert (task:a2fd402d)",
-    "updated_at": "2026-08-01T17:52:06.216282+00:00"
+    "updated_at": "2026-08-01T18:10:34.359026+00:00"
   }
 }
