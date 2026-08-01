@@ -49,18 +49,18 @@
       "created_at": "2026-06-29T09:47:25.284287+00:00",
       "description": "Single entry point for all Claude Code hook events. Routes each event type (UserPromptSubmit, PreToolUse, PostToolUse, Stop, SessionStart, SessionEnd) to its dedicated handler via a dispatch table.",
       "evidence": [
-        "hooks/dispatcher.py:564",
-        "hooks/dispatcher.py:574"
+        "hooks/dispatcher.py: _HANDLERS dispatch table",
+        "hooks/dispatcher.py: main() -> _HANDLERS.get(hook_event)",
+        "hooks/dispatcher.py: _handle_pre_tool_use"
       ],
       "invariants": [
         "Every hook event must map to exactly one handler in _HANDLERS",
         "PreToolUse handlers that fail on irreversible tools must deny, not allow",
         "Handlers return None to pass through or a dict with hookSpecificOutput to act",
         "Two distinct PreToolUse response categories: gates (deny-capable checks like _check_task_body_format, run_gate) must resolve to a strict allow/deny decision; reminders (like _maybe_drift_reflection_nudge for Write/Edit/MultiEdit) are allow-only and use additionalContext to surface non-blocking context — reminders never deny",
-        "Two distinct handler return shapes exist: PreToolUse/UserPromptSubmit handlers return None or a dict wrapping hookSpecificOutput; Stop handlers (_handle_stop) return None or a plain top-level {\"decision\": \"block\", \"reason\": ...} dict per Claude Code's Stop-hook schema (not wrapped in hookSpecificOutput). The turn-completion chime no longer uses Stop-hook blocking: since 150df2a the sound plays server-side via PlaySoundNode (detached afplay subprocess, start_new_session=True — no Claude round-trip). NoopNode marks the first Stop of a turn by setting state['stop_alert_sent']=True, which gates PlaySoundNode (next node in the stop chain) so the chime fires exactly once per turn; sound_played guards replays within the same turn, and run_session() resets stop_alert_sent=False on the next UserPromptSubmit. run_stop() in session_graph.py still surfaces-and-clears pending_hook_output for any node that sets one (task:aacf3ef3 history; refactored by 150df2a).",
-        "PostToolUse also runs unconditional side-effect capture functions before the mcp__-prefix gate: _record_bash_commit (Bash tool, matches _GIT_COMMIT_RE/_TASK_ID_RE, shells out to git rev-parse HEAD) and _record_mcp_commit (short_name == \"git__commit\" from any MCP server, reads commit_sha directly from tool_response). Both call src.tools.tasks.record_commit() to insert into commit_task_map — a direct dispatcher-level function call, not a LangGraph node, and not routed through the __hook__/mcp_hook_bridge convention (that convention is one-way, prompt-injection only, no side effects). task:a2fd402d"
+        "Two distinct handler return shapes exist: PreToolUse/UserPromptSubmit handlers return None or a dict wrapping hookSpecificOutput; Stop handlers (_handle_stop) return None or a plain top-level {\"decision\": \"block\", \"reason\": ...} dict per Claude Code's Stop-hook schema (not wrapped in hookSpecificOutput). The turn-completion chime no longer uses Stop-hook blocking: since 150df2a the sound plays server-side via PlaySoundNode (detached afplay subprocess, start_new_session=True — no Claude round-trip). NoopNode marks the first Stop of a turn by setting state['stop_alert_sent']=True, which gates PlaySoundNode (next node in the stop chain) so the chime fires exactly once per turn; sound_played guards replays within the same turn, and run_session() resets stop_alert_sent=False on the next UserPromptSubmit. run_stop() in session_graph.py still surfaces-and-clears pending_hook_output for any node that sets one (task:aacf3ef3 history; refactored by 150df2a)."
       ],
-      "last_validated": "2026-07-23T12:34:17.827196+00:00",
+      "last_validated": "2026-08-01T17:51:42.458695+00:00",
       "module": "hooks/dispatcher.py",
       "name": "dispatcher-hook-event-routing"
     },
@@ -103,34 +103,18 @@
       "created_at": "2026-06-29T09:47:25.285858+00:00",
       "description": "GitCommitGate enforces that every version-control commit (via Bash or the MCP tool) includes a task:<id> reference for traceability. Regex detects commit commands; passes through all non-commit Bash calls immediately. The reference may live in the Bash command string itself, or in a file named via -F/--file (git commit -F <path>) — the form task-framework's own /commit skill recommends for multi-paragraph messages, since heredocs and -m chains mangle them.",
       "evidence": [
-        "hooks/gates.py:318 (_FILE_FLAG_RE)",
-        "hooks/gates.py:325 (GitCommitGate)",
-        "tests/test_gates.py (-F/--file coverage)"
+        "hooks/gates.py: _FILE_FLAG_RE",
+        "hooks/gates.py: class GitCommitGate",
+        "tests/test_gates.py: -F/--file coverage"
       ],
       "invariants": [
         "Every commit must reference task:<id> somewhere the gate can see — the command string or a -F/--file target, not necessarily the command string alone",
         "Non-commit Bash calls are never blocked by this gate",
         "Gate logic runs inside a long-running uvicorn hooks.server:app process (port 8766) — editing hooks/gates.py has no effect until that process restarts; client.py is only a thin HTTP wrapper per call"
       ],
-      "last_validated": "2026-08-01T12:48:42.668733+00:00",
+      "last_validated": "2026-08-01T17:51:11.430353+00:00",
       "module": "hooks/gates.py",
       "name": "gates-commit-traceability"
-    },
-    "gates-jira-hierarchy": {
-      "confidence": 0.9,
-      "contracts": [],
-      "created_at": "2026-06-29T09:47:25.285609+00:00",
-      "description": "INTERNAL VALIDATION ONLY — no longer a gate. validate_jira_hierarchy() once backed JiraHierarchyGate, which registered under the bare name tasks__create and so enforced this repo's hierarchy rule over any MCP server providing that name, including task-framework. Task hierarchy is task-framework's decision, and its rule differs (an epic may not have a parent; a task needs none), so the gate was removed (task:6240c675). The function's sole remaining caller, handle_create_scaffolded, was itself deleted with src/tools/tasks.py (task:87ec7876) — this concept now describes dead code kept only as history until the next reseed drops it.",
-      "evidence": [
-        "hooks/gates.py:369"
-      ],
-      "invariants": [
-        "Not registered in GATES and not reachable from any PreToolUse path",
-        "No remaining caller as of task:87ec7876 — src/tools/tasks.py, its sole caller, was deleted"
-      ],
-      "last_validated": "2026-08-01T05:48:37.364384+00:00",
-      "module": "hooks/gates.py",
-      "name": "gates-jira-hierarchy"
     },
     "gates-prereq-chain-enforcement": {
       "confidence": 0.97,
@@ -487,18 +471,18 @@
         "rows_to_toon(rows: list[dict]) -> str: returns 'rows[0]{}:' for an empty list, otherwise 'rows[N]{field1,field2,...}:' header line followed by one two-space-indented comma-joined line per row"
       ],
       "created_at": "2026-07-26T02:53:41.011542+00:00",
-      "description": "Shared TOON (Token-Oriented Object Notation) encoder for MCP tool responses that return arrays of uniform-schema dicts. Extracted from src/tools/hooks.py (task:d2165715) so src/tools/tasks.py's handle_list (task:4b5bf21f) could reuse it without duplicating the comma/quote/newline escaping logic.",
+      "description": "Shared TOON (Token-Oriented Object Notation) encoder for MCP tool responses that return arrays of uniform-schema dicts. Originally extracted from src/tools/hooks.py (task:d2165715) so src/tools/tasks.py's handle_list (task:4b5bf21f) could reuse it without duplicating the comma/quote/newline escaping logic. That second consumer no longer exists — src/tools/tasks.py was deleted by task:87ec7876 — so as of 2026-08-01 the only production caller is src/tools/hooks.py's handle_read_logs_sqlite. The module is kept as a standalone unit (rather than folded back into hooks.py) because it is independently unit-tested in tests/test_toon.py and is the natural home for any future TOON-emitting tool.",
       "evidence": [
-        "src/toon.py:1-37",
-        "src/tools/hooks.py: imports rows_to_toon",
-        "src/tools/tasks.py: handle_list format param"
+        "src/toon.py: rows_to_toon / toon_cell",
+        "src/tools/hooks.py: imports rows_to_toon (sole production caller)",
+        "tests/test_toon.py"
       ],
       "invariants": [
         "Only worth using for a list of dicts sharing the same keys, returned to an LLM caller rather than a human reading raw output — nested/heterogeneous data (e.g. concept_store/concepts.json entries) loses to plain JSON under TOON, so this is not a blanket replacement for JSON responses repo-wide.",
-        "rows_to_toon() uses the FIRST row's keys as the header and does not fill in missing keys for later rows — callers MUST normalize every row to an identical, consistent key set before calling it, or the tabular header will not match later rows (handle_list in src/tools/tasks.py does this for the optional _context_only field, defaulting it to False on every row).",
-        "Any existing MCP tool being defaulted to TOON output must have its internal (non-MCP, in-process Python) callers grepped for and updated to pass format=\"json\" explicitly — the unit test suite alone is not sufficient signal for this, since unit tests typically only exercise the tool module directly, not other in-process callers integrating with it (discovered task:4b5bf21f: hooks/ui/routes.py called tasks.py's handle_list() directly in 5 places expecting list[dict], only caught by the integration suite at deploy time, not the unit gate)."
+        "rows_to_toon() uses the FIRST row's keys as the header and does not fill in missing keys for later rows — callers MUST normalize every row to an identical, consistent key set before calling it, or the tabular header will not match later rows. (Historical example, now deleted: handle_list in src/tools/tasks.py did this for the optional _context_only field, defaulting it to False on every row.)",
+        "Any existing MCP tool being defaulted to TOON output must have its internal (non-MCP, in-process Python) callers grepped for and updated to pass format=\"json\" explicitly — the unit test suite alone is not sufficient signal, since unit tests typically only exercise the tool module directly, not other in-process callers integrating with it. (Historical example, both modules now deleted: task:4b5bf21f found hooks/ui/routes.py calling tasks.py's handle_list() directly in 5 places expecting list[dict], caught only by the integration suite at deploy time, not the unit gate.)"
       ],
-      "last_validated": "2026-07-26T02:53:41.011542+00:00",
+      "last_validated": "2026-08-01T17:52:06.216210+00:00",
       "module": "src/toon.py",
       "name": "toon-encoding-shared-module"
     },
@@ -529,6 +513,6 @@
     "commit": "5f62c6b5150a20fe7198d7bd6c155c4b3c0d3101",
     "extracted_at": "2026-07-23T05:42:23Z",
     "note": "incremental upsert (task:a2fd402d)",
-    "updated_at": "2026-08-01T12:48:42.670112+00:00"
+    "updated_at": "2026-08-01T17:52:06.216282+00:00"
   }
 }
