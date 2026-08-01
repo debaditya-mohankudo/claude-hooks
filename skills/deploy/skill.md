@@ -21,10 +21,12 @@ git -C ~/workspace/claude-hooks-dev diff origin/test --name-only | grep '\.py$'
 
 For each changed `.py` file, look up stored concepts whose `module` matches. **Use the `concept__list` MCP tool — never hand-parse `concept_store/concepts.json` directly.**
 
+This repo has no `concept__*` tools of its own (task:756c14db removed the duplicate `src/tools/concept.py`) — task-framework's MCP server provides them, on the identical on-disk format, so the call below is `mcp__taskfw__concept__list`, not `mcp__claude-hooks__`.
+
 On disk the shape is `{"concepts": {"<slug>": {...}}, "meta": {...}}` — `concepts` is a **name-keyed map**. The `concept__list` tool's *response* wraps results in a list, which is why the snippet below iterates one; do not confuse the two. Hand-parsing goes wrong by calling `.values()`/`.items()` on the **top level**, which yields `"concepts"`/`"meta"` as if they were concepts — the fix is `raw["concepts"]`, not a different shape. That bug let task:da29c842 ship without its concept-store update caught here, found by chance afterward. *(Shape claim corrected 2026-08-01; the code below was always right.)*
 
 ```python
-concepts = mcp__claude-hooks__concept__list(repo="/Users/debaditya/workspace/claude-hooks-dev")["concepts"]
+concepts = mcp__taskfw__concept__list(repo="/Users/debaditya/workspace/claude-hooks-dev")["concepts"]
 changed = [...]  # from git diff above
 hits = [c for c in concepts if c["module"] in changed]
 ```

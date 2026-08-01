@@ -50,7 +50,7 @@ Returns `{session_id, turn}`. If it returns `{error}`, no checkpoint exists yet 
 ### 0. Assess decomposition
 
 If the task has 2-3 clearly distinct phases workable sequentially:
-- Check the concept store if one exists (`concept_store/concepts.json` — use `mcp__claude-hooks__concept__list` / `concept__get`) and let subtask boundaries follow documented module boundaries where they exist, rather than cutting across them.
+- Check the concept store if one exists (`concept_store/concepts.json` — use `mcp__taskfw__concept__list` / `concept__get`; this repo has no `concept__*` tools of its own, task:756c14db) and let subtask boundaries follow documented module boundaries where they exist, rather than cutting across them.
 - Propose the subtask list to the user (one line each, in sequence) and get confirmation before creating.
 - Create a parent task first, then each subtask with `parent_id=<parent_task_id>` (tags them `parent:<id>`, enables hierarchy + auto-close of parent when all subtasks finish).
 - Activate the first subtask; work sequentially.

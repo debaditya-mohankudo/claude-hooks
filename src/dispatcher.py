@@ -49,7 +49,13 @@ DOMAIN_MAP: dict[str, tuple[str, list[str]]] = {
     "diff_rag": ("tools.diff_rag", ["query", "smart_search", "index_commits"]),
     "think":    ("tools.think",    ["think"]),
     "scratch":  ("tools.scratch",  ["set", "get", "list", "delete", "clear"]),
-    "concept":  ("tools.concept",  ["get", "list", "upsert", "delete", "modules", "search"]),
+    # "concept" removed here (task:756c14db), along with tools/concept.py — a
+    # duplicate of task-framework's own concept__* tools, same on-disk format,
+    # same repo-explicit-no-default contract. Kept alive only by inertia until
+    # a shape mismatch in taskfw's concept__get (fixed there first) made
+    # removing this one safe. concept_store/store.py itself stays — extractor.py,
+    # diff.py, and diff_hook.py use the ConceptStore class directly, unrelated
+    # to this MCP wrapper.
 }
 
 

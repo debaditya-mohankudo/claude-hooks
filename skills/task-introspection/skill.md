@@ -157,7 +157,7 @@ Include `task:<id>` as the last tag for traceability. Avoid recording task-speci
 
 The concept store is a **live body meant to grow, not just get corrected** — a task can leave behind either a CHANGE (an existing concept was wrong or incomplete) or GROWTH (a module had zero concept coverage and this task is the first to understand it well enough to write one down). Do both checks; don't stop at "did anything change."
 
-**Always use the MCP tools to look up concepts — never hand-parse `concept_store/concepts.json`.** Use `concept__list(repo="<repo>")` / `concept__get(repo="<repo>", name="<slug>")` for the JSON format; for SQLite-format repos, `ConceptStore.list_concepts()`/`get_evidence(concept_id)` as before.
+**Always use the MCP tools to look up concepts — never hand-parse `concept_store/concepts.json`.** Use `concept__list(repo="<repo>")` / `concept__get(repo="<repo>", name="<slug>")` for the JSON format; for SQLite-format repos, `ConceptStore.list_concepts()`/`get_evidence(concept_id)` as before. This repo has no `concept__*` tools of its own (task:756c14db) — task-framework's MCP server provides them, on the identical format, so calls below are `mcp__taskfw__concept__*`.
 
 The shape is `{"concepts": {"<slug>": {...}}, "meta": {...}}` — `concepts` is a **name-keyed map**, and each entry repeats its own slug in a `name` field. Verified against `concept_store/store.py`, which types `_data` as `dict[str, dict]`, assigns it `raw["concepts"]`, and calls `.values()` on it.
 
@@ -182,7 +182,7 @@ For each file in the task's `Files:` (or a grooming pass's earlier `## Concept c
 
 - **No concept exists for that module, and this task established or clarified a real architectural fact worth remembering** (an invariant, a contract, a "how this actually works" that a future task would otherwise have to re-derive from scratch) — this is the GROWTH path. Create it directly, don't defer to `update-concept-store` (that skill reconciles *known* changes to *existing* concepts; a module's first concept is a net-new addition, cheapest to write while the module's behavior is fresh in context this turn):
   ```python
-  mcp__claude-hooks__concept__upsert(
+  mcp__taskfw__concept__upsert(
       repo="<repo>",
       concept={
           "name": "<new-kebab-slug>",

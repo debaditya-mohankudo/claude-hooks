@@ -90,7 +90,7 @@ test -f "<repo>/concepts.db" -a -f "<repo>/concept_store.py" && echo sqlite
 
 **JSON format** (claude-hooks-dev pattern):
 
-**Always use `concept__list(repo="<repo>")`/`concept__get(repo="<repo>", name=...)` (task:2813ece5) — never hand-parse `concept_store/concepts.json` directly.** This applies to claude-hooks-dev's own store too, not just non-Java target repos.
+**Always use `concept__list(repo="<repo>")`/`concept__get(repo="<repo>", name=...)` (task:2813ece5) — never hand-parse `concept_store/concepts.json` directly.** This applies to claude-hooks-dev's own store too, not just non-Java target repos. This repo has no `concept__*` tools of its own (task:756c14db removed the duplicate) — task-framework's MCP server provides them, on the identical on-disk format, so this is `mcp__taskfw__concept__*` even when `<repo>` is claude-hooks-dev itself.
 
 The shape is `{"concepts": {"<slug>": {...}}, "meta": {...}}` — `concepts` is a **name-keyed map**, and each entry repeats its own slug in a `name` field. Verified against `concept_store/store.py`, which types `_data` as `dict[str, dict]`, assigns it `raw["concepts"]`, and calls `.values()` on it.
 

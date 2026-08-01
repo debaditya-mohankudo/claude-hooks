@@ -46,7 +46,10 @@ def test_seed_all_tool_keywords_inserts_every_registered_tool(empty_hints_db):
     tool_names = {r["tool_name"] for r in rows}
     assert seeded == len(rows)
     assert "scratch__set" in tool_names
-    assert "concept__upsert" in tool_names
+    # concept__upsert (task:756c14db, this repo's own duplicate of
+    # task-framework's concept__* tools) is gone; code_rag__query is another
+    # surviving domain's tool, same purpose here.
+    assert "code_rag__query" in tool_names
     # every seeded row has non-empty keywords and count=0 (never invoked yet)
     for r in rows:
         assert r["count"] == 0

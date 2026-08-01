@@ -14,7 +14,7 @@ uv run python scripts/extract_concepts.py
 
 To re-seed after major refactors, delete `concept_store/concepts.json` and re-run the seed command.
 
-**Manual reads/writes** (correcting a concept, adding a new one, checking what's stored for a module) should go through the `concept__get`/`concept__list`/`concept__upsert`/`concept__delete`/`concept__modules` MCP tools rather than hand-writing a Python script against `concept_store/store.py` — they take `repo` explicitly (required, no default), so they work the same way against this repo or any other non-Java target repo with a `concept_store/concepts.json`.
+**Manual reads/writes** (correcting a concept, adding a new one, checking what's stored for a module) should go through the `concept__get`/`concept__list`/`concept__upsert`/`concept__delete`/`concept__modules` MCP tools rather than hand-writing a Python script against `concept_store/store.py` — they take `repo` explicitly (required, no default), so they work the same way against this repo or any other non-Java target repo with a `concept_store/concepts.json`. This repo does not provide those tools itself (task:756c14db removed the duplicate `src/tools/concept.py` wrapper); task-framework's MCP server does, on the identical on-disk format, so the calls above are unqualified `concept__*` names resolved by whichever server provides them in the session.
 
 ## Task Tracking
 
