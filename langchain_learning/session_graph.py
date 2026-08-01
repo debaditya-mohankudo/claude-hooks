@@ -7,7 +7,7 @@ in a single graph topology.
 Graph shape:
 
     START → route_event (conditional)
-      ├── user_prompt_submit → load_turn ──(task active?)──► load_active_task → load_task_history
+      ├── user_prompt_submit → load_turn ──(task active?)──► load_active_task
       │                         → load_task_code (TurboVec RAG) → load_related_commits
       │                                            └─(no task)──► summarize_task_context
       │                         → cwd_domain_detect / load_memories / score_tools → set_prompt_id → END
@@ -70,7 +70,7 @@ def build_session_graph(checkpointer=None):
     # Register all nodes from registry
     for name in [
         "noop",
-        "load_turn", "load_active_task", "load_task_history", "load_task_code", "load_related_commits", "load_memories",
+        "load_turn", "load_active_task", "load_task_code", "load_related_commits", "load_memories",
         "cwd_domain_detect",
         "score_tools", "summarize_task_context", "set_prompt_id",
         "gate_check",
@@ -109,14 +109,19 @@ def build_session_graph(checkpointer=None):
             "summarize_task_context": "summarize_task_context",
         },
     )
-    # fan-out from load_active_task: history, code, related commits run in parallel
-    builder.add_edge("load_active_task",      "load_task_history")
+    # load_task_history is gone (task:87ec7876, found while deleting the table
+    # it read from). It injected cross-session task_events summaries into every
+    # turn — the same context-push shape as the nodes removed in task:6240c675,
+    # and precisely the `history` capability task:d6ddb40f decided to drop:
+    # readable through tasks__context, not pushed by a tool of its own.
+    #
+    # fan-out from load_active_task: code and related commits run in parallel
     builder.add_edge("load_active_task",      "load_task_code")
     builder.add_edge("load_active_task",      "load_related_commits")
-    # fan-in: all three loaders converge at summarize_task_context (compresses
+    # fan-in: both loaders converge at summarize_task_context (compresses
     # task_context/rag_chunks/related_* into task_context_summary; first-turn-gated
     # internally, so it's a fast no-op pass-through on every other turn)
-    for loader in ("load_task_history", "load_task_code", "load_related_commits"):
+    for loader in ("load_task_code", "load_related_commits"):
         builder.add_edge(loader, "summarize_task_context")
     # fan-out from summarize_task_context to second-tier nodes
     builder.add_edge("summarize_task_context", "cwd_domain_detect")

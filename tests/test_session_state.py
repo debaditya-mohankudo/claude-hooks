@@ -111,8 +111,7 @@ class TestGetActiveSession:
             "new-session", turn=3, ts="2026-07-28T01:30:00+00:00", active_task_id="task-new"
         )
         with _mock_checkpointer({"old-session": old_thread, "new-session": new_thread}):
-            with patch("src.tools.tasks.handle_get", return_value={"status": "open"}):
-                result = get_active_session()
+            result = get_active_session()
         assert result["task_id"] == "task-new"
         assert result["session_id"] == "new-session"
 

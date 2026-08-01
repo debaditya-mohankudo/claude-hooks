@@ -66,17 +66,27 @@ def _run_ups(graph, session_id: str, tmp_path: Path) -> dict:
 
 class TestSingleDependencyFailure:
 
-    def test_load_task_history_db_error_graph_completes(self, tmp_path):
-        """DB failure inside load_task_history → node returns [] → graph completes."""
+    def test_load_related_commits_index_error_graph_completes(self, tmp_path):
+        """diff_rag lookup raising → node returns [] → graph completes.
+
+        Replaces the load_task_history version of this test. That node is gone
+        (task:87ec7876) — it injected cross-session task_events summaries into
+        every turn, the `history` capability task:d6ddb40f decided to drop. The
+        property under test is unchanged: a single fan-out failure must not
+        abort the graph. load_related_commits is the remaining loader with no
+        dedicated single-failure case (load_task_code already has one below).
+
+        _resolve_diff_index is patched, not the on-disk index, because the node
+        falls back to _DEFAULT_REPO (claude-hooks itself) when tmp_path has none
+        — that repo has a real diff index, so "no file in tmp_path" is not
+        actually a failure here the way it is for load_task_code.
+        """
         graph = _build_graph()
-        session_id = "fail-hist-01"
+        session_id = "fail-commits-01"
         _seed_active_task(graph, session_id, "task0001")
 
-        mock_cfg = MagicMock()
-        mock_cfg.tasks_db = tmp_path / "missing.db"  # doesn't exist → node bails
-        mock_cfg.memory_db = tmp_path / "MEMORY.sqlite"
-
-        with patch("langchain_learning.nodes.load_task_history._cfg", mock_cfg), \
+        with patch("langchain_learning.nodes.load_related_commits._resolve_diff_index",
+                   side_effect=Exception("diff index corrupt")), \
              patch("langchain_learning.nodes.load_memories.LoadMemoriesNode.__call__",
                    return_value={"memories": [{"name": "m1"}]}) as mock_memories:
 
@@ -85,10 +95,9 @@ class TestSingleDependencyFailure:
         # Graph reached END
         assert isinstance(result, dict)
         assert "session_id" in result
-        # load_memories ran despite load_task_history bailing
+        # load_memories ran despite load_related_commits bailing
         mock_memories.assert_called_once()
-        # task_context is empty (node returned default)
-        assert result.get("task_context", []) == []
+        assert result.get("related_commits", []) == []
 
     def test_load_memories_db_error_score_tools_still_runs(self, tmp_path):
         """MEMORY.sqlite failure → load_memories returns [] → score_tools still runs."""
@@ -129,31 +138,28 @@ class TestSingleDependencyFailure:
 
 class TestDoubleDependencyFailure:
 
-    def test_history_and_code_both_fail_graph_completes(self, tmp_path):
-        """load_task_history DB missing + load_task_code index missing → graph completes.
+    def test_code_and_commits_both_fail_graph_completes(self, tmp_path):
+        """load_task_code index missing + load_related_commits raising → graph completes.
 
-        Previously paired history with load_related_tasks; that node was removed
-        with the task pipeline (task:6240c675), so the second failure is now the
-        other surviving parallel loader. The property under test is unchanged —
-        two simultaneous fan-out failures must not abort the graph.
+        The fan-out is down to two loaders now that load_task_history is gone
+        (task:87ec7876), so this covers both of them failing simultaneously —
+        the same property the three-loader version tested.
         """
         graph = _build_graph()
         session_id = "fail-double-01"
         _seed_active_task(graph, session_id, "task0001")
+        # No .code_embeddings.tvim in tmp_path → load_task_code bails
 
-        mock_cfg = MagicMock()
-        mock_cfg.tasks_db = tmp_path / "missing.db"
-        mock_cfg.memory_db = tmp_path / "MEMORY.sqlite"
-
-        with patch("langchain_learning.nodes.load_task_history._cfg", mock_cfg), \
+        with patch("langchain_learning.nodes.load_related_commits._resolve_diff_index",
+                   side_effect=Exception("diff index corrupt")), \
              patch("langchain_learning.nodes.load_memories.LoadMemoriesNode.__call__",
                    return_value={"memories": []}) as mock_memories:
 
             result = _run_ups(graph, session_id, tmp_path)
 
         assert isinstance(result, dict)
-        assert result.get("task_context", []) == []
         assert result.get("task_rag_chunks", []) == []
+        assert result.get("related_commits", []) == []
         # load_memories — second fan-out tier — still ran
         mock_memories.assert_called_once()
 

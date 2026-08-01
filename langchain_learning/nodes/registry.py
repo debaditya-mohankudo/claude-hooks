@@ -4,7 +4,6 @@ from __future__ import annotations
 from langchain_learning.nodes.cwd_domain_detect import CwdDomainDetectNode
 from langchain_learning.nodes.gate_check import GateCheckNode
 from langchain_learning.nodes.load_active_task import LoadActiveTaskNode
-from langchain_learning.nodes.load_task_history import LoadTaskHistoryNode
 from langchain_learning.nodes.load_task_code import LoadTaskCodeNode
 from langchain_learning.nodes.load_related_commits import LoadRelatedCommitsNode
 from langchain_learning.nodes.load_memories import LoadMemoriesNode
@@ -24,7 +23,6 @@ NODE_REGISTRY: dict[str, object] = {
     # UserPromptSubmit chain
     "load_turn":               LoadTurnNode,
     "load_active_task":        LoadActiveTaskNode,
-    "load_task_history":       LoadTaskHistoryNode,
     "load_task_code":          LoadTaskCodeNode,
     "load_related_commits":    LoadRelatedCommitsNode,
     "load_memories":           LoadMemoriesNode,
