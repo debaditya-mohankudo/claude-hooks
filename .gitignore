@@ -18,6 +18,9 @@ uv.lock
 .tasks_embeddings.meta.json
 .diff_embeddings.tvim
 .diff_embeddings.meta.json
+.fullrepo_embeddings.tvim
+.fullrepo_embeddings.meta.json
 tests/test_logs.db
 file:testlogs*
 tests/replay_baseline.json
+.coverage
