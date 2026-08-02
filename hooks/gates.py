@@ -315,6 +315,7 @@ def _load_external_gates(path: Path | None = None) -> dict[str, Gate]:
 
 import re as _re
 import shlex as _shlex
+import subprocess as _subprocess
 
 _TASK_ID_RE = _re.compile(r'task:[a-f0-9]{6,}')
 
@@ -394,6 +395,49 @@ def _strip_quotes(value: str) -> str:
     return value
 
 
+#: `git commit --amend` — reuses HEAD's message unless a new one is supplied.
+_AMEND_RE = _re.compile(r'(?:^|\s)--amend(?:\s|$)')
+
+#: `git -C <dir>` — names the repository when it is not the process cwd.
+_DASH_C_RE = _re.compile(r'(?:^|\s)-C(?:=|\s+)("[^"]*"|\'[^\']*\'|\S+)')
+
+
+def _expand_path(raw: str) -> str:
+    """Expand ~ and environment variables in a path the gate was handed.
+
+    The gate inspects the command string BEFORE the shell runs it, so a path
+    written as $VAR/msg.txt arrives literally. Expanding here recovers the file
+    the command would actually have opened. Anything still unexpanded (a shell
+    variable this process does not have, or a $(...) substitution) is left as
+    it is and will fail to open — reported, not silently skipped.
+    """
+    return os.path.expanduser(os.path.expandvars(raw))
+
+
+def _repo_dir_from_command(command: str) -> str | None:
+    """The `git -C <dir>` target, if the command names one."""
+    match = _DASH_C_RE.search(command)
+    return _expand_path(_strip_quotes(match.group(1))) if match else None
+
+
+def _head_commit_message(repo_dir: str | None) -> str:
+    """HEAD's full commit message, or '' if it cannot be read.
+
+    Fails open by design: this only ever ADDS a reason to allow. A repo with no
+    commits, a bad path, or a missing git binary all return '' and leave the
+    deny decision exactly where it was.
+    """
+    try:
+        args = ["git"]
+        if repo_dir:
+            args += ["-C", repo_dir]
+        args += ["log", "-1", "--format=%B"]
+        result = _subprocess.run(args, capture_output=True, timeout=5, check=False)
+        return result.stdout.decode(errors="replace") if result.returncode == 0 else ""
+    except Exception:
+        return ""
+
+
 class GitCommitGate(Gate):
     """Gate for Bash tool calls that contain a git commit.
 
@@ -412,21 +456,50 @@ class GitCommitGate(Gate):
         if _TASK_ID_RE.search(command):
             _log.info("[Bash] git commit with task:<id> in command — allow")
             return False, ""
+
+        # Paths the gate was told to read but could not. Reported in the deny
+        # reason rather than swallowed: a -F file that fails to open looks
+        # identical to a -F file with no task id, and only one of those is the
+        # author's mistake (task:ad9cae1c).
+        unreadable: list[str] = []
+
         for match in _FILE_FLAG_RE.finditer(command):
-            path = _strip_quotes(match.group(1))
+            raw = _strip_quotes(match.group(1))
+            path = _expand_path(raw)
             try:
                 text = Path(path).read_text()
-            except OSError:
+            except OSError as exc:
+                unreadable.append(f"{raw} ({exc.strerror or type(exc).__name__})")
                 continue
             if _TASK_ID_RE.search(text):
                 _log.info("[Bash] git commit with task:<id> in -F file %s — allow", path)
                 return False, ""
-        return (
-            True,
+
+        # --amend reuses the message already on HEAD when no new one is given,
+        # so the id can be real and simply not present anywhere the gate can
+        # see. Ask git for it rather than denying a compliant amend.
+        if _AMEND_RE.search(command):
+            existing = _head_commit_message(_repo_dir_from_command(command))
+            if existing and _TASK_ID_RE.search(existing):
+                _log.info("[Bash] git commit --amend reusing HEAD message with task:<id> — allow")
+                return False, ""
+
+        reason = (
             "Blocked: git commit is missing a task:<id> reference. "
             "Add 'task:<id>' to the commit message body (or the file passed via -F), "
-            "or activate a task first with tasks__set_active.",
+            "or activate a task first with tasks__set_active."
         )
+        if unreadable:
+            # The gate reads the command as written, before the shell expands
+            # it, so a -F path built from a shell variable is opened literally.
+            reason += (
+                " NOTE: could not read the file(s) passed via -F: "
+                + "; ".join(unreadable)
+                + ". The gate sees the command before the shell expands it, so"
+                " pass -F a literal path rather than one built from a shell"
+                " variable or command substitution."
+            )
+        return True, reason
 
 
 class GitCommitMcpGate(Gate):

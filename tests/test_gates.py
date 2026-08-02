@@ -1013,3 +1013,102 @@ def test_detection_survives_unbalanced_quotes_without_raising():
     ctx = _git_ctx(f'{_G} {_C} -m "$(cat <<\'EOF\'\nsubject\nEOF\n)"')
     deny, _ = GitCommitGate().verify(ctx)
     assert deny  # detected as a commit, denied for want of a task id
+
+
+# ---------------------------------------------------------------------------
+# GitCommitGate — -F path RESOLUTION and --amend (task:ad9cae1c)
+#
+# Distinct from the detection block above. There, the question was whether a
+# command is a commit at all. Here every case IS a commit; what is tested is
+# whether the gate can find the task id that is genuinely present.
+# ---------------------------------------------------------------------------
+
+def test_dash_f_path_with_env_var_is_expanded(tmp_path, monkeypatch):
+    """The gate sees the command before the shell expands it."""
+    msg = tmp_path / "msg.txt"
+    msg.write_text("subject\n\ntask:abcdef12\n")
+    monkeypatch.setenv("GATE_MSG_DIR", str(tmp_path))
+    ctx = _git_ctx(f'{_G} {_C} -F $GATE_MSG_DIR/msg.txt')
+    deny, _ = GitCommitGate().verify(ctx)
+    assert not deny
+
+
+def test_dash_f_path_with_braced_env_var_is_expanded(tmp_path, monkeypatch):
+    msg = tmp_path / "msg.txt"
+    msg.write_text("subject\n\ntask:abcdef12\n")
+    monkeypatch.setenv("GATE_MSG_DIR", str(tmp_path))
+    ctx = _git_ctx(f'{_G} {_C} -F ${{GATE_MSG_DIR}}/msg.txt')
+    deny, _ = GitCommitGate().verify(ctx)
+    assert not deny
+
+
+def test_dash_f_tilde_is_expanded(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    (tmp_path / "msg.txt").write_text("subject\n\ntask:abcdef12\n")
+    ctx = _git_ctx(f'{_G} {_C} -F ~/msg.txt')
+    deny, _ = GitCommitGate().verify(ctx)
+    assert not deny
+
+
+def test_unreadable_dash_f_path_is_named_in_the_deny_reason():
+    """An unopenable -F file must not look like a file with no task id."""
+    ctx = _git_ctx(f'{_G} {_C} -F $NOT_SET_ANYWHERE/msg.txt')
+    deny, reason = GitCommitGate().verify(ctx)
+    assert deny
+    assert "could not read" in reason
+    assert "$NOT_SET_ANYWHERE/msg.txt" in reason
+    assert "literal path" in reason
+
+
+def test_dash_f_file_without_task_id_still_denies_without_the_note(tmp_path):
+    """A readable file that genuinely lacks an id is the author's mistake, and
+    must not be muddied with the unreadable-path guidance."""
+    msg = tmp_path / "msg.txt"
+    msg.write_text("subject with no reference\n")
+    ctx = _git_ctx(f'{_G} {_C} -F {msg}')
+    deny, reason = GitCommitGate().verify(ctx)
+    assert deny
+    assert "could not read" not in reason
+
+
+def test_amend_reusing_head_message_with_task_id_is_allowed(tmp_path):
+    """--amend --no-edit keeps HEAD's message, which the command never shows."""
+    import subprocess
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    run = lambda *a: subprocess.run(a, cwd=repo, capture_output=True, check=True)
+    run("git", "init", "-q")
+    run("git", "config", "user.email", "t@example.com")
+    run("git", "config", "user.name", "t")
+    (repo / "f.txt").write_text("x")
+    run("git", "add", "f.txt")
+    run("git", "commit", "-q", "-m", "subject\n\ntask:abcdef12")
+
+    ctx = _git_ctx(f'{_G} -C {repo} {_C} --amend --no-edit')
+    deny, _ = GitCommitGate().verify(ctx)
+    assert not deny
+
+
+def test_amend_over_head_without_task_id_still_denies(tmp_path):
+    import subprocess
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    run = lambda *a: subprocess.run(a, cwd=repo, capture_output=True, check=True)
+    run("git", "init", "-q")
+    run("git", "config", "user.email", "t@example.com")
+    run("git", "config", "user.name", "t")
+    (repo / "f.txt").write_text("x")
+    run("git", "add", "f.txt")
+    run("git", "commit", "-q", "-m", "subject with no reference")
+
+    ctx = _git_ctx(f'{_G} -C {repo} {_C} --amend --no-edit')
+    deny, reason = GitCommitGate().verify(ctx)
+    assert deny
+    assert "task:<id>" in reason
+
+
+def test_amend_against_unreadable_repo_fails_open_to_deny():
+    """A bad -C path must not crash the gate; it just finds no message."""
+    ctx = _git_ctx(f'{_G} -C /nonexistent/repo/path {_C} --amend --no-edit')
+    deny, _ = GitCommitGate().verify(ctx)
+    assert deny
