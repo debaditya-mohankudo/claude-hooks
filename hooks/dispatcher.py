@@ -484,54 +484,12 @@ _FAIL_CLOSED_TOOLS = {"imessage__send", "mail__compose"}
 # to check. task_templates/ went with it (task:d6ddb40f).
 
 
-# Drift reflection nudge (epic f66cccbe, task aac953b7) — rather than matching edited
-# files against a declared scope list (too mechanical, and most tasks never fill in
-# Files: anyway), periodically surface a soft self-check: after a run of edits under
-# the same active task, ask the agent to pause and consider whether the work still
-# matches the task's stated intent. No file comparison, no gate — just mild, recurring
-# awareness. Works for any repo/task: reads active_task_id/title/body from the session
-# checkpoint (set by activate_task.py on tasks__set_active).
-_DRIFT_REFLECTION_TOOLS = {"Write", "Edit", "MultiEdit"}
-_DRIFT_REFLECTION_INTERVAL = 8  # edits between nudges, per (session, task)
-_DRIFT_EDIT_COUNTS: dict[tuple[str, str], int] = {}  # (session_id, active_task_id) -> count
-
-
-def _maybe_drift_reflection_nudge(short_name: str, tool_input: dict, session_id: str) -> dict | None:
-    if short_name not in _DRIFT_REFLECTION_TOOLS or not session_id:
-        return None
-
-    from langchain_learning.session_graph import get_session_graph, _config
-    try:
-        state = get_session_graph().get_state(_config(session_id))
-        values = state.values if state else {}
-    except Exception:
-        return None
-
-    active_task_id = values.get("active_task_id") or ""
-    if not active_task_id:
-        return None
-
-    key = (session_id, active_task_id)
-    count = _DRIFT_EDIT_COUNTS.get(key, 0) + 1
-    _DRIFT_EDIT_COUNTS[key] = count
-    if count % _DRIFT_REFLECTION_INTERVAL != 0:
-        return None
-
-    title = values.get("active_task_title", "")
-    label = f"task:{active_task_id}" + (f" ({title})" if title else "")
-    return {
-        "hookSpecificOutput": {
-            "hookEventName": "PreToolUse",
-            "permissionDecision": "allow",
-            "additionalContext": (
-                f"Quiet check-in: {count} edits made so far under {label}. Take a moment — "
-                "does the work over this stretch of edits still match the task's stated intent, "
-                "or has it drifted into something adjacent? No need to answer out loud or stop; "
-                "just worth noticing before continuing. Accuracy matters more than speed here — "
-                "prefer verifying each step over batching many changes and hoping they land."
-            ),
-        }
-    }
+# Drift reflection nudge — removed (task:f1d46386). It read active_task_id/title
+# from a claude-hooks session checkpoint (set by the now-deleted activate_task.py,
+# see 6633bf1) — task-framework owns the active task now, so the nudge was ported
+# there instead: taskfw.dispatcher.drift_reflection_nudge, reading directly from
+# taskfw's own store, wired into tasks__update/check_item/add_decision/add_commit.
+# Do not re-add a claude-hooks-side copy; task-framework is the one owner.
 
 
 # Nudge toward tmux for Bash commands (memory: prefer-tmux-for-commands) — tmux panes
@@ -583,8 +541,9 @@ def _handle_pre_tool_use(hook_input: dict) -> dict | None:
 
     # Built-in tools (e.g. Bash) are gated directly by tool_name; MCP tools are stripped.
     # Edit/Write/MultiEdit have no gate entry (run_gate no-ops for unregistered tool
-    # names) but must reach the reminder checks below (_maybe_drift_reflection_nudge)
-    # — they used to dead-end here before it could fire.
+    # names). They used to also need to reach the drift-reflection nudge below;
+    # that nudge moved to task-framework (task:f1d46386), but the branch stays in
+    # case a future Edit/Write/MultiEdit-specific gate or reminder needs it again.
     if tool_name == "Bash":
         short_name = "Bash"
     elif tool_name.startswith("mcp__"):
@@ -612,11 +571,6 @@ def _handle_pre_tool_use(hook_input: dict) -> dict | None:
                 "permissionDecisionReason": result["gate_reason"],
             }
         }
-    drift_nudge = _maybe_drift_reflection_nudge(short_name, hook_input.get("tool_input") or {}, session_id)
-    if drift_nudge:
-        log.info("PreTU allow+drift-reflection-nudge: session=%s tool=%s", session_id[:8], short_name)
-        return drift_nudge
-
     tmux_nudge = _maybe_tmux_nudge(short_name, hook_input.get("tool_input") or {}, session_id)
     if tmux_nudge:
         log.info("PreTU allow+tmux-nudge: session=%s tool=%s", session_id[:8], short_name)

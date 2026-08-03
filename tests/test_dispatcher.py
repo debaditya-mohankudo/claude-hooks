@@ -13,8 +13,6 @@ from pathlib import Path
 # Ensure hooks/ is importable
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "hooks"))
 
-from unittest.mock import MagicMock, patch
-
 from dispatcher import (
     _extract_prompt,
     _get_claude_session_id,
@@ -22,9 +20,6 @@ from dispatcher import (
     _enforce_context_budget,
     _CONTEXT_TOKEN_BUDGET,
     _TASK_BODY_CHAR_CAP,
-    _maybe_drift_reflection_nudge,
-    _DRIFT_EDIT_COUNTS,
-    _DRIFT_REFLECTION_INTERVAL,
 )
 
 
@@ -166,65 +161,6 @@ def test_leaves_small_task_body_untouched():
         active_task_id="t1", active_task_title="Small task", task_body="short body",
     ))
     assert "short body" in result
-
-
-# ── _maybe_drift_reflection_nudge ─────────────────────────────────────────────
-
-def _mock_checkpoint(values: dict):
-    state = MagicMock()
-    state.values = values
-    graph = MagicMock()
-    graph.get_state.return_value = state
-    return patch("langchain_learning.session_graph.get_session_graph", return_value=graph)
-
-
-def test_no_nudge_for_non_edit_tools():
-    assert _maybe_drift_reflection_nudge("Bash", {"file_path": "x.py"}, "sess1") is None
-
-
-def test_no_nudge_without_active_task():
-    with _mock_checkpoint({}):
-        assert _maybe_drift_reflection_nudge("Edit", {"file_path": "x.py"}, "sess1") is None
-
-
-def test_no_nudge_before_interval_reached():
-    _DRIFT_EDIT_COUNTS.clear()
-    with _mock_checkpoint({"active_task_id": "t1", "active_task_title": "Some task"}):
-        for _ in range(_DRIFT_REFLECTION_INTERVAL - 1):
-            result = _maybe_drift_reflection_nudge("Edit", {"file_path": "src/foo.py"}, "sess1")
-    assert result is None
-
-
-def test_nudges_once_interval_reached():
-    _DRIFT_EDIT_COUNTS.clear()
-    with _mock_checkpoint({"active_task_id": "t1", "active_task_title": "Some task"}):
-        result = None
-        for _ in range(_DRIFT_REFLECTION_INTERVAL):
-            result = _maybe_drift_reflection_nudge("Edit", {"file_path": "src/foo.py"}, "sess1")
-    assert result is not None
-    assert result["hookSpecificOutput"]["permissionDecision"] == "allow"
-    assert "task:t1" in result["hookSpecificOutput"]["additionalContext"]
-
-
-def test_nudge_recurs_every_interval():
-    _DRIFT_EDIT_COUNTS.clear()
-    with _mock_checkpoint({"active_task_id": "t1", "active_task_title": "Some task"}):
-        results = [
-            _maybe_drift_reflection_nudge("Edit", {"file_path": "src/foo.py"}, "sess1")
-            for _ in range(_DRIFT_REFLECTION_INTERVAL * 2)
-        ]
-    fired = [i for i, r in enumerate(results, start=1) if r is not None]
-    assert fired == [_DRIFT_REFLECTION_INTERVAL, _DRIFT_REFLECTION_INTERVAL * 2]
-
-
-def test_counts_are_scoped_per_session_and_task():
-    _DRIFT_EDIT_COUNTS.clear()
-    with _mock_checkpoint({"active_task_id": "t1", "active_task_title": "Some task"}):
-        for _ in range(_DRIFT_REFLECTION_INTERVAL - 1):
-            _maybe_drift_reflection_nudge("Edit", {"file_path": "src/foo.py"}, "sess1")
-        # a different task should not inherit sess1/t1's near-complete count
-        result = _maybe_drift_reflection_nudge("Edit", {"file_path": "src/foo.py"}, "sess2")
-    assert result is None
 
 
 def test_includes_active_task():
