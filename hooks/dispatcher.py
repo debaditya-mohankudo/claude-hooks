@@ -408,6 +408,82 @@ def _handle_user_prompt_submit(hook_input: dict) -> dict | None:
 # PostToolUse
 # ---------------------------------------------------------------------------
 
+# Context-size nudge — reads the transcript's real API usage (input_tokens +
+# cache_creation_input_tokens + cache_read_input_tokens from the most recent
+# assistant turn) rather than approximating with tiktoken: that figure is
+# Anthropic's actual context size. tiktoken/cl100k_base (src/tools/tokens.py
+# count_tokens) is only an approximation used elsewhere to size this repo's
+# own injected memory payload, not the full conversation. Fires once per 50K
+# band crossed (100K, 150K, 200K, ...) so it reminds periodically as context
+# keeps growing instead of nagging every call or going silent after the first
+# warning (task:e849c7ad). Non-blocking, same allow+additionalContext shape
+# as _maybe_tmux_nudge below, but for PostToolUse instead of PreToolUse.
+_CONTEXT_NUDGE_THRESHOLD = 100_000
+_CONTEXT_NUDGE_STEP = 50_000
+_CONTEXT_NUDGE_SHOWN_BAND: dict[str, int] = {}
+
+
+def _read_last_usage(transcript_path: str) -> int | None:
+    """Total context tokens from the last assistant `usage` block in the transcript, or None."""
+    import json as _json
+
+    if not transcript_path or not os.path.exists(transcript_path):
+        return None
+    try:
+        with open(transcript_path, "rb") as f:
+            f.seek(0, os.SEEK_END)
+            size = f.tell()
+            block = min(size, 65536)
+            f.seek(size - block)
+            tail = f.read().decode("utf-8", errors="ignore")
+    except OSError as exc:
+        log.debug("context nudge: transcript read failed: %s", exc)
+        return None
+
+    for line in reversed(tail.splitlines()):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            entry = _json.loads(line)
+        except ValueError:
+            continue
+        usage = (entry.get("message") or {}).get("usage")
+        if not usage:
+            continue
+        return (
+            usage.get("input_tokens", 0)
+            + usage.get("cache_creation_input_tokens", 0)
+            + usage.get("cache_read_input_tokens", 0)
+        )
+    return None
+
+
+def _maybe_context_size_nudge(hook_input: dict, session_id: str) -> dict | None:
+    if not session_id:
+        return None
+    transcript_path = hook_input.get("transcript_path", "")
+    log.debug("context nudge: transcript_path=%r", transcript_path)
+    total = _read_last_usage(transcript_path)
+    if total is None or total < _CONTEXT_NUDGE_THRESHOLD:
+        return None
+    band = total // _CONTEXT_NUDGE_STEP
+    if _CONTEXT_NUDGE_SHOWN_BAND.get(session_id) == band:
+        return None
+    _CONTEXT_NUDGE_SHOWN_BAND[session_id] = band
+    band_tokens = band * _CONTEXT_NUDGE_STEP
+    return {
+        "hookSpecificOutput": {
+            "hookEventName": "PostToolUse",
+            "additionalContext": (
+                f"Context notice: this conversation has crossed ~{band_tokens:,} tokens "
+                f"(current estimate ~{total:,}). Consider wrapping up, summarizing, or "
+                "starting a fresh session soon to avoid running into context-window limits."
+            ),
+        }
+    }
+
+
 def _handle_post_tool_use(hook_input: dict) -> dict | None:
     from core.tool_registry import strip_mcp_prefix
 
@@ -432,6 +508,11 @@ def _handle_post_tool_use(hook_input: dict) -> dict | None:
                 tool_response = parsed
         except Exception as exc:
             log.debug("tool_response content parse failed, using raw shape: %s", exc)
+
+    context_nudge = _maybe_context_size_nudge(hook_input, session_id)
+    if context_nudge:
+        log.info("PTU context-size nudge: session=%s tool=%s", session_id[:8], tool_name)
+        return context_nudge
 
     if not tool_name or not tool_name.startswith("mcp__"):
         log.info("PTU skip: non-MCP tool=%s", tool_name)
