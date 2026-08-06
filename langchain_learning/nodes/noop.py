@@ -76,6 +76,13 @@ class NoopNode:
 
     def __call__(self, state: SessionState) -> dict:
         ev = state.get("event_type")
+        if ev == "":
+            # prewarm_session()'s deliberate no-op invocation (checkpointer
+            # init only, before the first real hook event) -- expected on
+            # every new session, not a routing anomaly.
+            _log.info("[noop] prewarm session=%s",
+                      (state.get("session_id") or "")[:8])
+            return {}
         if ev not in _SILENT_EVENTS:
             _log.warning("[noop] unknown event_type=%r session=%s",
                          ev, (state.get("session_id") or "")[:8])
