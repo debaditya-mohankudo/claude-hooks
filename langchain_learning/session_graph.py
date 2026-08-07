@@ -245,7 +245,6 @@ def _fresh_state(session_id: str) -> SessionState:
         gate_denied=False, gate_reason="",
         duration_ms=0.0, tool_result={},
         pending_hook_output={},
-        cwd_unmapped=False, cwd_domain_reminder_sent=False,
         stop_alert_sent=False,
         sound_played=False,
         # tool_use_id="",

@@ -139,17 +139,6 @@ def _format_system_prompt(ctx: dict) -> str:
             lines.append(vault_ctx["memory"])
             lines.append("")
 
-    if ctx.get("cwd_unmapped"):
-        lines.append("## New project detected")
-        lines.append(
-            f"This session's cwd (`{ctx.get('cwd', '')}`) doesn't match any entry in "
-            "cwd_domains.json (~/Library/Mobile Documents/com~apple~CloudDocs/Databases/cwd_domains.json). "
-            "Ask the user if they'd like to add a domain entry for this repo — it enables "
-            "domain-weighted memory recall for tasks here. If they confirm, add a "
-            '`"<cwd substring>": "<domain-slug>"` entry to the JSON directly (no code change needed).'
-        )
-        lines.append("")
-
     if ctx["domains"]:
         lines.append(f"# Active domains: {', '.join(ctx['domains'])}")
         lines.append("")

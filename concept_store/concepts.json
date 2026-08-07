@@ -13,12 +13,13 @@
         "src/config.py: cwd_domain_map"
       ],
       "invariants": [
-        "cwd_domains.json (icloud_db_dir, same pattern as memory_scoring.json) is the source of truth for repo-to-domain classification — add an entry there when onboarding a repo, no code change/redeploy needed",
-        "_CWD_DOMAIN_MAP_DEFAULT is only a fallback seed, used if cwd_domains.json is missing or fails to parse",
+        "cwd_domains.json (icloud_db_dir, same pattern as memory_scoring.json) is the source of truth for cwd-to-domain classification, scoped to repo-less domains only (vault, market-intel, astrology) — code repos get persistent context via task-framework loop memory instead and are deliberately not entered here (task:d2659d44, 2026-08-07)",
+        "_CWD_DOMAIN_MAP_DEFAULT is only a fallback seed, used if cwd_domains.json is missing or fails to parse; trimmed to the same repo-less domains",
         "Config is frozen (immutable after construction)",
-        "tasks_db was removed (2026-08-07) — task storage lives in task-framework now, nothing in this repo reads proj_tasks.db; the langchain_learning/config.py passthrough property was dropped alongside it"
+        "tasks_db was removed (2026-08-07) — task storage lives in task-framework now, nothing in this repo reads proj_tasks.db; the langchain_learning/config.py passthrough property was dropped alongside it",
+        "The unmapped-cwd onboarding reminder (\"New project detected\", formerly surfaced by CwdDomainDetectNode + hooks/dispatcher.py) was removed (task:d2659d44, 2026-08-07) — code repos no longer need a cwd_domains.json entry at all, so nudging for one was noise"
       ],
-      "last_validated": "2026-08-07T12:30:50.092619+00:00",
+      "last_validated": "2026-08-07T12:36:38.326044+00:00",
       "module": "src/config.py",
       "name": "config-db-paths-and-domains"
     },
@@ -532,6 +533,6 @@
     "commit": "5f62c6b5150a20fe7198d7bd6c155c4b3c0d3101",
     "extracted_at": "2026-07-23T05:42:23Z",
     "note": "incremental upsert (task:a2fd402d)",
-    "updated_at": "2026-08-07T12:30:50.093290+00:00"
+    "updated_at": "2026-08-07T12:36:38.326133+00:00"
   }
 }

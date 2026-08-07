@@ -8,8 +8,9 @@ Environment variables (all optional, prefix CLAUDE_HOOKS_):
 
 CWD → domain mapping is loaded (mtime-cached) from cwd_domains.json in
 icloud_db_dir — same pattern as memory_scoring.json. Keys are CWD substrings
-(matched case-insensitively); first match wins. Add an entry there when
-onboarding a new repo — no code change/redeploy needed.
+(matched case-insensitively); first match wins. Scoped to repo-less domains
+(vault, market-intel, astrology) — code repos get persistent context via
+task-framework loop memory instead, so they don't need an entry here.
 """
 import json
 from pathlib import Path
@@ -21,13 +22,9 @@ _ICLOUD_DEFAULT = Path.home() / "Library/Mobile Documents/com~apple~CloudDocs/Da
 
 # Seed/fallback used if cwd_domains.json is missing or unreadable.
 _CWD_DOMAIN_MAP_DEFAULT: dict[str, str] = {
-    "claude-hooks": "claude-hooks",
     "vault": "vault",
     "market-intel": "market-intel",
     "astrology": "astrology",
-    "K-mirror": "macos",
-    "ACME_Cert_Life_Cycle": "acme",
-    "Analyze_docker_logs_with_copilot": "docker-log-analysis",
 }
 
 _cwd_domain_map_cache: dict[str, str] = {}

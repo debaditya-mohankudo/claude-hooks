@@ -38,8 +38,6 @@ class SessionState(TypedDict):
     active_task_domain: str          # domain tag of the active task (e.g. "claude-hooks"); emitted by ActivateTaskNode for downstream nodes
     task_files: list[str]            # file paths from the active task's Files: section; emitted by ActivateTaskNode, consumed by backfill nodes
     backfill_count: int              # number of memory records backfilled this activation; written by BackfillNodeProtocol implementors
-    cwd_unmapped: bool               # True this turn if cwd matched no CWD_DOMAIN_MAP entry and the reminder hasn't fired yet this session
-    cwd_domain_reminder_sent: bool   # True once the unmapped-cwd reminder has been shown this session (persisted via checkpoint)
     stop_alert_sent: bool            # True once NoopNode has seen the first Stop event of the current turn; reset by run_session, set by NoopNode
     sound_played: bool               # True once PlaySoundNode has fired the completion chime for the current turn; reset by run_session, set by PlaySoundNode
 
