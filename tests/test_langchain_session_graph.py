@@ -23,13 +23,11 @@ from langchain_learning.session_graph import (
 )
 from langchain_learning.nodes.load_memories import LoadMemoriesNode
 from langchain_learning.nodes._text_utils import tokenise as _tokenise
-from langchain_learning.nodes.cwd_domain_detect import CwdDomainDetectNode
 from langchain_learning.nodes.score_tools import ScoreToolsNode
 from langchain_learning.retrievers import NullMemoryRetriever, NullToolScorer
 
 # Instantiate nodes for direct unit testing
 load_memories     = LoadMemoriesNode()
-cwd_domain_detect = CwdDomainDetectNode()
 score_tools       = ScoreToolsNode()
 
 # ---------------------------------------------------------------------------
@@ -41,7 +39,7 @@ def _make_memory_db(rows: list[dict]) -> Path:
     conn = sqlite3.connect(tmp.name)
     conn.executescript(MEMORIES_DDL)
     conn.executemany(
-        "INSERT INTO memories (name, type, domain, tags, body) VALUES (:name,:type,:domain,:tags,:body)",
+        "INSERT INTO memories (name, type, tags, body) VALUES (:name,:type,:tags,:body)",
         rows,
     )
     conn.commit()
@@ -65,13 +63,13 @@ def _make_hints_db(rows: list[dict]) -> Path:
 @pytest.fixture
 def memory_db():
     return _make_memory_db([
-        {"name": "always-on", "type": "user", "domain": "global",
+        {"name": "always-on", "type": "user",
          "tags": "global", "body": "always injected"},
-        {"name": "astro-mem", "type": "project", "domain": "astrology",
+        {"name": "astro-mem", "type": "project",
          "tags": "nakshatra rahu panchang", "body": "astrology data"},
-        {"name": "market-mem", "type": "project", "domain": "market-intel",
+        {"name": "market-mem", "type": "project",
          "tags": "gold nifty fii", "body": "market data"},
-        {"name": "vault-mem", "type": "reference", "domain": "vault",
+        {"name": "vault-mem", "type": "reference",
          "tags": "vault note write", "body": "vault operations"},
     ])
 
@@ -88,15 +86,18 @@ def hints_db():
 
 @pytest.fixture
 def mock_cfg(memory_db, hints_db):
-    """Patch langchain_learning.config.config so all retrievers see the temp DBs."""
-    import langchain_learning.nodes.load_memories as lm
+    """Patch langchain_learning.config.config so all retrievers see the temp DBs.
+
+    CombinationSignalRetriever (used by LoadMemoriesNode) imports config
+    locally inside retrieve(), so patching langchain_learning.config.config
+    is sufficient — there is no load_memories._cfg module attribute to patch.
+    """
     import langchain_learning.config as lc
     cfg = types.SimpleNamespace(
         memory_db=memory_db,
         tool_hints_db=hints_db,
     )
-    with patch.object(lm, "_cfg", cfg), \
-         patch.object(lc, "config", cfg):
+    with patch.object(lc, "config", cfg):
         yield cfg
 
 
@@ -148,14 +149,15 @@ def test_tokenise_lowercases():
 # ---------------------------------------------------------------------------
 
 def test_load_memories_scores_relevant(mock_cfg):
-    # cwd maps "astrology" → project_domain="astrology" so astro-mem competes
+    # No domain scoping any more — astro-mem wins purely on tag/body overlap.
     result = load_memories(_base_state(prompt="what is my nakshatra today", cwd="/workspace/astrology"))
     names = [m["name"] for m in result["memories"]]
     assert "astro-mem" in names
 
 
-def test_load_memories_excludes_out_of_domain(mock_cfg):
-    # cwd maps to astrology; market-intel and vault memories should not surface
+def test_load_memories_excludes_unrelated_keywords(mock_cfg):
+    # No domain scoping any more — market-mem and vault-mem simply don't
+    # overlap with these keywords, so they don't surface regardless of cwd.
     result = load_memories(_base_state(prompt="nakshatra moon rising", cwd="/workspace/astrology"))
     names = [m["name"] for m in result["memories"]]
     assert "market-mem" not in names
@@ -186,36 +188,14 @@ def test_load_memories_missing_db_returns_empty():
 
 
 def test_load_memories_caps_at_top_n(hints_db):
-    rows = [{"name": f"mem{i}", "type": "user", "domain": "macos",
+    rows = [{"name": f"mem{i}", "type": "user",
              "tags": "message send", "body": "macos tool"} for i in range(15)]
     big_db = _make_memory_db(rows)
-    import langchain_learning.nodes.load_memories as pn
+    import langchain_learning.config as lc
     cfg = types.SimpleNamespace(memory_db=big_db, tool_hints_db=hints_db)
-    with patch.object(pn, "_cfg", cfg):
+    with patch.object(lc, "config", cfg):
         result = load_memories(_base_state(prompt="send message to contact", cwd="/workspace/claude-hooks"))
     assert len(result["memories"]) <= 10
-
-
-# ---------------------------------------------------------------------------
-# cwd_domain_detect node
-# ---------------------------------------------------------------------------
-
-def test_cwd_domain_detect_maps_known_cwd():
-    import langchain_learning.nodes.cwd_domain_detect as cdd_mod
-    cwd_map = {"market-intel": "market-intel", "claude-hooks": "claude-hooks"}
-    with patch.object(cdd_mod, "_cfg", types.SimpleNamespace(cwd_domain_map=cwd_map)):
-        state = _base_state(cwd="/Users/x/workspace/market-intel/src")
-        result = cwd_domain_detect(state)
-    assert "market-intel" in result["domains"]
-
-
-def test_cwd_domain_detect_no_match_leaves_domains_unchanged():
-    import langchain_learning.nodes.cwd_domain_detect as cdd_mod
-    cwd_map = {"market-intel": "market-intel"}
-    with patch.object(cdd_mod, "_cfg", types.SimpleNamespace(cwd_domain_map=cwd_map)):
-        state = _base_state(cwd="/tmp/random_project", domains=["astrology"])
-        result = cwd_domain_detect(state)
-    assert "astrology" in result["domains"]
 
 
 # ---------------------------------------------------------------------------

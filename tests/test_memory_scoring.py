@@ -22,10 +22,6 @@ _CFG = {
     "recency_boost_days": 30,
     "recency_penalty_days": 180,
     "min_keyword_score": 0.0,
-    "domain_keyword_boost": 0.8,
-    "domain_weights": {"project": 2.0, "global": 0.5},
-    "domain_keywords": {},
-    "combination_signals": {},
     "related_boost_factor": 0.15,
     "related_max_neighbours": 2,
 }
@@ -41,27 +37,41 @@ def mem_conn():
     con.close()
 
 
-def _insert(con, name, domain="claude-hooks", tags="", body="", related=""):
+def _insert(con, name, tags="", body="", related=""):
     con.execute(
-        "INSERT INTO memories (name, type, domain, tags, body, related) VALUES (?,?,?,?,?,?)",
-        (name, "project", domain, tags, body, related),
+        "INSERT INTO memories (name, type, tags, body, related) VALUES (?,?,?,?,?)",
+        (name, "project", tags, body, related),
     )
     con.commit()
 
 
-def test_batch_limit_is_per_domain_not_aggregate(mem_conn):
-    """A small domain's memories must not be starved out once a large domain
-    alone exceeds batch_limit — the LIMIT applies per domain, not across the
-    whole table."""
+def test_batch_limit_caps_global_query(mem_conn):
+    """batch_limit caps the single global candidate query — with batch_limit
+    smaller than the total row count, only the most-recently-updated rows
+    (ORDER BY updated DESC LIMIT batch_limit) are even scored."""
     cfg = {**_CFG, "batch_limit": 3}
     with patch("langchain_learning.nodes._memory_scoring.load_scoring_cfg", return_value=cfg):
         for i in range(10):
-            _insert(mem_conn, f"big-domain-mem-{i}", domain="big-domain", tags="widget", body="widget")
-        _insert(mem_conn, "small-domain-mem", domain="small-domain", tags="widget", body="widget")
+            _insert(mem_conn, f"mem-{i}", tags="widget", body="widget")
 
-        results = score_memories({"widget"}, "small-domain", mem_conn, top_n=20)
+        results = score_memories({"widget"}, mem_conn, top_n=20)
+        # At most batch_limit rows were candidates, so at most batch_limit can score.
+        assert len(results) <= 3
+
+
+def test_all_rows_scored_when_under_batch_limit(mem_conn):
+    """With batch_limit comfortably above the row count, every matching row
+    is a scoring candidate — there is no per-group starvation any more since
+    scoring is a single global query."""
+    cfg = {**_CFG, "batch_limit": 500}
+    with patch("langchain_learning.nodes._memory_scoring.load_scoring_cfg", return_value=cfg):
+        for i in range(10):
+            _insert(mem_conn, f"mem-{i}", tags="widget", body="widget")
+        _insert(mem_conn, "solo-mem", tags="widget", body="widget")
+
+        results = score_memories({"widget"}, mem_conn, top_n=20)
         names = {m["name"] for m in results}
-        assert "small-domain-mem" in names
+        assert "solo-mem" in names
 
 
 def test_high_scorer_boosts_related_neighbour(mem_conn):
@@ -70,7 +80,7 @@ def test_high_scorer_boosts_related_neighbour(mem_conn):
     _insert(mem_conn, "gate-prereq-tracking", tags="obscure-unrelated-zzz", body="obscure-unrelated-zzz")
 
     with patch("langchain_learning.nodes._memory_scoring.load_scoring_cfg", return_value=_CFG):
-        results = score_memories({"gate", "framework"}, "claude-hooks", mem_conn, top_n=5)
+        results = score_memories({"gate", "framework"}, mem_conn, top_n=5)
 
     names = [m["name"] for m in results]
     assert "gate-framework" in names, "seed should be in results"
@@ -83,14 +93,14 @@ def test_neighbour_boost_is_additive(mem_conn):
     _insert(mem_conn, "neighbour", tags="gate", body="gate prereq")
 
     with patch("langchain_learning.nodes._memory_scoring.load_scoring_cfg", return_value=_CFG):
-        results_with_related = score_memories({"gate"}, "claude-hooks", mem_conn, top_n=5)
+        results_with_related = score_memories({"gate"}, mem_conn, top_n=5)
 
     # Remove related from seed to get baseline neighbour score
     mem_conn.execute("UPDATE memories SET related='' WHERE name='seed'")
     mem_conn.commit()
 
     with patch("langchain_learning.nodes._memory_scoring.load_scoring_cfg", return_value=_CFG):
-        results_without_related = score_memories({"gate"}, "claude-hooks", mem_conn, top_n=5)
+        results_without_related = score_memories({"gate"}, mem_conn, top_n=5)
 
     def get_rank(results, name):
         names = [m["name"] for m in results]
@@ -103,16 +113,16 @@ def test_neighbour_boost_is_additive(mem_conn):
 def test_max_neighbours_per_seed_respected(mem_conn):
     """Only related_max_neighbours (2) neighbours per seed should be boosted.
 
-    Noise memories use domain='unknown' (weight=0) so they only appear via boost.
+    Noise memories have no tag/body overlap, so they only appear via boost.
     """
     _insert(mem_conn, "seed", tags="gate", body="gate", related="n1,n2,n3")
-    _insert(mem_conn, "n1", domain="unknown", tags="zzz", body="zzz")
-    _insert(mem_conn, "n2", domain="unknown", tags="zzz", body="zzz")
-    _insert(mem_conn, "n3", domain="unknown", tags="zzz", body="zzz")
+    _insert(mem_conn, "n1", tags="zzz", body="zzz")
+    _insert(mem_conn, "n2", tags="zzz", body="zzz")
+    _insert(mem_conn, "n3", tags="zzz", body="zzz")
 
     cfg = {**_CFG, "related_max_neighbours": 2, "top_n": 10}
     with patch("langchain_learning.nodes._memory_scoring.load_scoring_cfg", return_value=cfg):
-        results = score_memories({"gate"}, "claude-hooks", mem_conn, top_n=10)
+        results = score_memories({"gate"}, mem_conn, top_n=10)
 
     names = [m["name"] for m in results]
     boosted = [n for n in ["n1", "n2", "n3"] if n in names]
@@ -122,14 +132,14 @@ def test_max_neighbours_per_seed_respected(mem_conn):
 def test_zero_boost_factor_disables_graph(mem_conn):
     """related_boost_factor=0 should not surface zero-direct-scoring neighbours.
 
-    Neighbour uses domain='unknown' (weight=0) so it only appears via boost.
+    Neighbour has no tag/body overlap, so it only appears via boost.
     """
     _insert(mem_conn, "seed", tags="gate", body="gate", related="silent-neighbour")
-    _insert(mem_conn, "silent-neighbour", domain="unknown", tags="zzz", body="zzz")
+    _insert(mem_conn, "silent-neighbour", tags="zzz", body="zzz")
 
     cfg = {**_CFG, "related_boost_factor": 0.0}
     with patch("langchain_learning.nodes._memory_scoring.load_scoring_cfg", return_value=cfg):
-        results = score_memories({"gate"}, "claude-hooks", mem_conn, top_n=5)
+        results = score_memories({"gate"}, mem_conn, top_n=5)
 
     names = [m["name"] for m in results]
     assert "silent-neighbour" not in names
@@ -149,8 +159,8 @@ def mem_db_path(tmp_path):
     db_path = tmp_path / "MEMORY.sqlite"
     con = sqlite3.connect(str(db_path))
     con.executescript(MEMORIES_DDL)
-    con.execute("INSERT INTO memories (name, type, domain) VALUES ('alpha', 'project', 'claude-hooks')")
-    con.execute("INSERT INTO memories (name, type, domain) VALUES ('beta', 'project', 'claude-hooks')")
+    con.execute("INSERT INTO memories (name, type) VALUES ('alpha', 'project')")
+    con.execute("INSERT INTO memories (name, type) VALUES ('beta', 'project')")
     con.commit()
     con.close()
     return db_path

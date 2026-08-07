@@ -40,7 +40,7 @@ def _wrap(domain: str, handler):
 
 DOMAIN_MAP: dict[str, tuple[str, list[str]]] = {
     "hooks":   ("tools.hooks",   ["checkpoint_query", "read_logs_sqlite", "server_memory", "session_id"]),
-    "memory":  ("tools.memory",  ["add", "add_batch", "search", "list", "get", "list_domains",
+    "memory":  ("tools.memory",  ["add", "add_batch", "search", "list", "get",
                                   "tool_hints", "read_compact", "delete"]),
     # "tasks" removed here (task:87ec7876), along with tools/tasks.py — the whole
     # tasks__* surface (create, set_active, finish, ...) belonged to it. Task

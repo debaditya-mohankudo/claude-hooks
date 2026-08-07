@@ -3,11 +3,12 @@
 Used by LoadMemoriesNode (prompt → memories) and ActivateTaskNode (task → memories).
 
 Signals per row:
-  1. domain_weight  — project=2.0 | explicit weight per domain | 0 (skip)
-  2. keyword_boost  — prompt tokens overlap with domain_keywords → +boost (cross-domain only)
-  3. tag_overlap    — Jaccard(tokens ∩ tags) × tag_weight
-  4. body_overlap   — Jaccard(tokens ∩ body) × body_weight
-  5. recency        — multiplier based on updated timestamp
+  1. tag_overlap    — Jaccard(tokens ∩ tags) × tag_weight
+  2. body_overlap   — Jaccard(tokens ∩ body) × body_weight
+  3. recency        — multiplier based on updated timestamp
+
+A row with zero tag/body overlap scores 0 and is dropped by min_keyword_score —
+there is no baseline weight keeping it eligible (domain used to provide one).
 
 Config loaded from memory_scoring.json (iCloud), mtime-cached.
 """
@@ -42,11 +43,6 @@ def _defaults_from_config() -> dict:
         "recency_boost_days":      _src_cfg.memory_recency_boost_days,
         "recency_penalty_days":    _src_cfg.memory_recency_penalty_days,
         "min_keyword_score":       _src_cfg.memory_min_keyword_score,
-        "domain_keyword_boost":    _src_cfg.memory_domain_keyword_boost,
-        # structured defaults (overridden by JSON)
-        "domain_weights":          {"project": 2.0, "global": 0.5, "coding-best-practices": 0.3},
-        "domain_keywords":         {},
-        "combination_signals":     {},
         "related_boost_factor":    0.15,
         "related_max_neighbours":  2,
     }
@@ -59,12 +55,8 @@ def load_scoring_cfg() -> dict:
     try:
         mtime = path.stat().st_mtime
         if mtime != _scoring_cfg_mtime:
-            json_data = json.loads(path.read_text())
-            # Merge: config scalars as base, JSON structured fields on top
-            _scoring_cfg = {**_defaults_from_config(), **{
-                k: json_data[k] for k in ("domain_weights", "domain_keywords", "combination_signals")
-                if k in json_data
-            }}
+            json.loads(path.read_text())  # validated, no structured domain fields left to merge
+            _scoring_cfg = _defaults_from_config()
             _scoring_cfg_mtime = mtime
             _log.info("[memory_scoring] config reloaded from %s", path.name)
     except Exception:
@@ -97,34 +89,11 @@ def recency_multiplier(updated_str: str | None, cfg: dict) -> float:
 def combination_score(
     row: sqlite3.Row,
     tokens: set[str],
-    project_domain: str | None,
     cfg: dict,
 ) -> float:
-    """Score one memory row against a token set using combination signals."""
-    domain = row["domain"] or "global"
-    domain_weights: dict = cfg.get("domain_weights", {"project": 2.0, "global": 0.5})
-
-    if domain == project_domain:
-        domain_weight = domain_weights.get("project", 2.0)
-    else:
-        domain_weight = domain_weights.get(domain, 0.0)
-
-    # Cross-domain keyword boost — only when CWD didn't already match this domain
-    if tokens and domain != project_domain:
-        domain_kws = set(cfg.get("domain_keywords", {}).get(domain, []))
-        if domain_kws and (tokens & domain_kws):
-            domain_weight += cfg.get("domain_keyword_boost", 0.8)
-
-    # Combination signals — pairs of tokens that together boost a domain
-    for combo, bonus in cfg.get("combination_signals", {}).get(domain, []):
-        if set(combo).issubset(tokens):
-            domain_weight += bonus
-
-    if domain_weight == 0.0:
-        return 0.0
-
+    """Score one memory row against a token set using tag/body overlap + recency."""
     if not tokens:
-        return domain_weight * recency_multiplier(row["updated"], cfg)
+        return 0.0
 
     tag_tokens  = set(tokenise((row["tags"]  or "").lower()))
     body_tokens = set(tokenise((row["body"]  or "").lower()))
@@ -135,44 +104,34 @@ def combination_score(
     if (tag_score + body_score) < cfg.get("min_keyword_score", 0.0):
         return 0.0
 
-    return (domain_weight + tag_score + body_score) * recency_multiplier(row["updated"], cfg)
+    return (tag_score + body_score) * recency_multiplier(row["updated"], cfg)
 
 
 def score_memories(
     tokens: set[str],
-    project_domain: str | None,
     conn: sqlite3.Connection,
     top_n: int | None = None,
 ) -> list[dict]:
     """Score all candidate memories and return top-N by combination signal.
 
-    After the initial keyword+domain scoring pass, applies a graph-neighbour
+    After the initial keyword scoring pass, applies a graph-neighbour
     boost: each high-scoring memory lifts its `related` siblings by
     related_boost_factor × seed_score (additive, capped to related_max_neighbours
     per seed). This makes the retriever concept-graph-aware without embeddings.
     """
     cfg = load_scoring_cfg()
     batch_limit = cfg.get("batch_limit", 500)
-    # Per-domain, not aggregate: a flat LIMIT across the whole table would let one
-    # large domain (or overall growth) silently starve every other domain's rows
-    # out of the candidate pool once the total row count crosses the cap. Fetching
-    # up to batch_limit per domain keeps each domain's quota independent of the
-    # others, and ORDER BY updated DESC means any truncation drops the stalest
-    # rows in that domain rather than an arbitrary/oldest-by-rowid slice.
-    domains = [r[0] for r in conn.execute("SELECT DISTINCT domain FROM memories").fetchall()]
-    rows: list[sqlite3.Row] = []
-    for d in domains:
-        rows.extend(conn.execute(
-            "SELECT name, type, domain, tags, body, related, updated FROM memories "
-            "WHERE domain IS ? ORDER BY updated DESC LIMIT ?",
-            (d, batch_limit),
-        ).fetchall())
+    rows: list[sqlite3.Row] = conn.execute(
+        "SELECT name, type, tags, body, related, updated FROM memories "
+        "ORDER BY updated DESC LIMIT ?",
+        (batch_limit,),
+    ).fetchall()
 
     rows_by_name: dict[str, sqlite3.Row] = {row["name"]: row for row in rows}
 
     scored: dict[str, tuple[float, dict]] = {}
     for row in rows:
-        s = combination_score(row, tokens, project_domain, cfg)
+        s = combination_score(row, tokens, cfg)
         if s > 0:
             scored[row["name"]] = (s, dict(row))
 

@@ -1,7 +1,6 @@
 """Node registry — maps node names to callables."""
 from __future__ import annotations
 
-from langchain_learning.nodes.cwd_domain_detect import CwdDomainDetectNode
 from langchain_learning.nodes.gate_check import GateCheckNode
 from langchain_learning.nodes.load_active_task import LoadActiveTaskNode
 from langchain_learning.nodes.load_task_code import LoadTaskCodeNode
@@ -26,7 +25,6 @@ NODE_REGISTRY: dict[str, object] = {
     "load_task_code":          LoadTaskCodeNode,
     "load_related_commits":    LoadRelatedCommitsNode,
     "load_memories":           LoadMemoriesNode,
-    "cwd_domain_detect":       CwdDomainDetectNode,
     # downstream
     "score_tools":             ScoreToolsNode,
     "summarize_task_context":  SummarizeTaskContextNode,

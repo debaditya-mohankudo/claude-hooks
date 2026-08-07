@@ -8,9 +8,9 @@ Environment variables (all optional, prefix CLAUDE_HOOKS_):
 
 CWD → domain mapping is loaded (mtime-cached) from cwd_domains.json in
 icloud_db_dir — same pattern as memory_scoring.json. Keys are CWD substrings
-(matched case-insensitively); first match wins. Scoped to repo-less domains
-(vault, market-intel, astrology) — code repos get persistent context via
-task-framework loop memory instead, so they don't need an entry here.
+(matched case-insensitively); first match wins. This maps to tool_hints.sqlite's
+domain column only (ScoreToolsNode) — MEMORY.sqlite's memories table has no
+domain column, and score_memories() no longer takes a domain at all.
 """
 import json
 from pathlib import Path
@@ -68,7 +68,6 @@ class _Config(BaseSettings):
     memory_recency_boost_days: int = Field(default=30)
     memory_recency_penalty_days: int = Field(default=180)
     memory_min_keyword_score: float = Field(default=0.2)
-    memory_domain_keyword_boost: float = Field(default=0.8)
 
     @computed_field
     @property

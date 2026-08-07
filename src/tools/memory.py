@@ -42,7 +42,6 @@ def handle_add(
     name: str,
     type: str,
     body: str,
-    domain: str = "global",
     tags: str = "",
     files: str = "",
     docs: str = "",
@@ -54,7 +53,6 @@ def handle_add(
         name:   Unique slug (kebab-case). Existing entry is overwritten.
         type:   One of: user, feedback, project, reference.
         body:   Memory content. For feedback/project include Why: and How to apply: lines.
-        domain: Any string domain (e.g. global, macos, health, market-intel).
         tags:   Comma-separated keywords for retrieval scoring.
         files:  Comma-separated source file paths this memory relates to.
         docs:   Comma-separated vault doc paths linked to this memory.
@@ -68,11 +66,10 @@ def handle_add(
         _ensure_schema(con)
         con.execute(
             """
-            INSERT INTO memories (name, type, domain, tags, body, files, docs, related, updated, last_validated)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+            INSERT INTO memories (name, type, tags, body, files, docs, related, updated, last_validated)
+            VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
             ON CONFLICT(name) DO UPDATE SET
                 type=excluded.type,
-                domain=excluded.domain,
                 tags=excluded.tags,
                 body=excluded.body,
                 files=excluded.files,
@@ -81,9 +78,9 @@ def handle_add(
                 updated=excluded.updated,
                 last_validated=excluded.last_validated
             """,
-            (name, type, domain, tags, body, files, docs, related),
+            (name, type, tags, body, files, docs, related),
         )
-    _log.info("memory upserted: name='%s' type=%s domain=%s", name, type, domain)
+    _log.info("memory upserted: name='%s' type=%s", name, type)
     try:
         from scripts.build_memories_embeddings import upsert_memories
         upsert_memories([name])
@@ -97,7 +94,7 @@ def handle_add_batch(memories: list[dict]) -> dict:
 
     Args:
         memories: List of memory dicts, each with keys: name, type, body,
-                  domain (optional, default 'global'), tags (optional, default '').
+                  tags (optional, default '').
     """
     results = []
     names_to_embed = []
@@ -107,7 +104,6 @@ def handle_add_batch(memories: list[dict]) -> dict:
             name   = m.get("name", "")
             mtype  = m.get("type", "")
             body   = m.get("body", "")
-            domain = m.get("domain", "global")
             tags   = m.get("tags", "")
             files   = m.get("files", "")
             docs    = m.get("docs", "")
@@ -120,11 +116,10 @@ def handle_add_batch(memories: list[dict]) -> dict:
                 continue
             con.execute(
                 """
-                INSERT INTO memories (name, type, domain, tags, body, files, docs, related, updated, last_validated)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+                INSERT INTO memories (name, type, tags, body, files, docs, related, updated, last_validated)
+                VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
                 ON CONFLICT(name) DO UPDATE SET
                     type=excluded.type,
-                    domain=excluded.domain,
                     tags=excluded.tags,
                     body=excluded.body,
                     files=excluded.files,
@@ -133,11 +128,11 @@ def handle_add_batch(memories: list[dict]) -> dict:
                     updated=excluded.updated,
                     last_validated=excluded.last_validated
                 """,
-                (name, mtype, domain, tags, body, files, docs, related),
+                (name, mtype, tags, body, files, docs, related),
             )
             results.append({"name": name, "action": "upserted"})
             names_to_embed.append(name)
-            _log.info("memory upserted: name='%s' type=%s domain=%s", name, mtype, domain)
+            _log.info("memory upserted: name='%s' type=%s", name, mtype)
 
     if names_to_embed:
         try:
@@ -155,12 +150,12 @@ def _normalize_slug(s: str) -> str:
     return s.replace("-", "").replace("_", "")
 
 
-def _search_rows(query: str, type: str, domain: str, con: sqlite3.Connection) -> list:
+def _search_rows(query: str, type: str, con: sqlite3.Connection) -> list:
     like = f"%{query}%"
     norm = f"%{_normalize_slug(query)}%"
     # REPLACE(name,'-','') and REPLACE(...,'_','') lets SQLite compare normalized slugs
     sql = (
-        "SELECT id, name, type, domain, tags, body, updated FROM memories "
+        "SELECT id, name, type, tags, body, updated FROM memories "
         "WHERE (name LIKE ? OR REPLACE(REPLACE(name,'-',''),'_','') LIKE ? "
         "OR tags LIKE ? OR body LIKE ?)"
     )
@@ -168,14 +163,11 @@ def _search_rows(query: str, type: str, domain: str, con: sqlite3.Connection) ->
     if type:
         sql += " AND type = ?"
         params.append(type)
-    if domain:
-        sql += " AND domain = ?"
-        params.append(domain)
     sql += " ORDER BY updated DESC LIMIT 20"
     return con.execute(sql, params).fetchall()
 
 
-def handle_search(query: str, type: str = "", domain: str = "") -> dict:
+def handle_search(query: str, type: str = "") -> dict:
     """Search memories by keyword across name, tags, and body.
 
     Slug normalization: underscores and hyphens are stripped before matching
@@ -187,11 +179,10 @@ def handle_search(query: str, type: str = "", domain: str = "") -> dict:
     Args:
         query:  Keyword(s) to search for (case-insensitive).
         type:   Optional filter by type (user/feedback/project/reference).
-        domain: Optional filter by domain.
     """
     with sqlite3.connect(MEMORY_DB) as con:
         con.row_factory = sqlite3.Row
-        rows = _search_rows(query, type, domain, con)
+        rows = _search_rows(query, type, con)
 
         if not rows:
             # Split on whitespace AND on slug separators so 'claude_hooks' → ['claude', 'hooks']
@@ -200,35 +191,31 @@ def handle_search(query: str, type: str = "", domain: str = "") -> dict:
             if len(tokens) > 1:
                 seen: dict[int, sqlite3.Row] = {}
                 for token in tokens:
-                    for row in _search_rows(token, type, domain, con):
+                    for row in _search_rows(token, type, con):
                         seen.setdefault(row["id"], row)
                 rows = sorted(seen.values(), key=lambda r: r["updated"], reverse=True)
 
     results = [dict(r) for r in rows]
 
-    _log.debug("handle_search query='%s' type=%s domain=%s → %d results", query, type, domain, len(results))
+    _log.debug("handle_search query='%s' type=%s → %d results", query, type, len(results))
     return {
         "count": len(results),
         "results": results,
     }
 
 
-def handle_list(type: str = "", domain: str = "") -> dict:
-    """List all memories, optionally filtered by type or domain.
+def handle_list(type: str = "") -> dict:
+    """List all memories, optionally filtered by type.
 
     Args:
         type:   Optional filter by type (user/feedback/project/reference).
-        domain: Optional filter by domain.
     """
-    sql = "SELECT id, name, type, domain, tags, updated FROM memories WHERE 1=1"
+    sql = "SELECT id, name, type, tags, updated FROM memories WHERE 1=1"
     params: list = []
 
     if type:
         sql += " AND type = ?"
         params.append(type)
-    if domain:
-        sql += " AND domain = ?"
-        params.append(domain)
 
     sql += " ORDER BY updated DESC"
 
@@ -259,38 +246,6 @@ def handle_get(name: str) -> dict:
         return {"error": f"No memory found with name '{name}'"}
     _log.debug("handle_get: fetched name='%s'", name)
     return dict(row)
-
-
-def handle_list_domains(domains: str, type: str = "") -> dict:
-    """List memories from multiple domains in one call.
-
-    Args:
-        domains: Comma-separated domain names (e.g. "astrology,global").
-        type:    Optional filter by type (user/feedback/project/reference).
-    """
-    domain_list = [d.strip() for d in domains.split(",") if d.strip()]
-    if not domain_list:
-        return {"error": "No domains provided"}
-
-    placeholders = ",".join("?" * len(domain_list))
-    sql = f"SELECT id, name, type, domain, tags, updated FROM memories WHERE domain IN ({placeholders})"
-    params: list = list(domain_list)
-
-    if type:
-        sql += " AND type = ?"
-        params.append(type)
-
-    sql += " ORDER BY updated DESC"
-
-    with sqlite3.connect(MEMORY_DB) as con:
-        con.row_factory = sqlite3.Row
-        rows = con.execute(sql, params).fetchall()
-
-    return {
-        "count": len(rows),
-        "domains": domain_list,
-        "memories": [dict(r) for r in rows],
-    }
 
 
 def handle_tool_hints(domain: str = "", top_n: int = 20) -> dict:

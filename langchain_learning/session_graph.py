@@ -10,7 +10,7 @@ Graph shape:
       ├── user_prompt_submit → load_turn ──(task active?)──► load_active_task
       │                         → load_task_code (TurboVec RAG) → load_related_commits
       │                                            └─(no task)──► summarize_task_context
-      │                         → cwd_domain_detect / load_memories / score_tools → set_prompt_id → END
+      │                         → load_memories / score_tools → set_prompt_id → END
       ├── pre_tool_use       → gate_check → END
       ├── post_tool_use      → log_tool_usage → update_tool_keywords → (tasks__clear_active/finish → deactivate_task | *) → END
       └── stop               → noop → play_sound → END
@@ -71,7 +71,6 @@ def build_session_graph(checkpointer=None):
     for name in [
         "noop",
         "load_turn", "load_active_task", "load_task_code", "load_related_commits", "load_memories",
-        "cwd_domain_detect",
         "score_tools", "summarize_task_context", "set_prompt_id",
         "gate_check",
         "log_tool_usage",
@@ -124,11 +123,9 @@ def build_session_graph(checkpointer=None):
     for loader in ("load_task_code", "load_related_commits"):
         builder.add_edge(loader, "summarize_task_context")
     # fan-out from summarize_task_context to second-tier nodes
-    builder.add_edge("summarize_task_context", "cwd_domain_detect")
     builder.add_edge("summarize_task_context", "load_memories")
     builder.add_edge("summarize_task_context", "score_tools")
-    # fan-in: all three converge at set_prompt_id
-    builder.add_edge("cwd_domain_detect",     "set_prompt_id")
+    # fan-in: both converge at set_prompt_id
     builder.add_edge("load_memories",         "set_prompt_id")
     builder.add_edge("score_tools",           "set_prompt_id")
     # log_task_events is gone with the rest of the task pipeline: it wrote a

@@ -74,11 +74,10 @@ def _run_backfill(domain: str, file_paths: list[str]) -> int:
             rows = conn.execute(
                 """
                 SELECT name, tags FROM memories
-                WHERE files IS NULL AND domain = ?
+                WHERE files IS NULL
                 ORDER BY COALESCE(last_validated, updated) ASC
                 LIMIT 5
                 """,
-                (domain,),
             ).fetchall()
 
             _log.debug(

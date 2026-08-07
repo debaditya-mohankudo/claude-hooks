@@ -12,7 +12,6 @@ from tools.memory import (
     handle_add_batch,
     handle_get,
     handle_list,
-    handle_list_domains,
     handle_search,
     handle_delete,
     handle_tool_hints,
@@ -27,7 +26,7 @@ def _make_memory_db(memories: list[dict] | None = None) -> Path:
     con.executescript(MEMORIES_DDL)
     for m in (memories or []):
         con.execute(
-            "INSERT INTO memories (name, type, domain, tags, body) VALUES (:name, :type, :domain, :tags, :body)",
+            "INSERT INTO memories (name, type, tags, body) VALUES (:name, :type, :tags, :body)",
             m,
         )
     con.commit()
@@ -52,9 +51,9 @@ def _make_tool_hints_db(hints: list[dict] | None = None) -> Path:
 @pytest.fixture
 def mem_db():
     return _make_memory_db([
-        {"name": "alpha", "type": "user", "domain": "global", "tags": "foo,bar", "body": "User is a developer"},
-        {"name": "beta", "type": "feedback", "domain": "macos", "tags": "macos", "body": "Use short responses"},
-        {"name": "gamma", "type": "project", "domain": "market-intel", "tags": "market", "body": "Market project context"},
+        {"name": "alpha", "type": "user", "tags": "foo,bar", "body": "User is a developer"},
+        {"name": "beta", "type": "feedback", "tags": "macos", "body": "Use short responses"},
+        {"name": "gamma", "type": "project", "tags": "market", "body": "Market project context"},
     ])
 
 
@@ -94,15 +93,6 @@ def test_add_rejects_invalid_type(mem_db):
         result = handle_add(name="bad", type="invalid_type", body="body")
     assert "error" in result
     assert "invalid_type" in result["error"]
-
-
-def test_add_default_domain_is_global(mem_db):
-    with patch("tools.memory.MEMORY_DB", str(mem_db)):
-        handle_add(name="new-global", type="user", body="body")
-    con = sqlite3.connect(str(mem_db))
-    row = con.execute("SELECT domain FROM memories WHERE name='new-global'").fetchone()
-    con.close()
-    assert row[0] == "global"
 
 
 def test_add_persists_files_and_docs(mem_db):
@@ -225,16 +215,9 @@ def test_list_filters_by_type(mem_db):
     assert result["memories"][0]["name"] == "beta"
 
 
-def test_list_filters_by_domain(mem_db):
-    with patch("tools.memory.MEMORY_DB", str(mem_db)):
-        result = handle_list(domain="macos")
-    assert result["count"] == 1
-    assert result["memories"][0]["name"] == "beta"
-
-
 def test_list_returns_empty_for_no_match(mem_db):
     with patch("tools.memory.MEMORY_DB", str(mem_db)):
-        result = handle_list(domain="nonexistent")
+        result = handle_list(type="nonexistent")
     assert result["count"] == 0
 
 
@@ -268,41 +251,10 @@ def test_search_multi_word_fallback(mem_db):
     assert result["count"] >= 1
 
 
-def test_search_filters_by_domain(mem_db):
-    with patch("tools.memory.MEMORY_DB", str(mem_db)):
-        result = handle_search(query="context", domain="market-intel")
-    assert all(r["domain"] == "market-intel" for r in result["results"])
-
-
 def test_search_tags_source_global(mem_db):
     with patch("tools.memory.MEMORY_DB", str(mem_db)):
         result = handle_search(query="developer")
     assert result["count"] >= 1
-
-
-# ---------------------------------------------------------------------------
-# handle_list_domains
-# ---------------------------------------------------------------------------
-
-def test_list_domains_returns_memories_from_multiple_domains(mem_db):
-    with patch("tools.memory.MEMORY_DB", str(mem_db)):
-        result = handle_list_domains(domains="global,macos")
-    assert result["count"] == 2
-    domains = {r["domain"] for r in result["memories"]}
-    assert domains == {"global", "macos"}
-
-
-def test_list_domains_empty_string_returns_error(mem_db):
-    with patch("tools.memory.MEMORY_DB", str(mem_db)):
-        result = handle_list_domains(domains="")
-    assert "error" in result
-
-
-def test_list_domains_filters_by_type(mem_db):
-    with patch("tools.memory.MEMORY_DB", str(mem_db)):
-        result = handle_list_domains(domains="global,macos", type="user")
-    assert result["count"] == 1
-    assert result["memories"][0]["name"] == "alpha"
 
 
 # ---------------------------------------------------------------------------
@@ -408,8 +360,8 @@ def test_read_compact_no_compact_marker_returns_error(tmp_path):
 
 def test_add_batch_inserts_multiple(mem_db):
     batch = [
-        {"name": "batch-1", "type": "user", "body": "First batch memory", "domain": "global", "tags": "a"},
-        {"name": "batch-2", "type": "feedback", "body": "Second batch memory", "domain": "macos", "tags": "b"},
+        {"name": "batch-1", "type": "user", "body": "First batch memory", "tags": "a"},
+        {"name": "batch-2", "type": "feedback", "body": "Second batch memory", "tags": "b"},
     ]
     with patch("tools.memory.MEMORY_DB", str(mem_db)):
         result = handle_add_batch(batch)
@@ -418,18 +370,9 @@ def test_add_batch_inserts_multiple(mem_db):
     assert all(r["action"] == "upserted" for r in result["results"])
 
 
-def test_add_batch_updates_existing_domain(mem_db):
-    batch = [{"name": "alpha", "type": "user", "body": "User is a developer", "domain": "vault", "tags": "foo,bar"}]
-    with patch("tools.memory.MEMORY_DB", str(mem_db)):
-        result = handle_add_batch(batch)
-        row = sqlite3.connect(str(mem_db)).execute("SELECT domain FROM memories WHERE name='alpha'").fetchone()
-    assert result["count"] == 1
-    assert row[0] == "vault"
-
-
 def test_add_batch_rejects_invalid_type(mem_db):
     batch = [
-        {"name": "good-mem", "type": "user", "body": "ok", "domain": "global"},
+        {"name": "good-mem", "type": "user", "body": "ok"},
         {"name": "bad-mem", "type": "invalid", "body": "bad type"},
     ]
     with patch("tools.memory.MEMORY_DB", str(mem_db)):

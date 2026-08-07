@@ -139,7 +139,7 @@ def test_includes_active_domains():
 
 
 def test_includes_memories():
-    mem = {"name": "my-mem", "domain": "global", "body": "remember this"}
+    mem = {"name": "my-mem", "body": "remember this"}
     result = _format_system_prompt(_base_ctx(memories=[mem]))
     assert "## Injected memories" in result
     assert "remember this" in result

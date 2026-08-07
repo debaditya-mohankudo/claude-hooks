@@ -1,25 +1,27 @@
 {
   "concepts": {
     "config-db-paths-and-domains": {
-      "confidence": 0.98,
+      "confidence": 0.95,
       "contracts": [
         "config.memory_db, config.tool_hints_db, config.log_db are valid Paths",
         "config.cwd_domain_map returns the mtime-cached dict loaded from cwd_domains.json (icloud_db_dir), falling back to _CWD_DOMAIN_MAP_DEFAULT if missing/unreadable"
       ],
       "created_at": "2026-06-29T09:47:25.287104+00:00",
-      "description": "Central configuration via pydantic-settings. Defines all database paths, valid domains, CWD-to-domain mapping, and memory scoring tunables. All other modules import from config singleton.",
+      "description": "Central configuration via pydantic-settings. Defines all database paths, CWD-to-domain mapping (tool_hints.sqlite scoring only, see below), and memory scoring tunables. All other modules import from config singleton.",
       "evidence": [
         "src/config.py: _load_cwd_domain_map(path)",
         "src/config.py: cwd_domain_map"
       ],
       "invariants": [
-        "cwd_domains.json (icloud_db_dir, same pattern as memory_scoring.json) is the source of truth for cwd-to-domain classification, scoped to repo-less domains only (vault, market-intel, astrology) — code repos get persistent context via task-framework loop memory instead and are deliberately not entered here (task:d2659d44, 2026-08-07)",
+        "MEMORY.sqlite's memories table has no domain column as of task:4c9c21e6 (2026-08-07) — config has no valid_domains property; domain is not a retrieval axis for score_memories() anymore, which scores tags-only across a single global batch (see memory-scoring-global-batch-limit). cwd_domain_map / cwd_domains.json / _CWD_DOMAIN_MAP_DEFAULT are NOT part of this — they remain live for a separate, unrelated purpose (below).",
+        "cwd_domains.json (icloud_db_dir, same pattern as memory_scoring.json) is the source of truth for cwd-to-domain classification used ONLY by ScoreToolsNode / KeywordOverlapScorer to score tool_hints.sqlite rows (a different DB, a different domain column) — scoped to repo-less domains only (vault, market-intel, astrology); code repos get persistent context via task-framework loop memory instead and are deliberately not entered here (task:d2659d44, 2026-08-07)",
         "_CWD_DOMAIN_MAP_DEFAULT is only a fallback seed, used if cwd_domains.json is missing or fails to parse; trimmed to the same repo-less domains",
         "Config is frozen (immutable after construction)",
         "tasks_db was removed (2026-08-07) — task storage lives in task-framework now, nothing in this repo reads proj_tasks.db; the langchain_learning/config.py passthrough property was dropped alongside it",
-        "The unmapped-cwd onboarding reminder (\"New project detected\", formerly surfaced by CwdDomainDetectNode + hooks/dispatcher.py) was removed (task:d2659d44, 2026-08-07) — code repos no longer need a cwd_domains.json entry at all, so nudging for one was noise"
+        "The unmapped-cwd onboarding reminder (\"New project detected\", formerly surfaced by CwdDomainDetectNode + hooks/dispatcher.py) was removed (task:d2659d44, 2026-08-07) — code repos no longer need a cwd_domains.json entry at all, so nudging for one was noise",
+        "CwdDomainDetectNode itself was deleted entirely (task:4c9c21e6, 2026-08-07) along with its session_graph.py/registry.py wiring — cwd_domain_map is now read only by ScoreToolsNode for tool_hints scoring, not by any node that sets a MEMORY.sqlite-facing domain state field"
       ],
-      "last_validated": "2026-08-07T12:36:38.326044+00:00",
+      "last_validated": "2026-08-07T13:05:00.000000+00:00",
       "module": "src/config.py",
       "name": "config-db-paths-and-domains"
     },
@@ -324,24 +326,24 @@
       "module": "mcp_server.py",
       "name": "mcp-server-bootstrap"
     },
-    "memory-scoring-per-domain-batch-limit": {
+    "memory-scoring-global-batch-limit": {
       "confidence": 0.9,
       "contracts": [
-        "Callers of score_memories() can add unbounded domains without any single domain silently excluding another from scoring, as long as no one domain individually exceeds batch_limit."
+        "score_memories() fetches at most batch_limit candidate rows total, across the whole memories table, before applying combination-signal scoring."
       ],
       "created_at": "2026-07-21T22:21:23.339835+00:00",
-      "description": "score_memories() fetches candidate memory rows per-domain (not one aggregate query across the whole memories table) before applying combination-signal scoring. Each distinct domain gets its own SELECT ... WHERE domain IS ? ORDER BY updated DESC LIMIT batch_limit, and the per-domain result sets are concatenated before scoring.",
+      "description": "score_memories() fetches candidate memory rows via a single aggregate query across the whole memories table (SELECT name, type, tags, body, related, updated FROM memories ORDER BY updated DESC LIMIT batch_limit), then applies combination-signal scoring. Rewritten from a per-domain batched design (task:4c9c21e6, 2026-08-07) after MEMORY.sqlite's domain column was dropped — domain is no longer a retrieval axis, so there is no per-domain SELECT to keep separate.",
       "evidence": [
-        "langchain_learning/nodes/_memory_scoring.py:154-167"
+        "langchain_learning/nodes/_memory_scoring.py:110-127"
       ],
       "invariants": [
-        "batch_limit (memory_scoring.json / src.config.memory_batch_limit) is a per-domain cap, not an aggregate cap across the whole memories table.",
-        "Truncation (when a domain exceeds batch_limit rows) always drops the stalest rows in that domain first, via ORDER BY updated DESC -- never an arbitrary rowid-order slice.",
-        "A small or new domain must never be starved out of the candidate pool by a large domain growing past batch_limit -- each domain is queried independently."
+        "batch_limit (memory_scoring.json / src.config.memory_batch_limit) is now a single global cap across all memories, not a per-domain cap.",
+        "Truncation (when the table exceeds batch_limit rows) always drops the stalest rows first, via ORDER BY updated DESC -- never an arbitrary rowid-order slice.",
+        "The prior per-domain starvation protection (a small/new domain could never be crowded out by a large one) has NO replacement as of this rewrite -- a large volume of recently-updated memories can now crowd out older ones regardless of topic. Accepted as a known, undefended risk when domain was removed (task:4c9c21e6 grooming), not an oversight; revisit only if starvation is observed in practice."
       ],
-      "last_validated": "2026-07-25T18:53:24.366214+00:00",
+      "last_validated": "2026-08-07T13:05:00.000000+00:00",
       "module": "langchain_learning/nodes/_memory_scoring.py",
-      "name": "memory-scoring-per-domain-batch-limit"
+      "name": "memory-scoring-global-batch-limit"
     },
     "rag-core-turbovec-index": {
       "confidence": 0.97,

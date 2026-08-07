@@ -218,12 +218,14 @@ class TestUserPromptSubmit:
 
 
 # ---------------------------------------------------------------------------
-# cwd=/tmp → domain=test — fixed memory set (cwd_domains.json maps "/tmp" to
-# "test"; test-fixture-alpha/beta are seeded in MEMORY.sqlite under domain=test)
+# Fixed memory set surfaced purely on keyword overlap (no domain scoping any
+# more) — test-fixture-alpha/beta are seeded in MEMORY.sqlite tagged with
+# "integration test fixture cwd tmp sentinel ..." so this prompt's tokens hit
+# them regardless of cwd.
 # ---------------------------------------------------------------------------
 
 class TestTmpCwdFixedMemories:
-    def test_tmp_cwd_injects_known_test_domain_memories(self, client):
+    def test_tmp_cwd_injects_known_fixture_memories(self, client):
         r = client.post("/hook/UserPromptSubmit", json={
             "session_id": "api-test-tmp-memories",
             "cwd": "/tmp",

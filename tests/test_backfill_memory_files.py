@@ -57,7 +57,7 @@ def test_file_tokens_empty():
 
 def test_run_backfill_updates_matching_memory(tmp_path):
     db = make_memory_db(tmp_path, [
-        {"name": "claude-hooks-gate-framework", "domain": "claude-hooks", "tags": "gate, gates, hooks"},
+        {"name": "claude-hooks-gate-framework", "tags": "gate, gates, hooks"},
     ])
     with patch("langchain_learning.nodes.backfill_memory_files._cfg") as cfg:
         cfg.memory_db = db
@@ -70,7 +70,7 @@ def test_run_backfill_updates_matching_memory(tmp_path):
 
 def test_run_backfill_skips_already_filled(tmp_path):
     db = make_memory_db(tmp_path, [
-        {"name": "claude-hooks-gate-framework", "domain": "claude-hooks",
+        {"name": "claude-hooks-gate-framework",
          "tags": "gate gates", "files": "hooks/gates.py"},
     ])
     with patch("langchain_learning.nodes.backfill_memory_files._cfg") as cfg:
@@ -81,7 +81,7 @@ def test_run_backfill_skips_already_filled(tmp_path):
 
 def test_run_backfill_no_overlap_skips(tmp_path):
     db = make_memory_db(tmp_path, [
-        {"name": "claude-hooks-unrelated", "domain": "claude-hooks", "tags": "auth login"},
+        {"name": "claude-hooks-unrelated", "tags": "auth login"},
     ])
     with patch("langchain_learning.nodes.backfill_memory_files._cfg") as cfg:
         cfg.memory_db = db
@@ -98,7 +98,7 @@ def test_run_backfill_missing_db_returns_zero(tmp_path):
 
 def test_run_backfill_empty_files_returns_zero(tmp_path):
     db = make_memory_db(tmp_path, [
-        {"name": "some-memory", "domain": "claude-hooks", "tags": "gate"},
+        {"name": "some-memory", "tags": "gate"},
     ])
     with patch("langchain_learning.nodes.backfill_memory_files._cfg") as cfg:
         cfg.memory_db = db
@@ -110,7 +110,7 @@ def test_run_backfill_empty_files_returns_zero(tmp_path):
 
 def test_node_skips_replay_session(tmp_path):
     db = make_memory_db(tmp_path, [
-        {"name": "claude-hooks-gate-framework", "domain": "claude-hooks", "tags": "gate gates"},
+        {"name": "claude-hooks-gate-framework", "tags": "gate gates"},
     ])
     with patch("langchain_learning.nodes.backfill_memory_files._cfg") as cfg:
         cfg.memory_db = db
@@ -140,7 +140,7 @@ def test_node_skips_when_no_domain():
 
 def test_node_backfills_and_returns_count(tmp_path):
     db = make_memory_db(tmp_path, [
-        {"name": "claude-hooks-gate-framework", "domain": "claude-hooks", "tags": "gate gates hooks"},
+        {"name": "claude-hooks-gate-framework", "tags": "gate gates hooks"},
     ])
     with patch("langchain_learning.nodes.backfill_memory_files._cfg") as cfg:
         cfg.memory_db = db

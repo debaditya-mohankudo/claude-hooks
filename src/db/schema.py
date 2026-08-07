@@ -27,7 +27,6 @@ CREATE TABLE IF NOT EXISTS memories (
     id             INTEGER PRIMARY KEY AUTOINCREMENT,
     name           TEXT UNIQUE NOT NULL,
     type           TEXT NOT NULL,
-    domain         TEXT DEFAULT 'global',
     tags           TEXT DEFAULT '',
     body           TEXT DEFAULT '',
     related        TEXT DEFAULT '',

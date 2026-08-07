@@ -42,7 +42,6 @@ class MemoryRetriever(Protocol):
     def retrieve(
         self,
         tokens: set[str],
-        project_domain: str | None,
         top_n: int | None = None,
     ) -> list[dict]: ...
 
@@ -91,7 +90,7 @@ class NullMemoryRetriever:
     """No-op retriever — always returns empty. Satisfies MemoryRetriever Protocol."""
 
     def retrieve(
-        self, tokens: set[str], project_domain: str | None, top_n: int | None = None
+        self, tokens: set[str], top_n: int | None = None
     ) -> list[dict]:
         return []
 
@@ -108,7 +107,7 @@ class NullToolScorer:
 # ---------------------------------------------------------------------------
 
 class CombinationSignalRetriever:
-    """Scores MEMORY.sqlite rows via domain weight + tag/body overlap + recency.
+    """Scores MEMORY.sqlite rows via tag/body overlap + recency.
 
     Wraps score_memories() from nodes/_memory_scoring.py.
     Opens and closes its own SQLite connection per retrieve() call.
@@ -118,7 +117,6 @@ class CombinationSignalRetriever:
     def retrieve(
         self,
         tokens: set[str],
-        project_domain: str | None,
         top_n: int | None = None,
     ) -> list[dict]:
         import sqlite3
@@ -131,9 +129,9 @@ class CombinationSignalRetriever:
         conn = sqlite3.connect(f"file:{_cfg.memory_db}?mode=ro", uri=True)
         conn.row_factory = sqlite3.Row
         try:
-            results = score_memories(tokens, project_domain, conn, top_n=top_n)
-            _log.debug("[CombinationSignalRetriever] scored=%d domain=%s tokens=%d",
-                       len(results), project_domain, len(tokens))
+            results = score_memories(tokens, conn, top_n=top_n)
+            _log.debug("[CombinationSignalRetriever] scored=%d tokens=%d",
+                       len(results), len(tokens))
             return results
         except Exception as exc:
             _log.error("[CombinationSignalRetriever] score_memories error: %s", exc)

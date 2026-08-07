@@ -23,11 +23,10 @@ def make_memory_db(tmp_path: Path, memories: list[dict] | None = None) -> Path:
         conn.executescript(MEMORIES_DDL)
         for m in memories or []:
             conn.execute(
-                "INSERT INTO memories (name, type, domain, tags, body, files) VALUES (?,?,?,?,?,?)",
+                "INSERT INTO memories (name, type, tags, body, files) VALUES (?,?,?,?,?)",
                 (
                     m["name"],
                     m.get("type", "feedback"),
-                    m.get("domain", "global"),
                     m.get("tags", ""),
                     m.get("body", ""),
                     m.get("files", None),

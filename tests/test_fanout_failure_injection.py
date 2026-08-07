@@ -12,9 +12,8 @@ tests catch that regression too (they'd error out rather than asserting).
 
 Topology under test (UPS with active task):
     load_active_task → load_task_code    ────┐
-                     → load_related_commits ─┼──→ cwd_domain_detect ──┐
-                                              │    load_memories       ├──→ set_prompt_id → END
-                                              │    score_tools        ┘
+                     → load_related_commits ─┼──→ load_memories ──┐
+                                              │    score_tools    ├──→ set_prompt_id → END
 """
 from __future__ import annotations
 
@@ -100,7 +99,7 @@ class TestSingleDependencyFailure:
         mock_cfg = MagicMock()
         mock_cfg.memory_db = tmp_path / "MEMORY.sqlite"  # doesn't exist
 
-        with patch("langchain_learning.nodes.load_memories._cfg", mock_cfg), \
+        with patch("langchain_learning.config.config", mock_cfg), \
              patch("langchain_learning.nodes.score_tools.ScoreToolsNode.__call__",
                    return_value={"tool_hints": ["contacts__search"]}) as mock_score:
 
@@ -163,7 +162,7 @@ class TestDoubleDependencyFailure:
         mock_cfg_mem = MagicMock()
         mock_cfg_mem.memory_db = tmp_path / "MEMORY.sqlite"  # missing
 
-        with patch("langchain_learning.nodes.load_memories._cfg", mock_cfg_mem), \
+        with patch("langchain_learning.config.config", mock_cfg_mem), \
              patch("langchain_learning.nodes.score_tools.ScoreToolsNode.__call__",
                    return_value={"tool_hints": []}), \
              patch("langchain_learning.nodes.set_prompt_id.SetPromptIdNode.__call__",

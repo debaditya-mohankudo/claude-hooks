@@ -259,7 +259,7 @@ class TestHandleCheckpointQuery:
 
     def test_returns_memories(self):
         state = {
-            "memories": [{"name": "test", "type": "feedback", "domain": "global",
+            "memories": [{"name": "test", "type": "feedback",
                           "tags": "foo", "body": "body text"}],
             "domains": ["global"],
         }
