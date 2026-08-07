@@ -17,7 +17,6 @@ class SessionState(TypedDict):
 
     # --- UserPromptSubmit outputs ---
     memories: list[dict]
-    domains: list[str]
     keywords: list[str]
     tool_hints: list[dict]
     active_task_id: str              # set via task_activate branch; flows through session via checkpoint

@@ -248,22 +248,17 @@ def handle_get(name: str) -> dict:
     return dict(row)
 
 
-def handle_tool_hints(domain: str = "", top_n: int = 20) -> dict:
+def handle_tool_hints(top_n: int = 20) -> dict:
     """Show MCP tool usage stats from tool_hints.sqlite.
 
     Args:
-        domain: Optional filter by domain (e.g. "astrology", "macos").
         top_n:  Max rows to return, sorted by count descending.
     """
     if not TOOL_HINTS_DB.exists():
         return {"error": "tool_hints.sqlite not found — no tool calls logged yet."}
 
-    sql = "SELECT tool_name, domain, count, last_used, avg_latency_ms, keywords, skill FROM mcp_tool_hints"
+    sql = "SELECT tool_name, count, last_used, avg_latency_ms, keywords, skill FROM mcp_tool_hints"
     params: list = []
-
-    if domain:
-        sql += " WHERE domain = ?"
-        params.append(domain)
 
     sql += " ORDER BY count DESC LIMIT ?"
     params.append(top_n)

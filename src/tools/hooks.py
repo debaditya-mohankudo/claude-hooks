@@ -110,7 +110,7 @@ def handle_session_id() -> dict:
 
 
 def handle_checkpoint_query(thread_id: str = "") -> dict:
-    """Query the live LangGraph checkpoint for injected memories, tool hints, session context, domains, and keywords.
+    """Query the live LangGraph checkpoint for injected memories, tool hints, session context, and keywords.
 
     thread_id is the session_id to look up; if omitted, uses the current session
     (same resolution as handle_session_id).
@@ -162,7 +162,6 @@ def handle_checkpoint_query(thread_id: str = "") -> dict:
             if isinstance(h, dict):
                 tool_hints.append({
                     "tool": h.get("tool_name"),
-                    "domain": h.get("domain"),
                     "skill": h.get("skill"),
                     "count": h.get("count"),
                 })
@@ -177,7 +176,6 @@ def handle_checkpoint_query(thread_id: str = "") -> dict:
         "thread_id": session_id,
         "turn_count": data.get("turn_count"),
         "prompt_id": channels.get("prompt_id"),
-        "domains": channels.get("domains", []),
         "keywords": channels.get("keywords", []),
         "matched_keywords": channels.get("matched_keywords"),
         "memories": memories,

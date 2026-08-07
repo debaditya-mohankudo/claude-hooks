@@ -52,7 +52,7 @@ def _make_hints_db(rows: list[dict]) -> Path:
     conn = sqlite3.connect(tmp.name)
     conn.executescript(MCP_TOOL_HINTS_DDL)
     conn.executemany(
-        "INSERT INTO mcp_tool_hints (tool_name, domain, skill, count, keywords) VALUES (:tool_name,:domain,:skill,:count,:keywords)",
+        "INSERT INTO mcp_tool_hints (tool_name, skill, count, keywords) VALUES (:tool_name,:skill,:count,:keywords)",
         rows,
     )
     conn.commit()
@@ -77,10 +77,10 @@ def memory_db():
 @pytest.fixture
 def hints_db():
     return _make_hints_db([
-        {"tool_name": "panchang__today",     "domain": "astrology",   "skill": "panchang", "count": 20, "keywords": "panchang,nakshatra,tithi"},
-        {"tool_name": "market__gold_regime", "domain": "market-intel","skill": "gold",     "count": 15, "keywords": "gold,regime,market"},
-        {"tool_name": "imessage__send",      "domain": "macos",       "skill": "imessage", "count": 50, "keywords": "send,message,contact"},
-        {"tool_name": "vault__write",        "domain": "vault",       "skill": "vault",    "count": 40, "keywords": "write,save,note,vault"},
+        {"tool_name": "panchang__today",     "skill": "panchang", "count": 20, "keywords": "panchang,nakshatra,tithi"},
+        {"tool_name": "market__gold_regime", "skill": "gold",     "count": 15, "keywords": "gold,regime,market"},
+        {"tool_name": "imessage__send",      "skill": "imessage", "count": 50, "keywords": "send,message,contact"},
+        {"tool_name": "vault__write",        "skill": "vault",    "count": 40, "keywords": "write,save,note,vault"},
     ])
 
 
@@ -107,7 +107,7 @@ def _base_state(**overrides) -> SessionState:
         "event_type": "user_prompt_submit",
         "prompt": "", "cwd": "", "session_id": "", "turn": 0,
         "memories": [],
-        "domains": [], "keywords": [],
+        "keywords": [],
         "tool_hints": [],
         "active_task_id": "", "active_task_title": "",
         "task_memories": [], "task_context": [], "task_stack": [], "mid_task_decisions": [], "related_tasks": [],
@@ -202,26 +202,26 @@ def test_load_memories_caps_at_top_n(hints_db):
 # score_tools node
 # ---------------------------------------------------------------------------
 
-def test_score_tools_returns_matching_domain(mock_cfg):
-    result = score_tools(_base_state(domains=["astrology"], keywords=["nakshatra"]))
+def test_score_tools_returns_matching_keyword(mock_cfg):
+    result = score_tools(_base_state(keywords=["nakshatra"]))
     tool_names = [h["tool_name"] for h in result["tool_hints"]]
     assert "panchang__today" in tool_names
 
 
-def test_score_tools_excludes_non_domain(mock_cfg):
-    result = score_tools(_base_state(domains=["astrology"], keywords=["panchang"]))
+def test_score_tools_excludes_non_matching(mock_cfg):
+    result = score_tools(_base_state(keywords=["panchang"]))
     tool_names = [h["tool_name"] for h in result["tool_hints"]]
     assert "imessage__send" not in tool_names
 
 
 def test_score_tools_caps_at_five(mock_cfg):
-    result = score_tools(_base_state(domains=["macos", "vault", "astrology", "market-intel"], keywords=["write", "send", "gold", "panchang"]))
+    result = score_tools(_base_state(keywords=["write", "send", "gold", "panchang"]))
     assert len(result["tool_hints"]) <= 5
 
 
 def test_score_tools_missing_db_returns_empty():
     node = ScoreToolsNode(scorer=NullToolScorer())
-    result = node(_base_state(domains=["macos"], keywords=["send"]))
+    result = node(_base_state(keywords=["send"]))
     assert result["tool_hints"] == []
 
 
@@ -229,20 +229,20 @@ def test_score_tools_missing_db_returns_empty():
 # KeywordOverlapScorer — count tie-breaker (task:53c9f817)
 # ---------------------------------------------------------------------------
 
-def test_score_tools_count_breaks_ties_within_domain(mock_cfg):
-    # imessage__send (count=50) and vault__write (count=40) both match
-    # domain="macos"/"vault" respectively with no keyword overlap — equal
-    # base score (domain_match*2), so the higher-count tool should rank first.
-    result = score_tools(_base_state(domains=["macos", "vault"], keywords=[]))
+def test_score_tools_count_breaks_ties(mock_cfg):
+    # imessage__send (count=50) and vault__write (count=40) each match exactly
+    # one of these keywords ("send" / "vault") — equal base score (kw_overlap=1),
+    # so the higher-count tool should rank first.
+    result = score_tools(_base_state(keywords=["send", "vault"]))
     tool_names = [h["tool_name"] for h in result["tool_hints"]]
     assert tool_names.index("imessage__send") < tool_names.index("vault__write")
 
 
 def test_score_tools_count_does_not_manufacture_relevance(mock_cfg):
-    # imessage__send has count=50 (the highest in the fixture) but domain
-    # "macos" is not requested and keywords don't overlap — it must not
-    # leak into results just because of its usage count.
-    result = score_tools(_base_state(domains=["astrology"], keywords=["panchang"]))
+    # imessage__send has count=50 (the highest in the fixture) but its
+    # keywords don't overlap with the prompt — it must not leak into
+    # results just because of its usage count.
+    result = score_tools(_base_state(keywords=["panchang"]))
     tool_names = [h["tool_name"] for h in result["tool_hints"]]
     assert "imessage__send" not in tool_names
 
@@ -428,19 +428,6 @@ class TestCheckpointCrossHook:
         assert pid1 != "", "Turn 1 prompt_id must be non-empty"
         assert pid2 != "", "Turn 2 prompt_id must be non-empty"
 
-    def test_domains_persist_into_gate_hook(self, mem_graph):
-        """Domains set during UserPromptSubmit must be visible in PreToolUse checkpoint."""
-        sg = mem_graph
-        sid = "chk-test-domains"
-
-        r1 = sg.run_session("what is the gold and nifty outlook", session_id=sid, cwd="/tmp")
-        domains_from_submit = r1.get("domains", [])
-
-        cp_state = sg.get_session_graph().get_state({"configurable": {"thread_id": sid}})
-        checkpoint_domains = cp_state.values.get("domains", [])
-        assert set(domains_from_submit) == set(checkpoint_domains), \
-            f"Domains lost between submit and gate checkpoint: {domains_from_submit} → {checkpoint_domains}"
-
     def test_turn_increments_correctly_across_all_hooks(self, mem_graph, log_turn):
         """turn counter must only increment on UserPromptSubmit, not on tool hooks."""
         sg = mem_graph
@@ -549,7 +536,6 @@ class TestDeactivateTaskRetrospective:
             "task_stack": [],
             "mid_task_decisions": [],
             "memories": [],
-            "domains": [],
             "keywords": [],
             "tool_hints": [],
             "task_context": [],

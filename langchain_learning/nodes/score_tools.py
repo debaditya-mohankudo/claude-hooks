@@ -5,17 +5,15 @@ from langchain_learning.nodes._node_log import entry
 from langchain_learning.nodes._text_utils import tokenise
 from langchain_learning.retrievers import KeywordOverlapScorer, ToolScorer
 from langchain_learning.session_state import SessionState
-from src.config import config as _src_cfg
 from src.logger import get_logger
 
 _log = get_logger(__name__)
 
 
 class ScoreToolsNode:
-    """Retrieve top-5 tool hints by domain match + keyword overlap, tie-broken by usage count.
+    """Retrieve top-5 tool hints by keyword overlap, tie-broken by usage count.
 
-    base  = domain_match * 2 + kw_overlap
-    score = base + log1p(count) * 0.3   (only when base > 0 — see task:53c9f817)
+    score = kw_overlap + log1p(count) * 0.3   (only when kw_overlap > 0 — see task:53c9f817)
     where kw_overlap = count of prompt keywords that appear in the tool's keywords column,
     and count is the tool's real invocation count (mcp_tool_hints.count).
 
@@ -30,19 +28,12 @@ class ScoreToolsNode:
         self._scorer: ToolScorer = scorer if scorer is not None else KeywordOverlapScorer()
 
     def __call__(self, state: SessionState) -> dict:
-        entry("score_tools", state, domains=state.get("domains"))
+        entry("score_tools", state)
 
-        # Infer domain and keywords directly — decoupled from cwd_domain_detect and load_memories
-        cwd = state.get("cwd", "")
-        detected_domain = next(
-            (d for k, d in _src_cfg.cwd_domain_map.items() if k.lower() in cwd.lower()),
-            None,
-        )
-        domains  = set(state.get("domains") or ([detected_domain] if detected_domain else []))
         keywords = set(state.get("keywords") or tokenise(state.get("prompt", "").lower()))
 
         try:
-            hints = self._scorer.score(keywords, domains)
+            hints = self._scorer.score(keywords)
         except Exception as exc:
             _log.error("[score_tools] scorer error: %s", exc)
             return {"tool_hints": []}

@@ -190,11 +190,11 @@ class TestToolUsageLoggerLc:
         )
         with sqlite3.connect(str(tool_hints_db)) as conn:
             row = conn.execute(
-                "SELECT count, domain FROM mcp_tool_hints WHERE tool_name = 'aq__current_dasha'"
+                "SELECT count, keywords FROM mcp_tool_hints WHERE tool_name = 'aq__current_dasha'"
             ).fetchone()
         assert row is not None
         assert row[0] == 1
-        assert row[1] == "astrology"
+        assert "astrology" in row[1]
 
     def test_increments_existing_hint(self, tool_hints_db, tmp_path):
         for _ in range(3):

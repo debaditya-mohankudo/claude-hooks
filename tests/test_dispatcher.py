@@ -70,7 +70,7 @@ def test_returns_empty_when_no_prompt():
 # ── _format_system_prompt ─────────────────────────────────────────────────────
 
 def _base_ctx(**kwargs) -> dict:
-    base = {"session_id": "", "prompt_id": "", "domains": [], "memories": [],
+    base = {"session_id": "", "prompt_id": "", "memories": [],
             "tool_hints": [], "active_task_id": "", "active_task_title": "",
             "task_body": "", "execution_contract": "", "mid_task_decisions": [],
             "task_memories": [], "task_context": [], "task_rag_chunks": [], "related_tasks": []}
@@ -131,11 +131,6 @@ def test_includes_turn_state_block():
     assert "## Turn state" in result
     assert "sess01" in result
     assert "ppp1" in result
-
-
-def test_includes_active_domains():
-    result = _format_system_prompt(_base_ctx(domains=["market-intel"]))
-    assert "market-intel" in result
 
 
 def test_includes_memories():

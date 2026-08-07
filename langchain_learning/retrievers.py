@@ -62,7 +62,6 @@ class ToolScorer(Protocol):
     def score(
         self,
         keywords: set[str],
-        domains: set[str],
         top_n: int = 5,
     ) -> list[dict]: ...
 
@@ -98,7 +97,7 @@ class NullMemoryRetriever:
 class NullToolScorer:
     """No-op scorer — always returns empty. Satisfies ToolScorer Protocol."""
 
-    def score(self, keywords: set[str], domains: set[str], top_n: int = 5) -> list[dict]:
+    def score(self, keywords: set[str], top_n: int = 5) -> list[dict]:
         return []
 
 
@@ -141,7 +140,7 @@ class CombinationSignalRetriever:
 
 
 class KeywordOverlapScorer:
-    """Scores tool hints via domain match + keyword overlap against tool_hints.sqlite.
+    """Scores tool hints via keyword overlap against tool_hints.sqlite.
 
     Wraps the inline scoring logic from ScoreToolsNode.
     Satisfies ToolScorer Protocol.
@@ -149,18 +148,17 @@ class KeywordOverlapScorer:
 
     # task:53c9f817 — log1p saturates so a heavily-used tool (e.g.
     # contacts__search at ~3687 calls -> log1p=8.2) gets a meaningful edge
-    # over an equally domain/keyword-matched but rarely-used tool without
+    # over an equally keyword-matched but rarely-used tool without
     # letting raw call volume swamp the signal entirely (kw_overlap terms
     # are typically 0-4). Applied only as a tie-breaker on top of an
-    # existing domain/keyword match (see `if base > 0` below) — usage
+    # existing keyword match (see `if base > 0` below) — usage
     # count must never manufacture relevance out of nothing, or a
-    # frequently-called out-of-domain tool would leak into every result set.
+    # frequently-called unrelated tool would leak into every result set.
     _COUNT_WEIGHT = 0.3
 
     def score(
         self,
         keywords: set[str],
-        domains: set[str],
         top_n: int = 5,
     ) -> list[dict]:
         import math
@@ -174,7 +172,7 @@ class KeywordOverlapScorer:
             conn = sqlite3.connect(f"file:{_cfg.tool_hints_db}?mode=ro", uri=True)
             conn.row_factory = sqlite3.Row
             rows = conn.execute(
-                "SELECT tool_name, domain, skill, count, keywords FROM mcp_tool_hints"
+                "SELECT tool_name, skill, count, keywords FROM mcp_tool_hints"
             ).fetchall()
             conn.close()
         except Exception as exc:
@@ -183,23 +181,20 @@ class KeywordOverlapScorer:
 
         scored: list[tuple[float, dict]] = []
         for row in rows:
-            domain_match = 1.0 if row["domain"] in domains else 0.0
-            kw_overlap   = sum(1 for k in keywords if k in (row["keywords"] or ""))
-            base         = domain_match * 2 + kw_overlap
-            count        = row["count"] or 0
-            score        = base + math.log1p(count) * self._COUNT_WEIGHT if base > 0 else 0.0
+            base  = sum(1 for k in keywords if k in (row["keywords"] or ""))
+            count = row["count"] or 0
+            score = base + math.log1p(count) * self._COUNT_WEIGHT if base > 0 else 0.0
             if score > 0:
                 scored.append((score, {
                     "tool_name": row["tool_name"],
-                    "domain":    row["domain"],
                     "skill":     row["skill"] or "",
                     "count":     count,
                 }))
 
         scored.sort(key=lambda x: -x[0])
         result = [h for _, h in scored[:top_n]]
-        _log.debug("[KeywordOverlapScorer] returned=%d keywords=%d domains=%s",
-                   len(result), len(keywords), domains)
+        _log.debug("[KeywordOverlapScorer] returned=%d keywords=%d",
+                   len(result), len(keywords))
         return result
 
 

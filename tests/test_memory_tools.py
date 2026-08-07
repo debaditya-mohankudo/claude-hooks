@@ -40,7 +40,7 @@ def _make_tool_hints_db(hints: list[dict] | None = None) -> Path:
     con.executescript(MCP_TOOL_HINTS_DDL)
     for h in (hints or []):
         con.execute(
-            "INSERT INTO mcp_tool_hints (tool_name, domain, count, last_used, avg_latency_ms, keywords, skill) VALUES (:tool_name, :domain, :count, :last_used, :avg_latency_ms, :keywords, :skill)",
+            "INSERT INTO mcp_tool_hints (tool_name, count, last_used, avg_latency_ms, keywords, skill) VALUES (:tool_name, :count, :last_used, :avg_latency_ms, :keywords, :skill)",
             h,
         )
     con.commit()
@@ -60,9 +60,9 @@ def mem_db():
 @pytest.fixture
 def hints_db():
     return _make_tool_hints_db([
-        {"tool_name": "imessage__send", "domain": "macos", "count": 10, "last_used": "2026-06-01", "avg_latency_ms": 120.0, "keywords": "message send", "skill": "local-mac-imessage"},
-        {"tool_name": "calendar__list", "domain": "macos", "count": 5, "last_used": "2026-06-02", "avg_latency_ms": 80.0, "keywords": "calendar", "skill": "local-mac-calendar"},
-        {"tool_name": "market__prices", "domain": "market-intel", "count": 20, "last_used": "2026-06-03", "avg_latency_ms": 200.0, "keywords": "prices market", "skill": "market-intel-live-prices"},
+        {"tool_name": "imessage__send", "count": 10, "last_used": "2026-06-01", "avg_latency_ms": 120.0, "keywords": "message send macos", "skill": "local-mac-imessage"},
+        {"tool_name": "calendar__list", "count": 5, "last_used": "2026-06-02", "avg_latency_ms": 80.0, "keywords": "calendar macos", "skill": "local-mac-calendar"},
+        {"tool_name": "market__prices", "count": 20, "last_used": "2026-06-03", "avg_latency_ms": 200.0, "keywords": "prices market", "skill": "market-intel-live-prices"},
     ])
 
 
@@ -286,13 +286,6 @@ def test_tool_hints_returns_all(hints_db):
     with patch("tools.memory.TOOL_HINTS_DB", hints_db):
         result = handle_tool_hints()
     assert result["count"] == 3
-
-
-def test_tool_hints_filters_by_domain(hints_db):
-    with patch("tools.memory.TOOL_HINTS_DB", hints_db):
-        result = handle_tool_hints(domain="macos")
-    assert result["count"] == 2
-    assert all(t["domain"] == "macos" for t in result["tools"])
 
 
 def test_tool_hints_sorted_by_count_desc(hints_db):

@@ -75,10 +75,10 @@ class TestToolHintWrites:
 
         with sqlite3.connect(str(db)) as conn:
             row = conn.execute(
-                "SELECT tool_name, count, domain FROM mcp_tool_hints WHERE tool_name='mail__read'"
+                "SELECT tool_name, count, keywords FROM mcp_tool_hints WHERE tool_name='mail__read'"
             ).fetchone()
         assert row is not None
         assert row[0] == "mail__read"
         assert row[1] == 1
-        assert row[2] == "mail"
+        assert "mail" in row[2]
         db.unlink()

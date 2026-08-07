@@ -48,10 +48,9 @@ def make_tool_hints_db(tmp_path: Path, hints: list[dict] | None = None) -> Path:
         conn.executescript(MCP_TOOL_HINTS_DDL)
         for h in hints or []:
             conn.execute(
-                "INSERT INTO mcp_tool_hints (tool_name, domain, count, keywords, skill) VALUES (?,?,?,?,?)",
+                "INSERT INTO mcp_tool_hints (tool_name, count, keywords, skill) VALUES (?,?,?,?)",
                 (
                     h["tool_name"],
-                    h.get("domain", ""),
                     h.get("count", 0),
                     h.get("keywords", ""),
                     h.get("skill", ""),

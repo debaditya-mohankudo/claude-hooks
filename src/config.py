@@ -5,44 +5,13 @@ All database paths live here. Other configs import from this module.
 Environment variables (all optional, prefix CLAUDE_HOOKS_):
     CLAUDE_HOOKS_ICLOUD_DB_DIR   override iCloud Databases directory
     CLAUDE_HOOKS_MEMORY_DB       override MEMORY.sqlite path
-
-CWD → domain mapping is loaded (mtime-cached) from cwd_domains.json in
-icloud_db_dir — same pattern as memory_scoring.json. Keys are CWD substrings
-(matched case-insensitively); first match wins. This maps to tool_hints.sqlite's
-domain column only (ScoreToolsNode) — MEMORY.sqlite's memories table has no
-domain column, and score_memories() no longer takes a domain at all.
 """
-import json
 from pathlib import Path
 
 from pydantic import Field, computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _ICLOUD_DEFAULT = Path.home() / "Library/Mobile Documents/com~apple~CloudDocs/Databases"
-
-# Seed/fallback used if cwd_domains.json is missing or unreadable.
-_CWD_DOMAIN_MAP_DEFAULT: dict[str, str] = {
-    "vault": "vault",
-    "market-intel": "market-intel",
-    "astrology": "astrology",
-}
-
-_cwd_domain_map_cache: dict[str, str] = {}
-_cwd_domain_map_mtime: float = 0.0
-
-
-def _load_cwd_domain_map(path: Path) -> dict[str, str]:
-    """Return CWD_DOMAIN_MAP, mtime-cached from `path` (falls back to the seed default)."""
-    global _cwd_domain_map_cache, _cwd_domain_map_mtime
-    try:
-        mtime = path.stat().st_mtime
-        if mtime != _cwd_domain_map_mtime:
-            _cwd_domain_map_cache = json.loads(path.read_text())
-            _cwd_domain_map_mtime = mtime
-    except Exception:
-        if not _cwd_domain_map_cache:
-            _cwd_domain_map_cache = dict(_CWD_DOMAIN_MAP_DEFAULT)
-    return _cwd_domain_map_cache
 
 
 class _Config(BaseSettings):
@@ -83,15 +52,6 @@ class _Config(BaseSettings):
     @property
     def memory_scoring_json(self) -> Path:
         return self.icloud_db_dir / "memory_scoring.json"
-
-    @computed_field
-    @property
-    def cwd_domains_json(self) -> Path:
-        return self.icloud_db_dir / "cwd_domains.json"
-
-    @property
-    def cwd_domain_map(self) -> dict[str, str]:
-        return _load_cwd_domain_map(self.cwd_domains_json)
 
     @property
     def memory_valid_types(self) -> list[str]:

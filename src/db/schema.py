@@ -71,7 +71,6 @@ def migrate_memory_db(conn: sqlite3.Connection) -> None:
 MCP_TOOL_HINTS_DDL = """
 CREATE TABLE IF NOT EXISTS mcp_tool_hints (
     tool_name      TEXT PRIMARY KEY,
-    domain         TEXT,
     count          INTEGER DEFAULT 0,
     last_used      TIMESTAMP,
     avg_latency_ms REAL DEFAULT 0.0,

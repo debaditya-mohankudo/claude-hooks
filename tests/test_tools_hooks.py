@@ -219,12 +219,11 @@ def _urlopen_router(routes: dict):
 
 class TestHandleCheckpointQuery:
     def test_explicit_thread_id_queries_session_directly(self):
-        state = {"memories": [], "domains": ["global"], "turn": 3}
+        state = {"memories": [], "turn": 3}
         routes = {"/session/t1": _mock_response({"session_id": "t1", "turn_count": 1, "state": state})}
         with patch("urllib.request.urlopen", side_effect=_urlopen_router(routes)) as urlopen:
             result = handle_checkpoint_query(thread_id="t1")
         assert result["thread_id"] == "t1"
-        assert result["domains"] == ["global"]
         assert urlopen.call_count == 1  # no /session/current lookup needed
 
     def test_no_thread_id_resolves_current_session_first(self):
@@ -261,7 +260,6 @@ class TestHandleCheckpointQuery:
         state = {
             "memories": [{"name": "test", "type": "feedback",
                           "tags": "foo", "body": "body text"}],
-            "domains": ["global"],
         }
         routes = {"/session/t1": _mock_response({"session_id": "t1", "turn_count": 1, "state": state})}
         with patch("urllib.request.urlopen", side_effect=_urlopen_router(routes)):

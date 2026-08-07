@@ -77,7 +77,6 @@ def test_run_session_routes_test_prefixed_session_to_isolated_graph(tmp_path):
     with patch("langchain_learning.config.config") as cfg, \
          patch("src.config.config") as src_cfg:
         cfg.memory_db = tmp_path / "MEMORY.sqlite"
-        cfg.cwd_domain_map = {}
         src_cfg.memory_db = tmp_path / "MEMORY.sqlite"
         test_sid = f"{sg.TEST_SESSION_PREFIX}run-session-test"
         sg.run_session(prompt="hello", session_id=test_sid, cwd="/tmp")

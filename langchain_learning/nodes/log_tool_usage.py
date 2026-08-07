@@ -40,7 +40,6 @@ def _result_found(tool_name: str, tool_result: dict) -> bool:
 _ENSURE_HINTS = """
 CREATE TABLE IF NOT EXISTS mcp_tool_hints (
     tool_name       TEXT PRIMARY KEY,
-    domain          TEXT,
     count           INTEGER DEFAULT 0,
     last_used       TIMESTAMP,
     avg_latency_ms  REAL DEFAULT 0.0,
@@ -67,8 +66,8 @@ def seed_all_tool_keywords() -> int:
     """task:53c9f817 — proactively seed mcp_tool_hints for every registered MCP
     tool, not just ones that have already been called at least once.
 
-    Without this, a never-invoked tool has empty `keywords` and can only
-    surface via domain match — a cold-start gap confirmed directly when
+    Without this, a never-invoked tool has empty `keywords` and cannot
+    surface at all — a cold-start gap confirmed directly when
     scratch__* tools had zero rows here until manually inserted. Walks
     src.dispatcher.DOMAIN_MAP (the single source of truth for every
     registered domain__action tool) and derives keywords the same way
@@ -109,8 +108,8 @@ def seed_all_tool_keywords() -> int:
                     if doc_tokens:
                         keywords = ",".join(sorted(set(keywords.split(",")) | doc_tokens))
                     conn.execute(
-                        "INSERT INTO mcp_tool_hints (tool_name, domain, count, keywords) VALUES (?, ?, 0, ?)",
-                        (tool_name, domain, keywords),
+                        "INSERT INTO mcp_tool_hints (tool_name, count, keywords) VALUES (?, 0, ?)",
+                        (tool_name, keywords),
                     )
                     seeded += 1
             conn.commit()
@@ -224,16 +223,16 @@ class LogToolUsageNode:
                     if not row[3]:
                         _log.info("[log_tool_usage] seeded keywords tool=%s kw=%s", short_name, new_kw)
                     conn.execute(
-                        "UPDATE mcp_tool_hints SET count=?, last_used=datetime('now'), avg_latency_ms=?, domain=?, skill=?, recent_prompts=?, keywords=? WHERE tool_name=?",
-                        (new_count, round(new_avg, 2), domain, skill, new_prompts, new_kw, short_name),
+                        "UPDATE mcp_tool_hints SET count=?, last_used=datetime('now'), avg_latency_ms=?, skill=?, recent_prompts=?, keywords=? WHERE tool_name=?",
+                        (new_count, round(new_avg, 2), skill, new_prompts, new_kw, short_name),
                     )
                 else:
                     new_prompts = _append_prompt("[]", prompt_text)
                     new_kw = _derive_keywords(short_name, domain, skill)
                     _log.info("[log_tool_usage] seeded keywords tool=%s kw=%s", short_name, new_kw)
                     conn.execute(
-                        "INSERT INTO mcp_tool_hints (tool_name, domain, count, last_used, avg_latency_ms, skill, recent_prompts, keywords) VALUES (?, ?, 1, datetime('now'), ?, ?, ?, ?)",
-                        (short_name, domain, round(latency_ms, 2), skill, new_prompts, new_kw),
+                        "INSERT INTO mcp_tool_hints (tool_name, count, last_used, avg_latency_ms, skill, recent_prompts, keywords) VALUES (?, 1, datetime('now'), ?, ?, ?, ?)",
+                        (short_name, round(latency_ms, 2), skill, new_prompts, new_kw),
                     )
                 conn.commit()
         except Exception as exc:

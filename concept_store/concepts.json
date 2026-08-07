@@ -3,25 +3,20 @@
     "config-db-paths-and-domains": {
       "confidence": 0.95,
       "contracts": [
-        "config.memory_db, config.tool_hints_db, config.log_db are valid Paths",
-        "config.cwd_domain_map returns the mtime-cached dict loaded from cwd_domains.json (icloud_db_dir), falling back to _CWD_DOMAIN_MAP_DEFAULT if missing/unreadable"
+        "config.memory_db, config.tool_hints_db, config.log_db are valid Paths"
       ],
       "created_at": "2026-06-29T09:47:25.287104+00:00",
-      "description": "Central configuration via pydantic-settings. Defines all database paths, CWD-to-domain mapping (tool_hints.sqlite scoring only, see below), and memory scoring tunables. All other modules import from config singleton.",
+      "description": "Central configuration via pydantic-settings. Defines all database paths and memory scoring tunables. All other modules import from config singleton.",
       "evidence": [
-        "src/config.py: _load_cwd_domain_map(path)",
-        "src/config.py: cwd_domain_map"
+        "src/config.py",
+        "scripts/drop_memory_domain_column.py",
+        "scripts/drop_tool_hints_domain_column.py"
       ],
       "invariants": [
-        "MEMORY.sqlite's memories table has no domain column as of task:4c9c21e6 (2026-08-07) — config has no valid_domains property; domain is not a retrieval axis for score_memories() anymore, which scores tags-only across a single global batch (see memory-scoring-global-batch-limit). cwd_domain_map / cwd_domains.json / _CWD_DOMAIN_MAP_DEFAULT are NOT part of this — they remain live for a separate, unrelated purpose (below).",
-        "cwd_domains.json (icloud_db_dir, same pattern as memory_scoring.json) is the source of truth for cwd-to-domain classification used ONLY by ScoreToolsNode / KeywordOverlapScorer to score tool_hints.sqlite rows (a different DB, a different domain column) — scoped to repo-less domains only (vault, market-intel, astrology); code repos get persistent context via task-framework loop memory instead and are deliberately not entered here (task:d2659d44, 2026-08-07)",
-        "_CWD_DOMAIN_MAP_DEFAULT is only a fallback seed, used if cwd_domains.json is missing or fails to parse; trimmed to the same repo-less domains",
-        "Config is frozen (immutable after construction)",
-        "tasks_db was removed (2026-08-07) — task storage lives in task-framework now, nothing in this repo reads proj_tasks.db; the langchain_learning/config.py passthrough property was dropped alongside it",
-        "The unmapped-cwd onboarding reminder (\"New project detected\", formerly surfaced by CwdDomainDetectNode + hooks/dispatcher.py) was removed (task:d2659d44, 2026-08-07) — code repos no longer need a cwd_domains.json entry at all, so nudging for one was noise",
-        "CwdDomainDetectNode itself was deleted entirely (task:4c9c21e6, 2026-08-07) along with its session_graph.py/registry.py wiring — cwd_domain_map is now read only by ScoreToolsNode for tool_hints scoring, not by any node that sets a MEMORY.sqlite-facing domain state field"
+        "MEMORY.sqlite's memories table has no domain column as of task:4c9c21e6 (2026-08-07) — domain is not a retrieval axis for score_memories() anymore, which scores tags-only across a single global batch (see memory-scoring-global-batch-limit).",
+        "tool_hints.sqlite's mcp_tool_hints table has no domain column as of task:5b15dc9b (2026-08-07) — KeywordOverlapScorer (langchain_learning/retrievers.py) scores purely on keyword overlap + usage count now. cwd_domain_map, _load_cwd_domain_map, cwd_domains_json, _CWD_DOMAIN_MAP_DEFAULT were deleted from src/config.py in the same task, and cwd_domains.json (icloud_db_dir) was deleted — nothing in this repo maps CWD to a domain string anymore."
       ],
-      "last_validated": "2026-08-07T13:05:00.000000+00:00",
+      "last_validated": "2026-08-07T14:50:43.734620+00:00",
       "module": "src/config.py",
       "name": "config-db-paths-and-domains"
     },
@@ -202,7 +197,7 @@
         "handle_server_memory(n_events) returns a markdown table or {error: ...}",
         "handle_read_logs_sqlite(level, logger, search, limit, format=\"toon\") returns a TOON-encoded string by default (\"count: N\\nrows[N]{...}:\\n  ...\"), or {count, rows} dict when format=\"json\"",
         "handle_session_id() returns {session_id, turn} or {error: ...} after one retry on empty first response",
-        "handle_checkpoint_query(thread_id=\"\") returns {thread_id, turn_count, prompt_id, domains, keywords, memories, tool_hints, session_context, ...} or {error: ...}; thread_id doubles as session_id, omitted thread_id resolves to the current session via GET /session/current"
+        "handle_checkpoint_query(thread_id=\"\") returns {thread_id, turn_count, prompt_id, keywords, memories, tool_hints, session_context, ...} or {error: ...}; thread_id doubles as session_id, omitted thread_id resolves to the current session via GET /session/current — no 'domains' key as of task:5b15dc9b (2026-08-07), since nothing in SessionState computes domains anymore"
       ],
       "created_at": "2026-06-29T09:47:25.288414+00:00",
       "description": "MCP tools for querying hook state: server_memory (live chronological timeline via HTTP), checkpoint_query (thin HTTP wrapper over the live server's GET /session/{session_id}, reading in-process MemorySaver state — no longer a SQLite reader as of task:da29c842), and read_logs_sqlite (filtered log reader from claude_hooks.sqlite). Also session_id (added 2026-07-05, task:61703ef7): returns current session_id via GET /session/current with a built-in one-shot retry, absorbing the checkpoint-write race for a brand-new session.",
@@ -223,7 +218,7 @@
         "The TOON encoder itself (rows_to_toon/toon_cell) was extracted to src/toon.py (task:4b5bf21f) so src/tools/tasks.py's handle_list could reuse it — hooks.py now imports rows_to_toon rather than defining its own copy.",
         "A docstring/comment's 'confirmed on <date>' claim is only as fresh as the last re-check against the code it describes — checkpoint_query's docstring cited a specific confirmation date (task:61703ef7) that read as settled fact but silently went stale after a later migration nobody circled back to update. Re-verify dated confirmations against current runtime behavior, don't trust the date alone."
       ],
-      "last_validated": "2026-07-27T02:18:33.159507+00:00",
+      "last_validated": "2026-08-07T14:51:02.862085+00:00",
       "module": "src/tools/hooks.py",
       "name": "hooks-mcp-tools-observability"
     },
@@ -535,6 +530,6 @@
     "commit": "5f62c6b5150a20fe7198d7bd6c155c4b3c0d3101",
     "extracted_at": "2026-07-23T05:42:23Z",
     "note": "incremental upsert (task:a2fd402d)",
-    "updated_at": "2026-08-07T12:36:38.326133+00:00"
+    "updated_at": "2026-08-07T14:51:02.862141+00:00"
   }
 }

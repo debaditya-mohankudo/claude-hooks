@@ -139,10 +139,6 @@ def _format_system_prompt(ctx: dict) -> str:
             lines.append(vault_ctx["memory"])
             lines.append("")
 
-    if ctx["domains"]:
-        lines.append(f"# Active domains: {', '.join(ctx['domains'])}")
-        lines.append("")
-
     if ctx["memories"]:
         lines.append("## Injected memories")
         for mem in ctx["memories"]:
@@ -366,13 +362,13 @@ def _handle_user_prompt_submit(hook_input: dict) -> dict | None:
     rag_chunks_tokens     = count_tokens("".join(c.get("name", "") + c.get("module", "") for c in ctx.get("task_rag_chunks", [])))
     prompt_tokens         = count_tokens(system_prompt)
     log.info(
-        "UPS done: session=%s elapsed_ms=%.0f domains=%s memories=%d tools=%d "
+        "UPS done: session=%s elapsed_ms=%.0f memories=%d tools=%d "
         "active_task=%s task_turns=%d task_history_chars=%d rag_chunks=%s related=%s commits=%s "
         "ctx_chars(memories=%d related_tasks=%d related_commits=%d rag_chunks=%d) "
         "ctx_tokens(memories=%d related_tasks=%d related_commits=%d rag_chunks=%d) "
         "prompt_chars=%d prompt_tokens=%d",
         session_id[:8], elapsed_ms,
-        ctx.get("domains", []), len(ctx.get("memories", [])), len(ctx.get("tool_hints", [])),
+        len(ctx.get("memories", [])), len(ctx.get("tool_hints", [])),
         ctx.get("active_task_id", ""),
         len(ctx.get("task_context", [])), task_history_chars,
         [c.get("module", "?").split(".")[-1] for c in ctx.get("task_rag_chunks", [])],

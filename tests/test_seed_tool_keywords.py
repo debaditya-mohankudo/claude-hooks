@@ -18,8 +18,8 @@ def _make_hints_db(rows: list[dict] | None = None) -> Path:
     conn.executescript(MCP_TOOL_HINTS_DDL)
     if rows:
         conn.executemany(
-            "INSERT INTO mcp_tool_hints (tool_name, domain, skill, count, keywords) "
-            "VALUES (:tool_name,:domain,:skill,:count,:keywords)",
+            "INSERT INTO mcp_tool_hints (tool_name, skill, count, keywords) "
+            "VALUES (:tool_name,:skill,:count,:keywords)",
             rows,
         )
     conn.commit()
@@ -58,7 +58,7 @@ def test_seed_all_tool_keywords_inserts_every_registered_tool(empty_hints_db):
 
 def test_seed_all_tool_keywords_does_not_overwrite_existing_rows(empty_hints_db=None):
     hints_db = _make_hints_db([
-        {"tool_name": "scratch__set", "domain": "scratch", "skill": "",
+        {"tool_name": "scratch__set", "skill": "",
          "count": 7, "keywords": "already,seeded,reactively"},
     ])
     import langchain_learning.nodes.log_tool_usage as lgu
