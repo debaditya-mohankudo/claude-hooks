@@ -42,10 +42,6 @@ class Config(BaseSettings):
         return _base.tool_hints_db
 
     @property
-    def tasks_db(self):
-        return _base.tasks_db
-
-    @property
     def log_db(self):
         return _base.log_db
 

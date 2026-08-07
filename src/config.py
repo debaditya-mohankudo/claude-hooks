@@ -60,7 +60,6 @@ class _Config(BaseSettings):
 
     icloud_db_dir: Path = Field(default=_ICLOUD_DEFAULT)
     memory_db: Path = Field(default=Path.home() / ".claude" / "MEMORY.sqlite")
-    tasks_db: Path = Field(default=Path.home() / ".claude" / "proj_tasks.db")
 
     # Memory scoring tunables (override via CLAUDE_HOOKS_MEMORY_* env vars)
     memory_top_n: int = Field(default=3)

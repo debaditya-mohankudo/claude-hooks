@@ -161,34 +161,20 @@ def test_rows_persist_across_server_sessions(monkeypatch):
 
 # ── task title resolution ─────────────────────────────────────────────────────
 
-def test_title_comes_from_the_response_not_a_task_store(tmp_path):
-    """The DB lookup that used to win here is gone.
+def test_title_comes_from_the_response_not_a_task_store():
+    """Title resolution is response-only.
 
-    _title_for_task read titles straight out of proj_tasks.db, a store this
-    repo no longer owns. Its one caller already fell back to the tool response
-    whenever the lookup came up empty, so this is not a new degraded path — it
-    is the path that already ran for any task the DB did not have. A title is a
-    display convenience, and losing one must never be more than that.
+    _title_for_task used to read titles straight out of proj_tasks.db, a store
+    this repo no longer owns (task storage lives in task-framework now). This
+    just confirms record_task_from_hook resolves the title from tool_response.
     """
-    import sqlite3
-    db = tmp_path / "proj_tasks.db"
-    conn = sqlite3.connect(str(db))
-    conn.execute("CREATE TABLE open_tasks (id TEXT PRIMARY KEY, title TEXT)")
-    conn.execute("INSERT INTO open_tasks VALUES ('t1', 'From DB')")
-    conn.commit()
-    conn.close()
-
-    cfg = MagicMock()
-    cfg.tasks_db = db
     body = {
         "session_id": "s",
         "tool_name": "mcp__claude-hooks__tasks__set_active",
         "tool_input": {"task_id": "t1"},
         "tool_response": {"title": "from response"},
     }
-    with patch("langchain_learning.config.config", cfg):
-        sm.record_task_from_hook(body)
-    # The row exists and is deliberately ignored.
+    sm.record_task_from_hook(body)
     assert sm.get_server_memory()["events"][-1]["content"] == "from response"
 
 

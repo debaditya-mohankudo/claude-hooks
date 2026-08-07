@@ -300,7 +300,8 @@ def record_task_from_hook(body: dict) -> None:
     """Record a task activation from a raw PostToolUse hook payload.
 
     Handles the fully-qualified MCP tool_name (mcp__claude-hooks__tasks__set_active);
-    title resolved authoritatively from proj_tasks.db, falling back to the response.
+    title resolved from the tool_response — this repo no longer reads proj_tasks.db
+    (task storage lives in task-framework now).
     """
     tool_name = body.get("tool_name", "")
     if not tool_name.startswith("mcp__"):
