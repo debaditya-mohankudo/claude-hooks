@@ -19,7 +19,6 @@ from dispatcher import (
     _format_system_prompt,
     _enforce_context_budget,
     _CONTEXT_TOKEN_BUDGET,
-    _TASK_BODY_CHAR_CAP,
     _read_last_usage,
     _maybe_context_size_nudge,
     _CONTEXT_NUDGE_SHOWN_BAND,
@@ -70,10 +69,7 @@ def test_returns_empty_when_no_prompt():
 # ── _format_system_prompt ─────────────────────────────────────────────────────
 
 def _base_ctx(**kwargs) -> dict:
-    base = {"session_id": "", "prompt_id": "", "memories": [],
-            "tool_hints": [], "active_task_id": "", "active_task_title": "",
-            "task_body": "", "execution_contract": "", "mid_task_decisions": [],
-            "task_memories": [], "task_context": [], "task_rag_chunks": [], "related_tasks": []}
+    base = {"session_id": "", "prompt_id": "", "memories": [], "tool_hints": []}
     base.update(kwargs)
     return base
 
@@ -114,18 +110,6 @@ def test_drops_until_empty_if_still_over_budget():
     assert ctx["memories"] == []
 
 
-def test_related_tasks_and_commits_untouched_even_when_over_budget():
-    huge_body = "word " * 20000
-    ctx = _base_ctx(
-        memories=[{"name": "a", "body": huge_body}],
-        related_tasks=[{"id": "t1", "title": "x", "body_snippet": "snippet"}],
-    )
-    ctx["related_commits"] = [{"commit_hash": "abc123", "file": "f.py", "snippet": "diff"}]
-    _enforce_context_budget(ctx)
-    assert ctx["related_tasks"] == [{"id": "t1", "title": "x", "body_snippet": "snippet"}]
-    assert ctx["related_commits"] == [{"commit_hash": "abc123", "file": "f.py", "snippet": "diff"}]
-
-
 def test_includes_turn_state_block():
     result = _format_system_prompt(_base_ctx(session_id="sess01", prompt_id="ppp1"))
     assert "## Turn state" in result
@@ -147,110 +131,10 @@ def test_includes_tool_hints():
     assert "tasks__create" in result
 
 
-def test_truncates_oversized_task_body():
-    huge_body = "x" * (_TASK_BODY_CHAR_CAP + 500)
-    result = _format_system_prompt(_base_ctx(
-        active_task_id="t1", active_task_title="Big epic", task_body=huge_body,
-    ))
-    assert "...[truncated]" in result
-    assert len(result) < len(huge_body) + 200
-
-
-def test_leaves_small_task_body_untouched():
-    result = _format_system_prompt(_base_ctx(
-        active_task_id="t1", active_task_title="Small task", task_body="short body",
-    ))
-    assert "short body" in result
-
-
-def test_includes_active_task():
-    result = _format_system_prompt(_base_ctx(
-        active_task_id="abc123", active_task_title="Fix the bug", task_body="details"
-    ))
-    assert "## Active task" in result
-    assert "abc123" in result
-    assert "Fix the bug" in result
-
-
-def test_includes_mid_task_decisions():
-    result = _format_system_prompt(_base_ctx(mid_task_decisions=["use postgres"]))
-    assert "## Task decisions" in result
-    assert "use postgres" in result
-
-
-# ── execution_contract rendering ──────────────────────────────────────────────
-
-def test_includes_execution_contract():
-    result = _format_system_prompt(_base_ctx(
-        active_task_id="abc123", active_task_title="Fix the bug",
-        execution_contract="You are executing task:abc123 — Fix the bug.\nFinish decisively.",
-    ))
-    assert "### Execution contract" in result
-    assert "Finish decisively" in result
-
-
-def test_omits_execution_contract_section_when_absent():
-    result = _format_system_prompt(_base_ctx(
-        active_task_id="abc123", active_task_title="Fix the bug",
-    ))
-    assert "### Execution contract" not in result
-
-
-def test_execution_contract_not_truncated_even_when_huge():
-    # Unlike task_body, the contract is a fixed template with no upstream cap —
-    # this proves it isn't accidentally routed through _TASK_BODY_CHAR_CAP.
-    huge_contract = "x" * (_TASK_BODY_CHAR_CAP + 500)
-    result = _format_system_prompt(_base_ctx(
-        active_task_id="t1", active_task_title="Big task", execution_contract=huge_contract,
-    ))
-    assert huge_contract in result
-    assert "...[truncated]" not in result
-
-
-def test_execution_contract_untouched_by_context_budget_enforcement():
-    # _enforce_context_budget only trims ctx["memories"] — confirm the contract
-    # isn't part of that eviction path regardless of how large memories get.
-    huge_body = "word " * 20000
-    contract = "You are executing task:t1 — Big task."
-    ctx = _base_ctx(
-        active_task_id="t1", active_task_title="Big task", execution_contract=contract,
-        memories=[{"name": "a", "body": huge_body}],
-    )
-    _enforce_context_budget(ctx)
-    assert ctx["execution_contract"] == contract
-
-
-def test_includes_related_tasks():
-    result = _format_system_prompt(_base_ctx(
-        related_tasks=[{"id": "t1", "title": "Prior task", "body_snippet": ""}]
-    ))
-    assert "## Related past tasks" in result
-    assert "Prior task" in result
-
-
-def test_includes_task_history_single_session():
-    ctx = [{"session_id": "sess01", "turn": 3, "summary": "did stuff", "tools": "Bash"}]
-    result = _format_system_prompt(_base_ctx(task_context=ctx))
-    assert "## Task history" in result
-    assert "turn 3" in result
-    assert "did stuff" in result
-
-
-def test_task_history_multi_session_shows_session_id():
-    ctx = [
-        {"session_id": "aaa", "turn": 1, "summary": "s1", "tools": ""},
-        {"session_id": "bbb", "turn": 2, "summary": "s2", "tools": ""},
-    ]
-    result = _format_system_prompt(_base_ctx(task_context=ctx))
-    assert "[aaa]" in result
-    assert "[bbb]" in result
-
-
-def test_includes_rag_chunks():
-    chunk = {"name": "MyClass", "module": "hooks.gates", "file": "hooks/gates.py", "line": 42}
-    result = _format_system_prompt(_base_ctx(task_rag_chunks=[chunk]))
-    assert "## Relevant code" in result
-    assert "MyClass" in result
+# Active task, execution contract, task decisions/memories/history, relevant
+# code, and related tasks/commits rendering tests removed (task:882d67fa) —
+# that context is task-framework's now; _format_system_prompt no longer
+# renders any of it.
 
 # _check_task_body_format and its tests were removed here (task:87ec7876). The
 # tool it gated, mcp__claude-hooks__tasks__create, has no implementation left

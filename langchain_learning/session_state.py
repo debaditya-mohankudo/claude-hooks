@@ -19,20 +19,6 @@ class SessionState(TypedDict):
     memories: list[dict]
     keywords: list[str]
     tool_hints: list[dict]
-    active_task_id: str              # set via task_activate branch; flows through session via checkpoint
-    active_task_title: str           # task title, set alongside active_task_id
-    active_parent_task_id: str       # parent task id (epic), if the active task has one
-    active_parent_task_title: str    # parent task title for context injection
-    task_memories: list[dict]        # memories scored against task tags+title (task_activate branch)
-    task_context: list[dict]         # prior turn events for active task (current session only)
-    task_rag_chunks: list[dict]      # top-3 code modules from TurboVec semantic search over .code_embeddings.tvim
-    task_body: str                    # body of the active task (goal, motivation, resolution) — injected into system prompt
-    execution_contract: str          # fixed north-star block generated at activation; rendered verbatim every turn — exempt from context-budget eviction and task_body truncation
-    task_context_summary: str         # compressed summary of task_context + related_* + rag_chunks via claude -p; replaces raw lists when present
-    task_stack: list[str]            # LIFO stack of suspended task IDs; push on switch, pop to restore
-    mid_task_decisions: list[str]    # explicit design decisions logged during active task (persisted in checkpoint)
-    related_tasks: list[dict]        # top-3 done tasks by cosine similarity via TurboVec (.tasks_embeddings.tvim)
-    related_commits: list[dict]      # top-3 diff hunks from TurboVec semantic search over .diff_embeddings.tvim
     active_review: dict              # open review child task checklist — {review_task_id, template, items: [{id, label, type, status}]}
     active_task_domain: str          # domain tag of the active task (e.g. "claude-hooks"); emitted by ActivateTaskNode for downstream nodes
     task_files: list[str]            # file paths from the active task's Files: section; emitted by ActivateTaskNode, consumed by backfill nodes

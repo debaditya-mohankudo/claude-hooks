@@ -21,7 +21,6 @@ from __future__ import annotations
 _CHAINS: dict[str, list[str]] = {
     "user-prompt-submit": [
         "load_turn",
-        "load_active_task",
         "load_task_history",
         "load_task_commits",
         "load_memories",

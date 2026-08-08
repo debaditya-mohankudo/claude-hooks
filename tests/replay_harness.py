@@ -168,28 +168,17 @@ def replay_event(sg, event: dict) -> dict:
     from langchain_learning.session_graph import TEST_SESSION_PREFIX
     session_id = f"{TEST_SESSION_PREFIX}replay-{event['session'][:8]}"
 
-    # Seed active_task_id into checkpoint before invoking — mirrors what MemorySaver
-    # holds from the previous turn in production. Without this, task-aware nodes
-    # (load_related_tasks, load_task_code, load_task_history) always skip.
-    active_task = event.get("active_task", "")
-    if active_task:
-        from langchain_learning.session_graph import _config
-        sg.get_session_graph(session_id).update_state(
-            _config(session_id),
-            {"active_task_id": active_task, "active_task_title": "", "active_parent_task_id": "", "active_parent_task_title": ""},
-        )
-
+    # active_task seeding is gone (task:882d67fa) — the task-aware nodes it fed
+    # (load_related_tasks, load_task_code, load_task_history) are all gone too;
+    # task-framework owns active-task context now, not this graph.
     result = sg.run_session(prompt=prompt, session_id=session_id, cwd=cwd_str)
 
     return {
         "session":        event["session"],
         "cwd":            event.get("cwd", ""),
-        "active_task":    result.get("active_task_id", ""),
         "domains":        result.get("domains", []),
         "memories_count": len(result.get("memories", [])),
         "tools_count":    len(result.get("tool_hints", [])),
-        "related":        [r.get("id") for r in result.get("related_tasks", [])],
-        "rag_chunks":     [c.get("name") for c in result.get("task_rag_chunks", [])],
     }
 
 
@@ -197,7 +186,7 @@ def replay_event(sg, event: dict) -> dict:
 # Diff
 # ---------------------------------------------------------------------------
 
-_DIFF_KEYS = ["domains", "memories_count", "tools_count", "related", "rag_chunks"]
+_DIFF_KEYS = ["domains", "memories_count", "tools_count"]
 
 
 def diff_events(baseline: list[dict], replayed: list[dict]) -> list[dict]:

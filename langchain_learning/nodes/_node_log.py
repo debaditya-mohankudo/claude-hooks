@@ -13,7 +13,6 @@ _log = get_logger(__name__)
 # Nodes that run in the parallel fan-out tier — update when session_graph changes
 _PARALLEL_NODES = frozenset({
     "cwd_domain_detect", "load_memories", "score_tools",
-    "load_task_code", "load_related_commits",
 })
 
 

@@ -63,39 +63,22 @@ def _extract_prompt(hook_input: dict) -> str:
 # UserPromptSubmit
 # ---------------------------------------------------------------------------
 
-# Token budget for the 4 task-activation context categories (memories, related_tasks,
-# related_commits, task_rag_chunks) combined. related_tasks/related_commits/task_rag_chunks
-# are already capped at top-3 and pre-sorted by relevance, so `memories` — the only
-# uncapped category — is the one trimmed when over budget.
+# Token budget for injected memories. The other task-activation context
+# categories (related_tasks, related_commits, task_rag_chunks, task_body) that
+# used to share this budget are gone with the nodes that produced them
+# (task:882d67fa) — task-framework owns that context now.
 _CONTEXT_TOKEN_BUDGET = 4000
-
-# task_body is injected raw with no upstream cap (a task's body can be arbitrarily
-# long, e.g. a large epic scaffold) — hard-truncate at render time.
-_TASK_BODY_CHAR_CAP = 3000
 
 
 def _enforce_context_budget(ctx: dict) -> None:
     """Trim ctx["memories"] (lowest-scored last, since the list is pre-sorted
-    descending by score) until the combined context fits _CONTEXT_TOKEN_BUDGET
-    tokens, or the list is empty. Mutates ctx in place. task_memories/
-    related_tasks/related_commits/task_rag_chunks are counted toward the
-    budget but never trimmed themselves — they're already small/capped, so
-    memories is the only source with a meaningful relevance ordering to
-    evict from.
+    descending by score) until it fits _CONTEXT_TOKEN_BUDGET tokens, or the
+    list is empty. Mutates ctx in place.
     """
     from src.tools.tokens import count_tokens
 
     def _combined_tokens() -> int:
-        return count_tokens("".join(
-            m.get("body", "")
-            for m in ctx.get("memories", []) + ctx.get("task_memories", [])
-        )) + count_tokens("".join(
-            t.get("body_snippet", "") for t in ctx.get("related_tasks", [])
-        )) + count_tokens("".join(
-            c.get("snippet", "") for c in ctx.get("related_commits", [])
-        )) + count_tokens("".join(
-            c.get("name", "") + c.get("module", "") for c in ctx.get("task_rag_chunks", [])
-        ))
+        return count_tokens("".join(m.get("body", "") for m in ctx.get("memories", [])))
 
     memories = ctx.get("memories", [])
     dropped = 0
@@ -159,111 +142,24 @@ def _format_system_prompt(ctx: dict) -> str:
             lines.append(f"- `{tool}` (skill={skill}, used={count}x)")
         lines.append("")
 
-    if ctx.get("active_task_id"):
-        title = ctx.get("active_task_title", "")
-        lines.append(f"## Active task: task:{ctx['active_task_id']}" + (f" — {title}" if title else ""))
-        parent_id    = ctx.get("active_parent_task_id", "")
-        parent_title = ctx.get("active_parent_task_title", "")
-        if parent_id:
-            lines.append(f"epic: task:{parent_id}" + (f" — {parent_title}" if parent_title else ""))
-        # Rendered verbatim, unlike task_body below — deliberately not subject to
-        # _TASK_BODY_CHAR_CAP truncation or _enforce_context_budget eviction, since
-        # the whole point is a byte-identical north star every turn the task is active.
-        contract = (ctx.get("execution_contract") or "").strip()
-        if contract:
-            lines.append("### Execution contract")
-            lines.append(contract)
+    # Active task, execution contract, task decisions/memories/history, relevant
+    # code, and related tasks/commits blocks are gone (task:882d67fa) — that
+    # context is task-framework's now, read via tasks__context rather than
+    # pushed into the system prompt every turn.
+
+    if ctx.get("active_review"):
+        rev = ctx["active_review"]
+        template = rev.get("template", "")
+        items = rev.get("items", [])
+        if items:
+            lines.append(f"## Active review checklist ({template})")
+            for item in items:
+                status = item.get("status", "pending")
+                marker = "[x]" if status == "pass" else "[-]" if status == "fail" else "[ ]"
+                label = item.get("label", "")
+                kind = item.get("type", "")
+                lines.append(f"- {marker} {label} [{kind}]")
             lines.append("")
-        body = (ctx.get("task_body") or "").strip()
-        if body:
-            if len(body) > _TASK_BODY_CHAR_CAP:
-                body = body[:_TASK_BODY_CHAR_CAP] + "\n...[truncated]"
-            lines.append(body)
-        lines.append("")
-
-    if ctx.get("mid_task_decisions"):
-        lines.append("## Task decisions")
-        for decision in ctx["mid_task_decisions"]:
-            lines.append(f"- {decision}")
-        lines.append("")
-
-    if ctx.get("task_memories"):
-        lines.append("## Task memories")
-        for mem in ctx["task_memories"]:
-            name   = mem.get("name", "?")
-            domain = mem.get("domain", "")
-            body   = mem.get("body", "").strip()
-            lines.append(f"### {name} [{domain}]")
-            if body:
-                lines.append(body)
-            lines.append("")
-
-
-    if ctx.get("task_context_summary"):
-        lines.append("## Task context")
-        lines.append(ctx["task_context_summary"])
-        lines.append("")
-    else:
-        if ctx.get("task_context"):
-            lines.append("## Task history")
-            task_ctx     = ctx["task_context"]
-            unique_sids  = {ev.get("session_id", "") for ev in task_ctx}
-            multi_session = len(unique_sids) > 1
-            for ev in task_ctx:
-                turn    = ev.get("turn", "?")
-                summary = ev.get("summary", "").strip()
-                tools   = ev.get("tools", "").strip()
-                sid     = (ev.get("session_id") or "")[:8]
-                line = f"- [{sid}] turn {turn}" if multi_session else f"- turn {turn}"
-                if summary:
-                    line += f": {summary}"
-                if tools:
-                    line += f" [{tools}]"
-                lines.append(line)
-            lines.append("")
-
-        if ctx.get("task_rag_chunks"):
-            lines.append("## Relevant code")
-            for c in ctx["task_rag_chunks"]:
-                name = c.get("name", "")
-                mod  = c.get("module", "?")
-                file = c.get("file", "")
-                line = c.get("line", "")
-                label = f"`{name}`" if name else f"`{mod}`"
-                loc = f"{file}:{line}" if line else file
-                lines.append(f"- {label} — {loc}")
-            lines.append("")
-
-        if ctx.get("related_tasks"):
-            lines.append("## Related past tasks")
-            for t in ctx["related_tasks"]:
-                lines.append(f"- {t['id']}: {t['title']}")
-                if t.get("body_snippet"):
-                    lines.append(f"  {t['body_snippet']}")
-            lines.append("")
-
-        if ctx.get("related_commits"):
-            lines.append("## Related commits")
-            for c in ctx["related_commits"]:
-                commit = c.get("commit_hash", "?")
-                file   = c.get("file", "")
-                score  = c.get("score", 0)
-                lines.append(f"- `{commit}` {file} [{score:.3f}]")
-            lines.append("")
-
-        if ctx.get("active_review"):
-            rev = ctx["active_review"]
-            template = rev.get("template", "")
-            items = rev.get("items", [])
-            if items:
-                lines.append(f"## Active review checklist ({template})")
-                for item in items:
-                    status = item.get("status", "pending")
-                    marker = "[x]" if status == "pass" else "[-]" if status == "fail" else "[ ]"
-                    label = item.get("label", "")
-                    kind = item.get("type", "")
-                    lines.append(f"- {marker} {label} [{kind}]")
-                lines.append("")
 
     return "\n".join(lines).strip()
 
@@ -296,17 +192,8 @@ def _handle_user_prompt_submit(hook_input: dict) -> dict | None:
     prompt     = _extract_prompt(hook_input)
     session_id = _get_claude_session_id(hook_input)
 
-    # Read active_task from checkpoint before invoking the graph — needed for replay harness
-    # to reconstruct task-aware inputs (related_tasks, rag_chunks, task_history).
-    from langchain_learning.session_graph import get_session_graph, _config
-    try:
-        _saved = get_session_graph().get_state(_config(session_id))
-        _active_task = (_saved.values.get("active_task_id") or "") if _saved and _saved.values else ""
-    except Exception:
-        _active_task = ""
-
-    log.info("UPS enter: session=%s cwd=%s prompt_len=%d active_task=%s",
-             session_id[:8], Path(cwd).name, len(prompt), _active_task[:8] if _active_task else "")
+    log.info("UPS enter: session=%s cwd=%s prompt_len=%d",
+             session_id[:8], Path(cwd).name, len(prompt))
 
     if not prompt:
         log.info("UPS skip: empty prompt")
@@ -332,50 +219,25 @@ def _handle_user_prompt_submit(hook_input: dict) -> dict | None:
         system_prompt = f"{system_prompt}\n\n{nudge}" if system_prompt else nudge
         log.info("UPS one-shot hook output appended: %.80s", nudge)
 
-    task_history_chars = sum(
-        len(ev.get("summary", "")) + len(ev.get("tools", ""))
-        for ev in ctx.get("task_context", [])
-    )
-    # Char counts of the task-activation context categories, as a token-count proxy —
-    # mirrors task_history_chars/prompt_chars above. Lets us watch which category is
-    # dominating context size over time via the sqlite hook logs.
+    # Char/token counts of the task-activation context categories (task_history,
+    # rag_chunks, related_tasks, related_commits) are gone with the nodes that
+    # produced them (task:882d67fa) — task-framework owns that context now and
+    # it is never pushed into the system prompt from here.
     memories_chars = sum(
         len(m.get("name", "")) + len(m.get("domain", "")) + len(m.get("body", ""))
-        for m in ctx.get("memories", []) + ctx.get("task_memories", [])
-    )
-    related_tasks_chars = sum(
-        len(t.get("title", "")) + len(t.get("body_snippet", ""))
-        for t in ctx.get("related_tasks", [])
-    )
-    related_commits_chars = sum(
-        len(c.get("commit_hash", "")) + len(c.get("file", "")) + len(c.get("snippet", ""))
-        for c in ctx.get("related_commits", [])
-    )
-    rag_chunks_chars = sum(
-        len(c.get("name", "")) + len(c.get("module", "")) + len(c.get("file", ""))
-        for c in ctx.get("task_rag_chunks", [])
+        for m in ctx.get("memories", [])
     )
     from src.tools.tokens import count_tokens
-    memories_tokens       = count_tokens("".join(m.get("body", "") for m in ctx.get("memories", []) + ctx.get("task_memories", [])))
-    related_tasks_tokens  = count_tokens("".join(t.get("body_snippet", "") for t in ctx.get("related_tasks", [])))
-    related_commits_tokens = count_tokens("".join(c.get("snippet", "") for c in ctx.get("related_commits", [])))
-    rag_chunks_tokens     = count_tokens("".join(c.get("name", "") + c.get("module", "") for c in ctx.get("task_rag_chunks", [])))
-    prompt_tokens         = count_tokens(system_prompt)
+    memories_tokens = count_tokens("".join(m.get("body", "") for m in ctx.get("memories", [])))
+    prompt_tokens   = count_tokens(system_prompt)
     log.info(
         "UPS done: session=%s elapsed_ms=%.0f memories=%d tools=%d "
-        "active_task=%s task_turns=%d task_history_chars=%d rag_chunks=%s related=%s commits=%s "
-        "ctx_chars(memories=%d related_tasks=%d related_commits=%d rag_chunks=%d) "
-        "ctx_tokens(memories=%d related_tasks=%d related_commits=%d rag_chunks=%d) "
+        "ctx_chars(memories=%d) ctx_tokens(memories=%d) "
         "prompt_chars=%d prompt_tokens=%d",
         session_id[:8], elapsed_ms,
         len(ctx.get("memories", [])), len(ctx.get("tool_hints", [])),
-        ctx.get("active_task_id", ""),
-        len(ctx.get("task_context", [])), task_history_chars,
-        [c.get("module", "?").split(".")[-1] for c in ctx.get("task_rag_chunks", [])],
-        [t["id"] for t in ctx.get("related_tasks", [])],
-        [c.get("commit_hash", "?") for c in ctx.get("related_commits", [])],
-        memories_chars, related_tasks_chars, related_commits_chars, rag_chunks_chars,
-        memories_tokens, related_tasks_tokens, related_commits_tokens, rag_chunks_tokens,
+        memories_chars,
+        memories_tokens,
         len(system_prompt), prompt_tokens,
     )
 

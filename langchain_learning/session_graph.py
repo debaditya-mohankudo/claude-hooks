@@ -7,12 +7,9 @@ in a single graph topology.
 Graph shape:
 
     START → route_event (conditional)
-      ├── user_prompt_submit → load_turn ──(task active?)──► load_active_task
-      │                         → load_task_code (TurboVec RAG) → load_related_commits
-      │                                            └─(no task)──► summarize_task_context
-      │                         → load_memories / score_tools → set_prompt_id → END
+      ├── user_prompt_submit → load_turn → load_memories / score_tools → set_prompt_id → END
       ├── pre_tool_use       → gate_check → END
-      ├── post_tool_use      → log_tool_usage → update_tool_keywords → (tasks__clear_active/finish → deactivate_task | *) → END
+      ├── post_tool_use      → log_tool_usage → (__hook__ result → mcp_hook_bridge | *) → END
       └── stop               → noop → play_sound → END
 
 State persistence: the FastAPI hook server (hooks/server.py) opens a MemorySaver
@@ -70,11 +67,10 @@ def build_session_graph(checkpointer=None):
     # Register all nodes from registry
     for name in [
         "noop",
-        "load_turn", "load_active_task", "load_task_code", "load_related_commits", "load_memories",
-        "score_tools", "summarize_task_context", "set_prompt_id",
+        "load_turn", "load_memories",
+        "score_tools", "set_prompt_id",
         "gate_check",
         "log_tool_usage",
-        "deactivate_task", "decision_task",
         "mcp_hook_bridge",
         "play_sound",
     ]:
@@ -97,41 +93,30 @@ def build_session_graph(checkpointer=None):
     #
     # load_related_tasks is gone (task:6240c675). It fetched semantically similar
     # done tasks out of proj_tasks.db to push into the turn — the capability
-    # dropped in task:d6ddb40f, and a store this repo no longer owns. With no
-    # active task there is now nothing to load, so that branch goes straight to
-    # the fan-in point instead of through a loader that would find nothing.
-    builder.add_conditional_edges(
-        "load_turn",
-        lambda s: "load_active_task" if s.get("active_task_id") else "summarize_task_context",
-        {
-            "load_active_task": "load_active_task",
-            "summarize_task_context": "summarize_task_context",
-        },
-    )
+    # dropped in task:d6ddb40f, and a store this repo no longer owns.
+    #
     # load_task_history is gone (task:87ec7876, found while deleting the table
     # it read from). It injected cross-session task_events summaries into every
     # turn — the same context-push shape as the nodes removed in task:6240c675,
     # and precisely the `history` capability task:d6ddb40f decided to drop:
     # readable through tasks__context, not pushed by a tool of its own.
     #
-    # fan-out from load_active_task: code and related commits run in parallel
-    builder.add_edge("load_active_task",      "load_task_code")
-    builder.add_edge("load_active_task",      "load_related_commits")
-    # fan-in: both loaders converge at summarize_task_context (compresses
-    # task_context/rag_chunks/related_* into task_context_summary; first-turn-gated
-    # internally, so it's a fast no-op pass-through on every other turn)
-    for loader in ("load_task_code", "load_related_commits"):
-        builder.add_edge(loader, "summarize_task_context")
-    # fan-out from summarize_task_context to second-tier nodes
-    builder.add_edge("summarize_task_context", "load_memories")
-    builder.add_edge("summarize_task_context", "score_tools")
+    # load_active_task, load_task_code, load_related_commits, and
+    # summarize_task_context are gone (task:882d67fa). They pushed active-task
+    # state, TurboVec code/commit hits, and a compressed context summary into
+    # every turn — the same second-copy-of-task-awareness shape as the removals
+    # above, and the same fix: task-framework owns active-task context and is
+    # asked via tasks__context, not announced by a parallel pipeline here.
+    builder.add_edge("load_turn", "load_memories")
+    builder.add_edge("load_turn", "score_tools")
     # fan-in: both converge at set_prompt_id
     builder.add_edge("load_memories",         "set_prompt_id")
     builder.add_edge("score_tools",           "set_prompt_id")
     # log_task_events is gone with the rest of the task pipeline: it wrote a
     # task_event row per turn and stamped open_tasks.updated_at, both into a
-    # store this repo no longer owns. Its introspection nudge survives, moved
-    # into deactivate_task, which needs no store to format it.
+    # store this repo no longer owns. Its introspection nudge is gone with
+    # deactivate_task (task:882d67fa) — task-framework's own tasks__finish
+    # closes the loop now.
     builder.add_edge("set_prompt_id", END)
 
     # PreToolUse chain
@@ -140,17 +125,13 @@ def build_session_graph(checkpointer=None):
     # PostToolUse chain
     def _post_tool_route(state: SessionState) -> str:
         tool = state.get("tool_name", "")
-        # tasks__set_active and tasks__pop_active no longer route anywhere.
-        # activate_task read the task out of proj_tasks.db and pushed its body,
-        # parent and files into the turn; the stack it popped was dropped in
-        # task:d6ddb40f. task-framework owns the active task and is asked, not
-        # announced. tasks__clear_active and tasks__finish still route, because
-        # deactivate_task only clears checkpoint keys and emits the retrospective
-        # nudge — no store involved.
-        if tool in ("tasks__clear_active", "tasks__finish"):
-            return "deactivate_task"
-        if tool == "tasks__add_decision":
-            return "decision_task"
+        # tasks__set_active/pop_active no longer route anywhere (task:d6ddb40f),
+        # and tasks__clear_active/finish/add_decision no longer route to
+        # deactivate_task/decision_task (task:882d67fa) — those nodes only
+        # ever mirrored checkpoint state that task-framework now owns outright
+        # and is asked via tasks__context, not announced by a parallel pipeline
+        # here.
+        #
         # Generic: any MCP tool returning __hook__ gets bridge injection
         from langchain_learning.nodes._json_utils import extract_tool_result_json
         result = extract_tool_result_json(state.get("tool_result") or {})
@@ -161,8 +142,7 @@ def build_session_graph(checkpointer=None):
     builder.add_conditional_edges(
         "log_tool_usage",
         _post_tool_route,
-        {"deactivate_task": "deactivate_task",
-         "decision_task": "decision_task", "mcp_hook_bridge": "mcp_hook_bridge", END: END},
+        {"mcp_hook_bridge": "mcp_hook_bridge", END: END},
     )
     # The backfill slot is unwired, not deleted. It ran after activate_task and
     # fired only when that node had populated task_files from the task store, so
@@ -170,8 +150,6 @@ def build_session_graph(checkpointer=None):
     # would be a node the graph can never enter. backfill_memory_files.py itself
     # stays on disk: the BackfillNodeProtocol contract is still the documented
     # extension point, and whoever wires a new feeder needs the implementation.
-    builder.add_edge("deactivate_task",   END)
-    builder.add_edge("decision_task",     END)
     builder.add_edge("mcp_hook_bridge",   END)
 
     # Fallback / Stop chain
@@ -235,7 +213,6 @@ def _fresh_state(session_id: str) -> SessionState:
         turn=0,
         memories=[],
         keywords=[], tool_hints=[],
-        active_task_id="", active_task_title="", active_parent_task_id="", active_parent_task_title="", task_memories=[], task_context=[], task_rag_chunks=[], task_stack=[], mid_task_decisions=[], related_tasks=[], related_commits=[],
         current_state="prompt",
         tool_name="", tool_input={}, prompt_id="", prompt_tools=[],
         session_prompt_ids=[], session_tools=OrderedDict(), session_prompt_texts={},

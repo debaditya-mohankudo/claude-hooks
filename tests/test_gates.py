@@ -63,22 +63,20 @@ def test_gate_is_abstract():
 # @prereq decorator — structural checks
 # ---------------------------------------------------------------------------
 
+# imessage__send and mail__delete gates moved to claude_for_mac_local — that
+# repo owns those tools now, so their gate_rules.yaml entries and these tests
+# went with them. mail__compose stays: it's the one gate still defined here.
+
 def test_prereq_gates_are_gate_subclasses():
-    # All three external gates loaded from gate_rules.yaml must be Gate subclasses
-    for tool in ("imessage__send", "mail__compose", "mail__delete"):
-        assert isinstance(GATES[tool], Gate), f"{tool} gate is not a Gate subclass"
+    assert isinstance(GATES["mail__compose"], Gate)
 
 
 def test_prereq_gates_registered_in_registry():
-    assert "imessage__send" in GATES
     assert "mail__compose" in GATES
-    assert "mail__delete" in GATES
 
 
 def test_prereq_gates_preserve_tool_name():
-    assert GATES["imessage__send"].tool_name == "imessage__send"
     assert GATES["mail__compose"].tool_name == "mail__compose"
-    assert GATES["mail__delete"].tool_name == "mail__delete"
 
 
 # ---------------------------------------------------------------------------
@@ -366,121 +364,13 @@ def test_ctx_called_recently_mixed_stale_and_fresh():
 # GATES registry
 # ---------------------------------------------------------------------------
 
-def test_imessage_send_gate_exists():
-    assert "imessage__send" in GATES
-    assert isinstance(GATES["imessage__send"], Gate)
-
+# IMessageSendGate tests removed here: imessage__send moved to
+# claude_for_mac_local along with the tool itself, so this repo no longer
+# defines or gates it.
 
 def test_mail_compose_gate_exists():
     assert "mail__compose" in GATES
     assert isinstance(GATES["mail__compose"], Gate)
-
-
-# ---------------------------------------------------------------------------
-# IMessageSendGate — contacts__search within last 10 calls with name arg
-# ---------------------------------------------------------------------------
-
-def test_imessage_denied_no_prior_calls():
-    ctx = _ctx("imessage__send")
-    deny, reason = GATES["imessage__send"].verify(ctx)
-    assert deny is True
-    assert "contacts__search" in reason
-
-
-def test_imessage_denied_contacts_search_without_name():
-    ctx = _ctx(
-        "imessage__send",
-        session_tools={"p1": [_tc("contacts__search", {})]},
-    )
-    deny, reason = GATES["imessage__send"].verify(ctx)
-    assert deny is True
-    assert "contacts__search" in reason
-
-
-def test_imessage_allowed_contacts_search_with_name_immediate():
-    ctx = _ctx(
-        "imessage__send",
-        session_tools={"p1": [_tc("contacts__search", {"name": "Alice"})]},
-        prompt_text="send message to Alice",
-    )
-    deny, _ = GATES["imessage__send"].verify(ctx)
-    assert deny is False
-
-
-def test_imessage_allowed_contacts_search_within_window():
-    ctx = _ctx(
-        "imessage__send",
-        session_tools={"p1": [_tc("contacts__search", {"name": "Bob"})]},
-        prompt_text="message Bob about the meeting",
-    )
-    deny, _ = GATES["imessage__send"].verify(ctx)
-    assert deny is False
-
-
-def test_imessage_denied_when_no_prompt_text_and_name_not_found():
-    # prompt_text is empty — name check still runs, denies because name can't be verified
-    ctx = _ctx(
-        "imessage__send",
-        session_tools={"p1": [_tc("contacts__search", {"name": "Alice"})]},
-        prompt_text="",
-    )
-    deny, _ = GATES["imessage__send"].verify(ctx)
-    assert deny is True
-
-
-def test_imessage_denied_name_not_in_prompt():
-    # contacts__search was for "Alice" but prompt mentions "Bob"
-    ctx = _ctx(
-        "imessage__send",
-        session_tools={"p1": [_tc("contacts__search", {"name": "Alice"})]},
-        prompt_text="send a message to Bob",
-    )
-    deny, reason = GATES["imessage__send"].verify(ctx)
-    assert deny is True
-    assert "Alice" in reason
-
-
-def test_imessage_allowed_name_case_insensitive():
-    # name check is case-insensitive
-    ctx = _ctx(
-        "imessage__send",
-        session_tools={"p1": [_tc("contacts__search", {"name": "Alice"})]},
-        prompt_text="Send iMessage to ALICE now",
-    )
-    deny, _ = GATES["imessage__send"].verify(ctx)
-    assert deny is False
-
-
-def test_imessage_allowed_name_substring_in_prompt():
-    # "alice" appears as part of a longer word in the prompt
-    ctx = _ctx(
-        "imessage__send",
-        session_tools={"p1": [_tc("contacts__search", {"name": "Alice Smith"})]},
-        prompt_text="remind alice smith about tomorrow",
-    )
-    deny, _ = GATES["imessage__send"].verify(ctx)
-    assert deny is False
-
-
-def test_imessage_denied_contacts_search_stale():
-    # contacts__search happened more than DEFAULT_WINDOW_S seconds ago — denied
-    ctx = _ctx(
-        "imessage__send",
-        session_tools={"p1": [_tc("contacts__search", {"name": "Bob"}, ts=_stale_ts())]},
-    )
-    deny, reason = GATES["imessage__send"].verify(ctx)
-    assert deny is True
-    assert "contacts__search" in reason
-
-
-def test_imessage_denied_contacts_search_in_current_calls_no_name():
-    ctx = _ctx(
-        "imessage__send",
-        current_tools=["contacts__search"],
-    )
-    # current_calls built without tool_input — name is empty, should deny
-    deny, _ = GATES["imessage__send"].verify(ctx)
-    assert deny is True  # no name arg in current_calls (built without it)
 
 
 # ---------------------------------------------------------------------------
@@ -534,46 +424,9 @@ def test_mail_compose_allowed_no_to_param_after_contacts_search():
     assert deny is False
 
 
-# ---------------------------------------------------------------------------
-# MailDeleteGate
-# ---------------------------------------------------------------------------
-
-def test_mail_delete_denied_without_mail_read():
-    ctx = _ctx("mail__delete")
-    deny, reason = GATES["mail__delete"].verify(ctx)
-    assert deny is True
-    assert "mail__read" in reason
-
-
-def test_mail_delete_allowed_after_mail_read():
-    ctx = _ctx(
-        "mail__delete",
-        session_tools={"p1": [_tc("mail__read")]},
-    )
-    deny, _ = GATES["mail__delete"].verify(ctx)
-    assert deny is False
-
-
-def test_mail_delete_allowed_mail_read_within_window():
-    # mail__read happened recently — allowed
-    ctx = _ctx(
-        "mail__delete",
-        session_tools={"p1": [_tc("mail__read")]},
-    )
-    deny, _ = GATES["mail__delete"].verify(ctx)
-    assert deny is False
-
-
-def test_mail_delete_denied_mail_read_stale():
-    # mail__read happened more than DEFAULT_WINDOW_S seconds ago — denied
-    ctx = _ctx(
-        "mail__delete",
-        session_tools={"p1": [_tc("mail__read", ts=_stale_ts())]},
-    )
-    deny, reason = GATES["mail__delete"].verify(ctx)
-    assert deny is True
-    assert "mail__read" in reason
-
+# MailDeleteGate tests removed here: mail__delete moved to
+# claude_for_mac_local along with the tool itself, so this repo no longer
+# defines or gates it.
 
 # ---------------------------------------------------------------------------
 # check() dispatch
@@ -584,13 +437,6 @@ def test_check_ungated_tool_always_allowed():
     deny, reason = check("some__unknown_tool", ctx)
     assert deny is False
     assert reason == ""
-
-
-def test_check_imessage_denied_via_dispatch():
-    ctx = _ctx("imessage__send")
-    deny, reason = check("imessage__send", ctx)
-    assert deny is True
-    assert "contacts__search" in reason
 
 
 def test_check_mail_compose_denied_via_dispatch():
@@ -801,19 +647,19 @@ class TestGateAdversarialInputs:
     # -- None / missing fields -----------------------------------------------
 
     def test_none_tool_input_does_not_raise(self):
-        ctx = _ctx("imessage__send", tool_input=None)
-        deny, reason = check("imessage__send", ctx)
+        ctx = _ctx("mail__compose", tool_input=None)
+        deny, reason = check("mail__compose", ctx)
         # Must not raise — result can be deny or allow
         assert isinstance(deny, bool)
 
     def test_empty_prompt_id_does_not_raise(self):
-        ctx = _ctx("imessage__send", prompt_id="")
-        deny, reason = check("imessage__send", ctx)
+        ctx = _ctx("mail__compose", prompt_id="")
+        deny, reason = check("mail__compose", ctx)
         assert isinstance(deny, bool)
 
     def test_none_prompt_text_does_not_raise(self):
         ctx = GateContext(
-            tool_name="imessage__send",
+            tool_name="mail__compose",
             tool_input={},
             current_calls=[],
             session_tools=OrderedDict(),
@@ -822,7 +668,7 @@ class TestGateAdversarialInputs:
             prompt_text=None,  # type: ignore[arg-type]
         )
         # __post_init__ should handle this gracefully
-        deny, reason = check("imessage__send", ctx)
+        deny, reason = check("mail__compose", ctx)
         assert isinstance(deny, bool)
 
     # -- Corrupted prompt_tools / session_tools ------------------------------
@@ -833,7 +679,7 @@ class TestGateAdversarialInputs:
             "p1": [None, 42, {"no_tool_key": True}, "bare-string"],
         })
         ctx = GateContext(
-            tool_name="imessage__send",
+            tool_name="mail__compose",
             tool_input={},
             current_calls=[],
             session_tools=corrupt_session,
@@ -841,7 +687,7 @@ class TestGateAdversarialInputs:
             prompt_id="p2",
             prompt_text="send message",
         )
-        deny, reason = check("imessage__send", ctx)
+        deny, reason = check("mail__compose", ctx)
         # Corrupted history → prereq not found → deny
         assert deny is True
 
@@ -849,7 +695,7 @@ class TestGateAdversarialInputs:
         """ToolCall with ts=0 and empty tool_input — gate must handle gracefully."""
         tc = ToolCall(tool="contacts__search", prompt_id="p1", tool_input={"name": "Alice"}, ts=0.0)
         ctx = GateContext(
-            tool_name="imessage__send",
+            tool_name="mail__compose",
             tool_input={},
             current_calls=[tc],
             session_tools=OrderedDict(),
@@ -858,7 +704,7 @@ class TestGateAdversarialInputs:
             prompt_text="send message to Alice",
         )
         # ts=0 is stale but current_calls path should still work
-        deny, reason = check("imessage__send", ctx)
+        deny, reason = check("mail__compose", ctx)
         assert isinstance(deny, bool)
 
     def test_extremely_long_tool_name_does_not_raise(self):
@@ -874,7 +720,7 @@ class TestGateAdversarialInputs:
         assert deny is False
 
     def test_tool_name_with_special_chars_does_not_raise(self):
-        tool = "mcp__local-mac__im\x00essage__send"
+        tool = "mcp__local-mac__ma\x00il__compose"
         ctx = _ctx(tool)
         deny, reason = check(tool, ctx)
         assert isinstance(deny, bool)
@@ -883,7 +729,7 @@ class TestGateAdversarialInputs:
 
     def test_empty_session_prompt_ids_does_not_raise(self):
         ctx = GateContext(
-            tool_name="imessage__send",
+            tool_name="mail__compose",
             tool_input={},
             current_calls=[],
             session_tools=OrderedDict(),
@@ -891,13 +737,13 @@ class TestGateAdversarialInputs:
             prompt_id="",
             prompt_text="",
         )
-        deny, reason = check("imessage__send", ctx)
+        deny, reason = check("mail__compose", ctx)
         # No prereq → deny
         assert deny is True
 
     def test_gate_deny_reason_is_always_str(self):
         """reason must always be a str, never None."""
-        for tool in ["imessage__send", "mail__compose", "mail__delete"]:
+        for tool in ["mail__compose"]:
             ctx = _ctx(tool)
             deny, reason = check(tool, ctx)
             assert isinstance(reason, str), f"{tool}: reason is {type(reason)}"

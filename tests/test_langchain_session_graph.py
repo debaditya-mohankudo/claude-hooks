@@ -109,9 +109,6 @@ def _base_state(**overrides) -> SessionState:
         "memories": [],
         "keywords": [],
         "tool_hints": [],
-        "active_task_id": "", "active_task_title": "",
-        "task_memories": [], "task_context": [], "task_stack": [], "mid_task_decisions": [], "related_tasks": [],
-        "task_rag_chunks": [], "task_body": "",
         "current_state": "prompt",
         "tool_name": "", "tool_input": {}, "tool_result": {}, "prompt_id": "",
         "prompt_tools": [], "session_prompt_ids": [], "session_tools": OrderedDict(),
@@ -357,13 +354,17 @@ class TestCheckpointCrossHook:
     via the MemorySaver checkpoint — no DB reads mid-session.
     """
 
+    # imessage__send integration tests removed here: imessage__send moved to
+    # claude_for_mac_local along with the tool itself. mail__compose is now
+    # the only prereq gate this repo still exercises end-to-end.
+
     def test_prompt_id_flows_from_submit_to_gate(self, mem_graph, _log_test_marker, log_turn):
         """prompt_id written by UserPromptSubmit must be readable by PreToolUse via checkpoint."""
         sg = mem_graph
         sid = "chk-test-gate"
 
         log_turn("user_prompt_submit")
-        r1 = sg.run_session("send message to alice", session_id=sid, cwd="/tmp")
+        r1 = sg.run_session("send this to alice@example.com", session_id=sid, cwd="/tmp")
         prompt_id_from_submit = r1["prompt_id"]
         assert prompt_id_from_submit, "UserPromptSubmit must set prompt_id"
 
@@ -372,30 +373,10 @@ class TestCheckpointCrossHook:
                          tool_result={"name": "Alice", "phoneNumbers": [{"value": "+911234567890"}]})
 
         log_turn("pre_tool_use gate")
-        gate_result = sg.run_gate("imessage__send", {"recipient": "+911234567890"}, session_id=sid)
+        gate_result = sg.run_gate("mail__compose", {"to": "alice@example.com"}, session_id=sid)
 
         assert not gate_result["gate_denied"], \
             f"Gate should allow after prereqs; got denied: {gate_result['gate_reason']}"
-        # Verify name check actually ran in THIS test (not silently skipped)
-        rows = _log_test_marker(logger="lc.hooks.gates", search=["name_arg_check", "found_in_recent=True"])
-        assert rows, "name_arg_check must fire and confirm name in prompt"
-
-    def test_gate_allows_name_from_previous_prompt(self, mem_graph, log_turn):
-        """Gate should allow imessage__send when the recipient name was in the PREVIOUS prompt."""
-        sg = mem_graph
-        sid = "chk-test-prev-prompt-name"
-
-        log_turn("turn 1 submit")
-        sg.run_session("send hi to Alice", session_id=sid, cwd="/tmp")
-        log_turn("turn 1 post_tool")
-        sg.run_post_tool("mcp__local-mac__contacts__search", {"name": "Alice"}, session_id=sid, duration_ms=30)
-        log_turn("turn 2 submit")
-        sg.run_session("Yes", session_id=sid, cwd="/tmp")
-        log_turn("turn 2 gate")
-        gate_result = sg.run_gate("imessage__send", {"recipient": "+911234567890"}, session_id=sid)
-
-        assert not gate_result["gate_denied"], \
-            f"Gate should allow when name was in previous prompt; got: {gate_result['gate_reason']}"
 
     def test_prompt_id_not_reset_between_hooks(self, mem_graph):
         """prompt_id must be the same across UserPromptSubmit and all subsequent hooks in the same turn."""
@@ -452,7 +433,7 @@ class TestCheckpointCrossHook:
         sg = mem_graph
         sid = "chk-test-no-prior"
 
-        gate_result = sg.run_gate("imessage__send", {"recipient": "+911234567890"}, session_id=sid)
+        gate_result = sg.run_gate("mail__compose", {"to": "alice@example.com"}, session_id=sid)
         assert gate_result["gate_denied"], \
             "Gate must deny gated tool when no checkpoint exists (no contacts__search recorded)"
         # Fallback prompt_id must be generated so gate logs are traceable (not prompt_id=?)
@@ -465,144 +446,10 @@ class TestCheckpointCrossHook:
         assert "?" not in gate_rows[0]["message"].split("prompt_id=")[-1].split()[0], \
             "gate log must not show prompt_id=?"
 
-    # ------------------------------------------------------------------
-    # MailDeleteGate integration
-    # ------------------------------------------------------------------
-
-    def test_mail_delete_denied_without_prior_read(self, mem_graph, log_turn):
-        """mail__delete must be denied when no mail__read has been called this session."""
-        sg = mem_graph
-        sid = "chk-mail-delete-deny"
-
-        log_turn("user_prompt_submit")
-        sg.run_session("delete that email", session_id=sid, cwd="/tmp")
-
-        log_turn("pre_tool_use gate — no prior mail read")
-        gate_result = sg.run_gate("mail__delete", {}, session_id=sid)
-
-        assert gate_result["gate_denied"], \
-            f"mail__delete must be denied without prior mail__read; got allowed"
-
-    def test_mail_delete_allowed_after_mail_read(self, mem_graph, log_turn):
-        """mail__delete must be allowed after mail__read was called this session."""
-        sg = mem_graph
-        sid = "chk-mail-delete-allow"
-
-        log_turn("user_prompt_submit")
-        sg.run_session("show inbox then delete the first email", session_id=sid, cwd="/tmp")
-
-        log_turn("post_tool_use — mail read")
-        sg.run_post_tool("mcp__local-mac__mail__read", {}, session_id=sid, duration_ms=30,
-                         tool_result={"messages": [{"id": "abc123", "subject": "Hello"}]})
-
-        log_turn("pre_tool_use gate — after mail read")
-        gate_result = sg.run_gate("mail__delete", {"message_id": "abc123"}, session_id=sid)
-
-        assert not gate_result["gate_denied"], \
-            f"mail__delete should be allowed after mail__read; got denied: {gate_result['gate_reason']}"
-
-    def test_mail_delete_denied_when_no_checkpoint(self, mem_graph, log_turn):
-        """mail__delete must be denied when there is no prior UPS checkpoint at all."""
-        sg = mem_graph
-        sid = "chk-mail-delete-no-prior"
-
-        log_turn("pre_tool_use gate — no UPS checkpoint")
-        gate_result = sg.run_gate("mail__delete", {"message_id": "xyz"}, session_id=sid)
-
-        assert gate_result["gate_denied"], \
-            "mail__delete must deny when no session checkpoint exists"
+    # MailDeleteGate integration tests removed here: mail__delete moved to
+    # claude_for_mac_local along with the tool itself.
 
 
-class TestDeactivateTaskRetrospective:
-    """DeactivateTaskNode injects retrospective additionalContext on tasks__finish."""
-
-    def _make_state(self, tool_name: str, task_id: str = "abc123", title: str = "Test task") -> dict:
-        from langchain_learning.session_state import SessionState
-        from collections import OrderedDict
-        return {
-            "event_type": "post_tool_use",
-            "tool_name": tool_name,
-            "tool_input": {"task_id": task_id},
-            "tool_result": {},
-            "session_id": "test-session",
-            "prompt": "",
-            "cwd": "",
-            "turn": 1,
-            "active_task_id": task_id,
-            "active_task_title": title,
-            "active_parent_task_id": "",
-            "active_parent_task_title": "",
-            "task_memories": [],
-            "task_stack": [],
-            "mid_task_decisions": [],
-            "memories": [],
-            "keywords": [],
-            "tool_hints": [],
-            "task_context": [],
-            "task_rag_chunks": [],
-            "task_body": "",
-            "task_context_summary": "",
-            "related_tasks": [],
-            "related_commits": [],
-            "active_review": {},
-            "current_state": "prompt",
-            "prompt_id": "",
-            "prompt_tools": [],
-            "session_prompt_ids": [],
-            "session_tools": OrderedDict(),
-            "session_prompt_texts": {},
-            "gate_denied": False,
-            "gate_reason": "",
-            "duration_ms": 0.0,
-            "pending_hook_output": {},
-        }
-
-    def test_finish_injects_retrospective(self):
-        from langchain_learning.nodes.deactivate_task import DeactivateTaskNode
-        node = DeactivateTaskNode()
-        state = self._make_state("tasks__finish", task_id="abc123", title="My finished task")
-        result = node(state)
-        assert "pending_hook_output" in result
-        output = result["pending_hook_output"]
-        assert output["hookSpecificOutput"]["hookEventName"] == "PostToolUse"
-        ctx = output["hookSpecificOutput"]["additionalContext"]
-        assert "My finished task" in ctx
-        # Pointer to the single retro flow — /task-introspection owns capture now
-        assert "/task-introspection task:abc123" in ctx
-        # The old inline capture instructions must be gone (task:8c3c2ee4)
-        assert "tasks__create_feedback" not in ctx
-        assert "memory__add_batch" not in ctx
-
-    def test_finish_emits_the_introspection_nudge(self):
-        """The nudge survived the task pipeline's removal.
-
-        It used to live in LogTaskEventsNode and was shared so the two close
-        paths could not drift. That node is gone with the rest of the pipeline —
-        it wrote task_event rows and stamped open_tasks — and there is now one
-        close path, so the template lives with it. The nudge itself was kept
-        because it enforces nothing, cannot block, and needs no task store.
-        """
-        from langchain_learning.nodes.deactivate_task import (
-            DeactivateTaskNode, INTROSPECTION_NUDGE_TEMPLATE,
-        )
-        node = DeactivateTaskNode()
-        state = self._make_state("tasks__finish", task_id="abc123")
-        ctx = node(state)["pending_hook_output"]["hookSpecificOutput"]["additionalContext"]
-        assert INTROSPECTION_NUDGE_TEMPLATE.format(task_id="abc123") in ctx
-
-    def test_clear_active_no_retrospective(self):
-        from langchain_learning.nodes.deactivate_task import DeactivateTaskNode
-        node = DeactivateTaskNode()
-        state = self._make_state("tasks__clear_active", task_id="abc123")
-        result = node(state)
-        assert "pending_hook_output" not in result or result.get("pending_hook_output") == {}
-
-    def test_finish_clears_active_task_fields(self):
-        from langchain_learning.nodes.deactivate_task import DeactivateTaskNode
-        node = DeactivateTaskNode()
-        state = self._make_state("tasks__finish", task_id="abc123")
-        result = node(state)
-        assert result["active_task_id"] == ""
-        assert result["active_task_title"] == ""
-        assert result["task_memories"] == []
-        assert result["execution_contract"] == ""
+# TestDeactivateTaskRetrospective removed (task:882d67fa) — DeactivateTaskNode
+# and its retrospective-nudge behaviour are gone along with the rest of the
+# active-task pipeline; task-framework's own tasks__finish closes the loop now.

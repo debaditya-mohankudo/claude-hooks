@@ -73,12 +73,10 @@ class TestPreToolUseLc:
         )
         assert result == {}
 
-    def test_gated_tool_denied_without_prereq(self, tmp_path):
-        result = self._run(
-            {"tool_name": "mcp__local-mac__imessage__send", "session_id": "s1", "tool_use_id": "p1"},
-            tmp_path=tmp_path,
-        )
-        assert result.get("hookSpecificOutput", {}).get("permissionDecision") == "deny"
+    # test_gated_tool_denied_without_prereq removed here: it exercised
+    # imessage__send, which moved to claude_for_mac_local along with the
+    # tool itself. test_mail_compose_denied_without_prereq below covers the
+    # same "gated tool denied without prereq" shape for the gate that remains.
 
     def test_gated_tool_allowed_after_prereq(self, tmp_path):
         from langgraph.checkpoint.memory import MemorySaver
@@ -150,7 +148,11 @@ class TestPreToolUseLc:
         sg_mod.run_session(prompt="now send message", session_id="sess-x", cwd="/tmp")
 
         # Gate on new prompt — contacts__search not in this prompt's prompt_tools → deny
-        result = self._run({"tool_name": "mcp__local-mac__imessage__send", "session_id": "sess-x"})
+        result = self._run({
+            "tool_name": "mcp__local-mac__mail__compose",
+            "session_id": "sess-x",
+            "tool_input": {"to": "alice@example.com"},
+        })
         sg_mod._graph = None
         assert result.get("hookSpecificOutput", {}).get("permissionDecision") == "deny"
 
