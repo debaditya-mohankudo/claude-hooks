@@ -420,21 +420,25 @@
       "confidence": 0.92,
       "contracts": [
         "record_tool_from_hook(body) and record_task_from_hook(body) take raw PostToolUse dicts",
-        "A Bash call is recorded as a 'git commit' event only when _is_git_commit(command) is true; the recorded args are the comma-joined task:<id> references found anywhere in the command, or None"
+        "A Bash call is recorded as a 'git commit' event only when _is_git_commit(command) is true; the recorded args are the comma-joined task:<id> references found anywhere in the command, or None",
+        "_result_snippet(tresp) extracts and truncates to _RESULT_MAX (100) chars: unwraps the MCP content envelope ({'content':[{'type':'text','text':...}]}) the same way _title_from_response does; falls back to json.dumps(tresp) for non-MCP dict shapes (e.g. Read/Edit/Write), then str(tresp) as a last resort; returns None if the resulting text is empty"
       ],
       "created_at": "2026-06-29T09:47:25.289140+00:00",
-      "description": "Hook payload helpers that extract and record tool calls from raw PostToolUse payloads. MCP tools recorded with compact JSON args. Read/Edit/Write recorded with file_path. Bash only recorded for version-control operations — decided by hooks.gates._is_git_commit, imported rather than reimplemented (task:e247268e). tasks__set_active recorded as task type not tool type, from ANY MCP server providing that name — this is an observability layer, not a rule enforcer, so recording activity from other servers' tasks is correct. Title used to be resolved authoritatively from proj_tasks.db (task:87ec7876 removed that lookup, _title_for_task); it now comes only from the tool's own response, which was already the fallback path for any task the DB lookup missed.",
+      "description": "Hook payload helpers that extract and record tool calls from raw PostToolUse payloads. MCP tools recorded with compact JSON args. Read/Edit/Write recorded with file_path. Bash only recorded for version-control operations — decided by hooks.gates._is_git_commit, imported rather than reimplemented (task:e247268e). tasks__set_active recorded as task type not tool type, from ANY MCP server providing that name — this is an observability layer, not a rule enforcer, so recording activity from other servers' tasks is correct. Title used to be resolved authoritatively from proj_tasks.db (task:87ec7876 removed that lookup, _title_for_task); it now comes only from the tool's own response, which was already the fallback path for any task the DB lookup missed. Since task:27a9c6ed, every recorded case (MCP tools, Read/Edit/Write, git-commit Bash) also carries a truncated result snippet extracted from body['tool_response'] via _result_snippet().",
       "evidence": [
         "hooks/server_memory.py: record_tool_from_hook",
         "hooks/server_memory.py: record_task_from_hook",
+        "hooks/server_memory.py: _result_snippet",
         "hooks/gates.py: _is_git_commit (shared detector)"
       ],
       "invariants": [
         "record_task_from_hook never queries a task store — title comes from the tool response only",
         "Commit detection is SHARED with GitCommitGate via hooks.gates._is_git_commit, never a local copy. Until task:e247268e this module imported the gate's old _GIT_COMMIT_RE, and so silently inherited its false positives: any Bash call merely containing the word 'commit' after a git subcommand was recorded as a 'git commit' timeline event. Historical rows written before that fix include phantom commits, so the timeline is not trustworthy as a commit log for that period.",
-        "A change to what counts as a commit changes this module's output too, not just what the gate blocks — the two consumers cannot be reasoned about independently."
+        "A change to what counts as a commit changes this module's output too, not just what the gate blocks — the two consumers cannot be reasoned about independently.",
+        "result snippets are stored as first-100-chars-as-is with no redaction — server_memory.sqlite is a local-only store already trusted with full prompts and args, so this is a deliberate consistency choice (task:27a9c6ed), not an oversight. Revisit only if a concrete leak is observed.",
+        "Other Bash calls (non-git-commit) remain entirely unrecorded — 'too noisy' — so there is no result to attach to them by construction"
       ],
-      "last_validated": "2026-08-01T18:26:34.807425+00:00",
+      "last_validated": "2026-08-09T02:15:50.014612+00:00",
       "module": "hooks/server_memory.py",
       "name": "server-memory-tool-recording"
     },
@@ -530,6 +534,6 @@
     "commit": "5f62c6b5150a20fe7198d7bd6c155c4b3c0d3101",
     "extracted_at": "2026-07-23T05:42:23Z",
     "note": "incremental upsert (task:a2fd402d)",
-    "updated_at": "2026-08-07T14:51:02.862141+00:00"
+    "updated_at": "2026-08-09T02:15:50.014736+00:00"
   }
 }
