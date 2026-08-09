@@ -2,7 +2,8 @@
 name: what-am-i-working-on
 description: Show recent activity from server memory — prompts, tool calls, and task activations across sessions. Use when asked "what was I working on?" or invoked as /what-am-i-working-on.
 user-invocable: true
-updated: 2026-06-22
+updated: 2026-08-09
+model: haiku
 ---
 
 ## Intent
