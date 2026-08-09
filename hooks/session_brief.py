@@ -1,19 +1,25 @@
-"""SessionBrief — writes a short summary of a /clear'd conversation segment to
-the Obsidian vault's daily note.
+"""SessionBrief — writes a short summary of a conversation segment to the
+Obsidian vault's daily note when that segment ends.
 
-open() marks a segment-start cursor for a session_id; close() reads
-hooks/server_memory events since that cursor, and — if any exist — launches a
-detached subprocess (hooks/session_brief_worker.py) that summarizes them via
-Haiku and appends the brief to today's daily note. The subprocess launch is
-fire-and-forget so close() never blocks the /clear response on an LLM call.
+/clear does not reuse the current session_id: it ends the old session (a
+SessionEnd hook fires for it) and a new session then starts (a SessionStart
+hook fires with a freshly-minted session_id). open() is called from
+dispatcher._handle_session_start with the *new* session's id, marking a
+segment-start cursor; close() is called from dispatcher._handle_session_end
+with the *old* (ending) session's id — open() and close() are always called
+with different session_ids for a given /clear, one segment apart. close()
+reads hooks/server_memory events since that session's cursor, and — if any
+exist — launches a detached subprocess (hooks/session_brief_worker.py) that
+summarizes them via Haiku and appends the brief to today's daily note. The
+subprocess launch is fire-and-forget so close() never blocks the SessionEnd
+response on an LLM call.
 
 The cursor lives in a module-level dict, not on disk: hooks/server.py is a
-single long-running uvicorn process, so SessionStart's open() and the later
-/clear-triggered close() share process memory (same pattern as
-dispatcher.py's _CONTEXT_NUDGE_SHOWN_BAND). A server restart between the two
-loses the cursor — close() treats that as "nothing to summarize" rather than
-guessing a start time (fail open, matches the repo's degrade-and-continue
-philosophy).
+single long-running uvicorn process, so a session's open() and its later
+close() share process memory (same pattern as dispatcher.py's
+_CONTEXT_NUDGE_SHOWN_BAND). A server restart between the two loses the
+cursor — close() treats that as "nothing to summarize" rather than guessing
+a start time (fail open, matches the repo's degrade-and-continue philosophy).
 """
 from __future__ import annotations
 
@@ -44,7 +50,8 @@ _MIN_SEGMENT_TOKENS = 200
 
 
 class SessionBrief:
-    """Context manager: open() on SessionStart, close() on /clear."""
+    """Context manager: open() on SessionStart (new session_id), close() on
+    SessionEnd (the ending session's own session_id) — not the same id."""
 
     def __init__(self, session_id: str) -> None:
         self.session_id = session_id

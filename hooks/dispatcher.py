@@ -199,20 +199,6 @@ def _handle_user_prompt_submit(hook_input: dict) -> dict | None:
         log.info("UPS skip: empty prompt")
         return None
 
-    # /clear wipes conversation context with nothing durable kept — close the
-    # session's brief (fire-and-forget Haiku summary to the vault daily note)
-    # and short-circuit instead of running the normal session graph for this
-    # turn. Hyphenated tags like <command-name> pass through _extract_prompt's
-    # [a-z_]+ tag-stripping regex untouched, so this check still sees them.
-    if "<command-name>/clear</command-name>" in prompt:
-        log.info("UPS /clear detected: session=%s — closing session brief", session_id[:8])
-        try:
-            from hooks.session_brief import SessionBrief
-            SessionBrief(session_id).close()
-        except Exception as exc:
-            log.warning("session_brief close failed: %s", exc)
-        return None
-
     t0 = time.monotonic()
     from langchain_learning.session_graph import run_session
     ctx = run_session(prompt=prompt, session_id=session_id, cwd=cwd)
@@ -528,6 +514,18 @@ def _handle_pre_tool_use(hook_input: dict) -> dict | None:
 
 def _handle_session_end(hook_input: dict) -> dict | None:
     session_id = hook_input.get("session_id", "")
+
+    # /clear (and other session-ending reasons) fire SessionEnd for the
+    # session that is ending — this is the session_id SessionStart's open()
+    # was called with for this segment, not the new session_id the following
+    # SessionStart will introduce. Close the brief here, fire-and-forget.
+    if session_id:
+        try:
+            from hooks.session_brief import SessionBrief
+            SessionBrief(session_id).close()
+        except Exception as exc:
+            log.warning("session_brief close failed: %s", exc)
+
     import langchain_learning.session_graph as sg
     # Check the already-built graph for this session's routing (test-prefixed
     # sessions route to sg._test_graph, task:b63088a1) without lazily creating
