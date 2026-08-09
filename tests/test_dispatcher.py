@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from unittest.mock import patch
 
 # Ensure hooks/ is importable
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "hooks"))
@@ -24,6 +25,7 @@ from dispatcher import (
     _CONTEXT_NUDGE_SHOWN_BAND,
     _CONTEXT_NUDGE_THRESHOLD,
     _CONTEXT_NUDGE_STEP,
+    _handle_user_prompt_submit,
 )
 
 
@@ -242,3 +244,42 @@ def test_context_size_nudge_no_session_id_returns_none(tmp_path):
         {"message": {"usage": {"input_tokens": _CONTEXT_NUDGE_THRESHOLD + 1, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0}}},
     ])
     assert _maybe_context_size_nudge({"transcript_path": path}, "") is None
+
+
+# ── /clear detection + short-circuit ──────────────────────────────────────────
+
+def test_extract_prompt_preserves_hyphenated_command_name_tag():
+    """[a-z_]+ tag-stripping must not eat hyphenated tags like <command-name>."""
+    raw = "<local-command-caveat>noise</local-command-caveat>\n<command-name>/clear</command-name>"
+    assert "<command-name>/clear</command-name>" in _extract_prompt({"prompt": raw})
+
+
+def test_handle_user_prompt_submit_short_circuits_on_clear():
+    hook_input = {
+        "session_id": "sess-clear",
+        "prompt": "<command-name>/clear</command-name>",
+    }
+    with patch("hooks.session_brief.SessionBrief.close") as close:
+        result = _handle_user_prompt_submit(hook_input)
+    assert result is None
+    close.assert_called_once()
+
+
+def test_handle_user_prompt_submit_clear_failure_fails_open():
+    """A broken session_brief close() must not raise into the hook response."""
+    hook_input = {
+        "session_id": "sess-clear-broken",
+        "prompt": "<command-name>/clear</command-name>",
+    }
+    with patch("hooks.session_brief.SessionBrief.close", side_effect=RuntimeError("boom")):
+        result = _handle_user_prompt_submit(hook_input)
+    assert result is None
+
+
+def test_handle_user_prompt_submit_normal_prompt_does_not_close_session_brief():
+    hook_input = {"session_id": "sess-normal", "prompt": "hello"}
+    with patch("hooks.session_brief.SessionBrief.close") as close, \
+         patch("langchain_learning.session_graph.run_session") as run_session:
+        run_session.return_value = {"memories": [], "tool_hints": []}
+        _handle_user_prompt_submit(hook_input)
+    close.assert_not_called()

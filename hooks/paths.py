@@ -9,7 +9,10 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 HOOKS_DIR    = PROJECT_ROOT / "hooks"
 DOCS_DIR     = PROJECT_ROOT / "docs"
 MEM_DB            = Path.home() / ".claude" / "MEMORY.sqlite"
-VAULT_ROOT        = Path.home() / "workspace" / "claude_documents"
+# Was ~/workspace/claude_documents — that path doesn't exist, so vault-context
+# reads (_load_vault_context in dispatcher.py) were silently returning nothing.
+# The Obsidian vault actually lives under iCloud.
+VAULT_ROOT        = Path.home() / "Library/Mobile Documents/iCloud~md~obsidian/Documents"
 TOOL_REGISTRY_PATH = (
     Path.home()
     / "Library/Mobile Documents/com~apple~CloudDocs/Databases/tool_registry.json"
