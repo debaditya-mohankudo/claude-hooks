@@ -88,6 +88,47 @@ def test_record_tool_from_hook_records_edit():
     assert sm.get_server_memory()["events"][-1]["content"] == "Edit"
 
 
+# ── result snippets ───────────────────────────────────────────────────────────
+
+def test_record_tool_stores_result():
+    sm.record_tool("s1", "vault__write", result="ok")
+    assert sm.get_server_memory()["events"][-1]["result"] == "ok"
+
+
+def test_result_snippet_truncated_to_100_chars():
+    long_text = "x" * 250
+    body = {
+        "session_id": "s1",
+        "tool_name": "mcp__claude-hooks__vault__read",
+        "tool_response": {"content": [{"type": "text", "text": long_text}]},
+    }
+    sm.record_tool_from_hook(body)
+    result = sm.get_server_memory()["events"][-1]["result"]
+    assert result == "x" * 100 + "…"
+
+
+def test_result_snippet_unwraps_mcp_content_envelope():
+    body = {
+        "session_id": "s1",
+        "tool_name": "mcp__claude-hooks__vault__read",
+        "tool_response": {"content": [{"type": "text", "text": '{"ok": true}'}]},
+    }
+    sm.record_tool_from_hook(body)
+    assert sm.get_server_memory()["events"][-1]["result"] == '{"ok": true}'
+
+
+def test_result_snippet_falls_back_for_non_mcp_shape():
+    body = {"session_id": "s1", "tool_name": "Edit", "tool_response": {"filePath": "/a/b.py"}}
+    sm.record_tool_from_hook(body)
+    result = sm.get_server_memory()["events"][-1]["result"]
+    assert result and "filePath" in result
+
+
+def test_no_result_when_response_missing():
+    sm.record_tool_from_hook({"session_id": "s1", "tool_name": "Edit"})
+    assert sm.get_server_memory()["events"][-1]["result"] is None
+
+
 # ── unified event sequence ────────────────────────────────────────────────────
 
 def test_events_are_a_chronological_sequence():
@@ -235,3 +276,18 @@ def test_mcp_wrapper_parses_server_response():
     with patch("src.tools.hooks.urllib.request.urlopen", return_value=cm):
         out = h.handle_server_memory(n_events=10)
     assert "| 1 | hi |" in out
+
+
+def test_mcp_wrapper_shows_result_snippet_alongside_tool():
+    import src.tools.hooks as h
+    payload = (
+        b'{"events": ['
+        b'{"type": "prompt", "content": "hi"},'
+        b'{"type": "tool", "content": "vault__read", "result": "ok: 3 notes"}'
+        b']}'
+    )
+    cm = MagicMock()
+    cm.__enter__.return_value.read.return_value = payload
+    with patch("src.tools.hooks.urllib.request.urlopen", return_value=cm):
+        out = h.handle_server_memory(n_events=10)
+    assert "vault__read → ok: 3 notes" in out

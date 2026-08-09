@@ -64,6 +64,9 @@ def handle_server_memory(n_events: int = 50) -> dict:
                     else:
                         display = args[:40]
                     label = f"{label}({display})"
+                result = e.get("result")
+                if result:
+                    label = f"{label} → {result}"
                 rows[-1][1].append(label)
 
         lines = ["| # | Prompt | Tools |", "|---|--------|-------|"]
