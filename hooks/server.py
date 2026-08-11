@@ -215,6 +215,26 @@ async def session_current():
     return JSONResponse(content=get_current_session())
 
 
+@app.get("/session/live")
+async def session_live():
+    """Live claude CLI processes — OS-level, not checkpoint-based.
+
+    Returns {count, sessions: [{pid, etime}]} for every running `claude` CLI
+    process (ps-based, matches noop.py's passive Stop-time check). Unlike
+    /session and /session/{id} (which reflect the in-memory MemorySaver and
+    can hold stale entries across a server restart, or miss a session that
+    predates the current server process), this reflects actual live OS
+    processes — the same check that caught a 20-day-old forgotten tmux
+    session via a runaway sound-alert loop.
+    """
+    from langchain_learning.nodes.noop import live_claude_sessions
+    sessions = live_claude_sessions()
+    return JSONResponse(content={
+        "count": len(sessions),
+        "sessions": [{"pid": pid, "etime": etime} for pid, etime in sessions],
+    })
+
+
 @app.get("/session/memory")
 async def session_memory(n_events: int = 50):
     """Server session memory — last N events from the unified chronological timeline.

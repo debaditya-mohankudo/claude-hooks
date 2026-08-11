@@ -260,32 +260,3 @@ def test_extract_prompt_preserves_hyphenated_command_name_tag():
     assert "<command-name>/clear</command-name>" in _extract_prompt({"prompt": raw})
 
 
-def test_handle_session_end_closes_session_brief():
-    hook_input = {"session_id": "sess-clear"}
-    with patch("hooks.session_brief.SessionBrief.close") as close:
-        result = _handle_session_end(hook_input)
-    assert result is None
-    close.assert_called_once()
-
-
-def test_handle_session_end_close_failure_fails_open():
-    """A broken session_brief close() must not raise into the hook response."""
-    hook_input = {"session_id": "sess-clear-broken"}
-    with patch("hooks.session_brief.SessionBrief.close", side_effect=RuntimeError("boom")):
-        result = _handle_session_end(hook_input)
-    assert result is None
-
-
-def test_handle_session_end_no_session_id_does_not_close_session_brief():
-    with patch("hooks.session_brief.SessionBrief.close") as close:
-        _handle_session_end({"session_id": ""})
-    close.assert_not_called()
-
-
-def test_handle_user_prompt_submit_normal_prompt_does_not_close_session_brief():
-    hook_input = {"session_id": "sess-normal", "prompt": "hello"}
-    with patch("hooks.session_brief.SessionBrief.close") as close, \
-         patch("langchain_learning.session_graph.run_session") as run_session:
-        run_session.return_value = {"memories": [], "tool_hints": []}
-        _handle_user_prompt_submit(hook_input)
-    close.assert_not_called()

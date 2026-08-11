@@ -1,12 +1,61 @@
 """NoopNode — silent pass-through for stop and unknown event types."""
 from __future__ import annotations
 
+import subprocess
+
 from langchain_learning.session_state import SessionState
 from src.logger import get_logger
 
 _log = get_logger(__name__)
 
 _SILENT_EVENTS = {"stop"}
+
+
+def live_claude_sessions() -> list[tuple[str, str]]:
+    """List (pid, elapsed) for every running `claude` CLI process.
+
+    Matches on the basename of `comm` (e.g. .../resources/native-binary/claude)
+    so MCP server subprocesses (python, node, uv) sharing the word "claude" in
+    their path don't get counted. Fails open (empty list) — this is an
+    observability nicety on the Stop hot path, not something that should ever
+    block or slow down a turn's Stop response.
+
+    Shared with hooks/server.py's GET /session/live — same check, reachable
+    either passively (this module logs it on every Stop) or on demand (curl).
+    """
+    try:
+        out = subprocess.run(
+            ["ps", "-eo", "pid=,etime=,comm="],
+            capture_output=True, text=True, timeout=2,
+        ).stdout
+    except Exception as exc:
+        _log.warning("[noop] live session ps failed: %s", exc)
+        return []
+
+    sessions = []
+    for line in out.splitlines():
+        parts = line.split()
+        if len(parts) < 3:
+            continue
+        pid, etime, comm = parts[0], parts[1], parts[-1]
+        if comm.rsplit("/", 1)[-1] == "claude":
+            sessions.append((pid, etime))
+    return sessions
+
+
+def _log_live_sessions_if_multiple() -> None:
+    """Log a summary line when more than one `claude` session is live.
+
+    Surfaces the count and each pid's elapsed runtime to hook_logs so a
+    forgotten detached tmux/terminal session (task: stray 20-day-old claude
+    process) shows up passively on every Stop instead of only being noticed
+    when something like a runaway sound loop draws attention to it.
+    """
+    sessions = live_claude_sessions()
+    if len(sessions) <= 1:
+        return
+    detail = ", ".join(f"pid={pid} etime={etime}" for pid, etime in sessions)
+    _log.warning("[noop] live claude sessions=%d: %s", len(sessions), detail)
 
 # task:b3964f85 — MemorySaver (which replaced SqliteSaver after two corruption
 # incidents) has no built-in eviction: without this cap, a long-running
@@ -71,7 +120,12 @@ class NoopNode:
     stop_alert_sent state, mirroring how UserPromptSubmit's cross-session trim
     runs on every prompt rather than only once.
 
-    Tags: fallback, event-routing, noop, checkpoint-trim
+    Also logs a live-session-count warning on every Stop when more than one
+    `claude` CLI process is running, with each pid's elapsed runtime — surfaces
+    forgotten detached tmux/terminal sessions (see: a 20-day-old stray process
+    found via a runaway sound-alert loop) passively instead of only on demand.
+
+    Tags: fallback, event-routing, noop, checkpoint-trim, live-session-audit
     """
 
     def __call__(self, state: SessionState) -> dict:
@@ -91,6 +145,8 @@ class NoopNode:
         session_id = state.get("session_id") or ""
         if session_id:
             _trim_thread_checkpoints(session_id)
+
+        _log_live_sessions_if_multiple()
 
         if state.get("stop_alert_sent"):
             return {}

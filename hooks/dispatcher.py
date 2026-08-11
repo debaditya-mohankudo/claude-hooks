@@ -515,17 +515,6 @@ def _handle_pre_tool_use(hook_input: dict) -> dict | None:
 def _handle_session_end(hook_input: dict) -> dict | None:
     session_id = hook_input.get("session_id", "")
 
-    # /clear (and other session-ending reasons) fire SessionEnd for the
-    # session that is ending — this is the session_id SessionStart's open()
-    # was called with for this segment, not the new session_id the following
-    # SessionStart will introduce. Close the brief here, fire-and-forget.
-    if session_id:
-        try:
-            from hooks.session_brief import SessionBrief
-            SessionBrief(session_id).close()
-        except Exception as exc:
-            log.warning("session_brief close failed: %s", exc)
-
     import langchain_learning.session_graph as sg
     # Check the already-built graph for this session's routing (test-prefixed
     # sessions route to sg._test_graph, task:b63088a1) without lazily creating
@@ -546,11 +535,6 @@ def _handle_session_end(hook_input: dict) -> dict | None:
 
 def _handle_session_start(hook_input: dict) -> dict | None:
     session_id = hook_input.get("session_id", "")
-    try:
-        from hooks.session_brief import SessionBrief
-        SessionBrief(session_id).open()
-    except Exception as exc:
-        log.warning("session_brief open failed: %s", exc)
     from langchain_learning.session_graph import prewarm_session
     is_new = prewarm_session(session_id)
     status = "new" if is_new else "resumed"
