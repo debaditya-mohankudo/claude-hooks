@@ -222,6 +222,25 @@
       "module": "src/tools/hooks.py",
       "name": "hooks-mcp-tools-observability"
     },
+    "live-session-audit": {
+      "confidence": 0.9,
+      "contracts": [
+        "live_claude_sessions() matches ps comm basename == 'claude', excluding MCP subprocess paths",
+        "NoopNode only logs when len(sessions) > 1 — silent in the normal single-session case",
+        "GET /session/live and NoopNode's passive log call the same live_claude_sessions() helper"
+      ],
+      "created_at": "2026-08-11T15:03:48.660566+00:00",
+      "description": "NoopNode (langchain_learning/nodes/noop.py) logs a warning on every Stop event when more than one `claude` CLI process is live, listing each pid's elapsed runtime — surfaces forgotten detached tmux/terminal sessions passively. GET /session/live on the FastAPI hook server exposes the same ps-based check on demand. Both share one helper, live_claude_sessions(), so they can't drift apart. Replaces the removed session-brief-on-/clear feature (session-brief-segment-cursor, session-brief-worker-detached-summarizer) as this repo's answer to 'is a stray session running.'",
+      "evidence": [
+        "langchain_learning/nodes/noop.py: live_claude_sessions(), _log_live_sessions_if_multiple()",
+        "hooks/server.py: GET /session/live",
+        "task:600dfcb4"
+      ],
+      "invariants": [],
+      "last_validated": "2026-08-11T15:03:48.660566+00:00",
+      "module": "",
+      "name": "live-session-audit"
+    },
     "load-active-task-pass-through": {
       "confidence": 0.95,
       "contracts": [
@@ -381,7 +400,8 @@
         "pyproject.toml: uvloop dependency",
         "~/Library/LaunchAgents/com.debaditya.claude-hooks-pipeline.plist: uvicorn launch args, single process, no --workers",
         "hooks/server.py: _safe_json() — shared JSON-parse helper used by all 6 /hook/{event} endpoints",
-        "tests/test_server_api.py: TestMalformedRequestBody"
+        "tests/test_server_api.py: TestMalformedRequestBody",
+        "hooks/server.py: GET /session/live -> live_claude_sessions() (task:600dfcb4)"
       ],
       "invariants": [
         "Checkpoint state lives only in-process memory (MemorySaver) — discarded on every server restart/reload; nothing about session/task-activation state persists across a restart except what server_memory.py separately logs to SQLite",
@@ -391,7 +411,7 @@
         "Event loop is uvloop, not stdlib asyncio — controlled entirely by whether uvloop is installed",
         "All 6 /hook/{event} endpoints (UserPromptSubmit, PreToolUse, PostToolUse, Stop, SessionStart, SessionEnd) parse their body via the shared _safe_json(request) helper, which catches any JSON-parse failure and returns {} instead of letting it propagate to the generic exception handler as a 500 — found missing (task:33419f95, log audit 2026-07-26) after an empty/malformed body crashed pre_tool_use with an unhandled JSONDecodeError. Any NEW hook endpoint added here must use _safe_json too, not a bare `await request.json()`, to preserve this fail-open guarantee."
       ],
-      "last_validated": "2026-07-26T15:41:07.300412+00:00",
+      "last_validated": "2026-08-11T15:03:48.659252+00:00",
       "module": "hooks/server.py",
       "name": "server-fastapi-hook-server"
     },
@@ -441,50 +461,6 @@
       "last_validated": "2026-08-09T02:15:50.014612+00:00",
       "module": "hooks/server_memory.py",
       "name": "server-memory-tool-recording"
-    },
-    "session-brief-segment-cursor": {
-      "confidence": 0.8,
-      "contracts": [
-        "open(session_id) records a segment-start cursor in the in-memory dict; safe to call multiple times (idempotent overwrite).",
-        "close(session_id) reads server_memory events since the cursor filtered to this session_id, then launches a detached subprocess (session_brief_worker.py) to summarize and write to the vault — it does not itself call the LLM or touch the vault.",
-        "close() on a session_id with no open cursor (e.g. server restarted mid-segment) skips writing entirely rather than guessing a lookback window — fail open, don't fabricate a start time.",
-        "Segments under a 200-token floor (_MIN_SEGMENT_TOKENS, via src.tools.tokens.count_tokens) are skipped without launching the worker."
-      ],
-      "created_at": "2026-08-09T12:20:59.104857+00:00",
-      "description": "SessionBrief tracks a per-session 'segment' of server_memory events, using a module-level in-memory dict keyed by session_id (same pattern as dispatcher.py's _CONTEXT_NUDGE_SHOWN_BAND) rather than a disk-persisted cursor, because hooks/server.py runs as a single long-running uvicorn process shared by both hook calls. open() is called from dispatcher._handle_session_start with the new session's own session_id; close() is called from dispatcher._handle_session_end with the ending session's own session_id (task:3d643f7c) — these are two distinct session_ids per /clear, not a shared one, since SessionEnd fires for the session that is ending and SessionStart fires with a freshly-minted id.",
-      "evidence": [
-        "hooks/session_brief.py",
-        "hooks/dispatcher.py:_handle_session_start (open())",
-        "hooks/dispatcher.py:_handle_session_end (close(), task:3d643f7c)",
-        "tests/test_session_brief.py",
-        "tests/test_dispatcher.py"
-      ],
-      "invariants": [
-        "Cursor state lives only in process memory for the lifetime of the uvicorn worker; it is not durable across server restarts.",
-        "open()/close() (and __enter__/__exit__) must never raise into the calling hook handler — wrap failures and log, matching repo's fail-open philosophy."
-      ],
-      "last_validated": "2026-08-09T12:36:19.498120+00:00",
-      "module": "hooks/session_brief.py",
-      "name": "session-brief-segment-cursor"
-    },
-    "session-brief-worker-detached-summarizer": {
-      "confidence": 0.8,
-      "contracts": [
-        "Runs entirely detached from the uvicorn worker; nothing in SessionBrief.close()'s frame observes its exceptions, so it must do its own try/except-and-log around both the Haiku call and the vault write.",
-        "Appends under VAULT_ROOT / f'{date.today().isoformat()}.md', creating the daily note if absent, rather than writing a separate per-session file."
-      ],
-      "created_at": "2026-08-09T12:21:03.643698+00:00",
-      "description": "Standalone script launched via subprocess.Popen(start_new_session=True) from SessionBrief.close() to summarize a session segment with langchain_learning.subagent.BareClaudeAgent (model claude-haiku-4-5-20251001) and append the result to today's vault daily note under a '## Session Summary' heading — kept out-of-process so /clear's hook response never blocks on the LLM call (mirrors PlaySoundNode's detached-subprocess precedent).",
-      "evidence": [
-        "hooks/session_brief_worker.py",
-        "tests/test_session_brief.py"
-      ],
-      "invariants": [
-        "Not concurrency-safe: the daily-note append is not atomic, so two overlapping /clear-triggered workers writing the same day's note could interleave (flagged risk, unmitigated — no file lock as of task:7ea51ea9)."
-      ],
-      "last_validated": "2026-08-09T12:21:03.643707+00:00",
-      "module": "hooks/session_brief_worker.py",
-      "name": "session-brief-worker-detached-summarizer"
     },
     "session-graph-test-production-routing": {
       "confidence": 0.9,
