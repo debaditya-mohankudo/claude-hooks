@@ -387,6 +387,7 @@
         "GET /health returns {status: ok}",
         "GET /session/memory returns last N events from server_memory",
         "GET /session/current returns {session_id, turn} from the most recent checkpoint — no active task required. GET /session/active was removed (task:8529435a); task-framework owns active-task state, queried via tasks__active",
+        "POST /set-active-taskid accepts {workspace, task_id, title}, stores it in an in-memory dict keyed by workspace; empty/missing task_id clears the entry. GET /session/active-task?workspace=... reads it back, or {} if nothing was ever pushed for that workspace (task:996cc8f0)",
         "_safe_json(request) -> dict — always returns a dict, never raises; malformed/empty/missing body returns {} with a logged warning"
       ],
       "created_at": "2026-06-29T09:47:25.286219+00:00",
@@ -395,6 +396,7 @@
         "hooks/server.py:1-14",
         "hooks/server.py:41-59 (lifespan, MemorySaver construction)",
         "hooks/server.py: session_current() -> get_current_session()",
+        "hooks/server.py: set_active_taskid()/session_active_task() -> hooks/session_state.py: set_active_task()/get_active_task()",
         "pyproject.toml: uvloop dependency",
         "~/Library/LaunchAgents/com.debaditya.claude-hooks-pipeline.plist: uvicorn launch args, single process, no --workers",
         "hooks/server.py: _safe_json() — shared JSON-parse helper used by all 6 /hook/{event} endpoints",
@@ -406,6 +408,7 @@
         "Per-thread checkpoint history is capped at 5000 rows via NoopNode on every Stop event, not by the server itself",
         "Server runs on port 8766 as a single uvicorn worker process — deliberately not multi-worker/per-session",
         "GET /session/current reads live in-memory MemorySaver state (not a DB); it does not require an active task — GET /session/active (which did) was removed (task:8529435a)",
+        "POST /set-active-taskid/GET /session/active-task hold a live PUSH cache from task-framework (task:996cc8f0), not a pull-derived echo like the removed GET /session/active — task-framework remains the durable source of truth, this is just the last value it reported, discarded on restart same as everything else here",
         "Event loop is uvloop, not stdlib asyncio — controlled entirely by whether uvloop is installed",
         "All 6 /hook/{event} endpoints (UserPromptSubmit, PreToolUse, PostToolUse, Stop, SessionStart, SessionEnd) parse their body via the shared _safe_json(request) helper, which catches any JSON-parse failure and returns {} instead of letting it propagate to the generic exception handler as a 500 — found missing (task:33419f95, log audit 2026-07-26) after an empty/malformed body crashed pre_tool_use with an unhandled JSONDecodeError. Any NEW hook endpoint added here must use _safe_json too, not a bare `await request.json()`, to preserve this fail-open guarantee."
       ],

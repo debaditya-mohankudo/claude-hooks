@@ -204,6 +204,34 @@ async def session_current():
     return JSONResponse(content=get_current_session())
 
 
+@app.post("/set-active-taskid")
+async def set_active_taskid(request: Request):
+    """Push endpoint (task:996cc8f0) — task-framework's tasks__set_active and
+    tasks__clear_active call this whenever the active task for a workspace
+    changes, best-effort. Body: {workspace, task_id, title}. Empty/missing
+    task_id clears the stored entry for that workspace.
+
+    In-memory only, like every other bit of session state this server holds —
+    task-framework remains the durable source of truth; this is just a live
+    cache of the last thing it reported, discarded on restart.
+    """
+    body = await _safe_json(request)
+    from hooks.session_state import set_active_task
+    set_active_task(body.get("workspace", ""), body.get("task_id", ""), body.get("title", ""))
+    return {"ok": True}
+
+
+@app.get("/session/active-task")
+async def session_active_task(workspace: str = ""):
+    """Last active-task state pushed for a workspace via POST /set-active-taskid.
+
+    Returns {workspace, task_id, title, ts} or {} if nothing has been pushed
+    for it (including when workspace is omitted).
+    """
+    from hooks.session_state import get_active_task
+    return JSONResponse(content=get_active_task(workspace))
+
+
 @app.get("/session/live")
 async def session_live():
     """Live claude CLI processes — OS-level, not checkpoint-based.

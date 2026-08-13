@@ -8,7 +8,8 @@ always returned {}. Ask task-framework (tasks__active) for the live answer.
 """
 from unittest.mock import MagicMock, patch
 
-from hooks.session_state import get_current_session
+import hooks.session_state as session_state
+from hooks.session_state import get_active_task, get_current_session, set_active_task
 
 
 def _make_checkpoint_tuple(thread_id: str, turn: int, ts: str):
@@ -103,3 +104,50 @@ class TestGetCurrentSession:
         with _mock_checkpointer({"aaa-old": a_thread, "zzz-new": z_thread}):
             result = get_current_session()
         assert result["session_id"] == "zzz-new"
+
+
+class TestActiveTaskPush:
+    """set_active_task/get_active_task (task:996cc8f0) — the in-memory cache
+    backing POST /set-active-taskid and GET /session/active-task."""
+
+    def setup_method(self):
+        session_state._active_task_by_workspace.clear()
+
+    def teardown_method(self):
+        session_state._active_task_by_workspace.clear()
+
+    def test_set_then_get_roundtrips(self):
+        set_active_task("/repo/a", "task-1", "Do the thing")
+        result = get_active_task("/repo/a")
+        assert result["workspace"] == "/repo/a"
+        assert result["task_id"] == "task-1"
+        assert result["title"] == "Do the thing"
+        assert "ts" in result
+
+    def test_unknown_workspace_returns_empty(self):
+        assert get_active_task("/repo/never-set") == {}
+
+    def test_empty_workspace_returns_empty(self):
+        assert get_active_task("") == {}
+
+    def test_empty_task_id_clears_existing_entry(self):
+        set_active_task("/repo/b", "task-1")
+        set_active_task("/repo/b", "")
+        assert get_active_task("/repo/b") == {}
+
+    def test_set_with_no_workspace_is_a_noop(self):
+        set_active_task("", "task-1")
+        assert session_state._active_task_by_workspace == {}
+
+    def test_workspaces_are_independent(self):
+        set_active_task("/repo/a", "task-1")
+        set_active_task("/repo/b", "task-2")
+        assert get_active_task("/repo/a")["task_id"] == "task-1"
+        assert get_active_task("/repo/b")["task_id"] == "task-2"
+
+    def test_setting_again_overwrites_previous_value(self):
+        set_active_task("/repo/a", "task-1", "First")
+        set_active_task("/repo/a", "task-2", "Second")
+        result = get_active_task("/repo/a")
+        assert result["task_id"] == "task-2"
+        assert result["title"] == "Second"

@@ -10,6 +10,13 @@ get_active_session() (the /session/active-backing counterpart) was removed
 checkpoint state once task:882d67fa moved active-task ownership fully to
 task-framework, so it always returned {}. Ask task-framework directly
 (tasks__active) for the live answer.
+
+set_active_task/get_active_task (task:996cc8f0) replace that pull-based echo
+with a push: task-framework's tasks__set_active/clear_active POST to this
+server's /set-active-taskid whenever the active task changes, and this module
+just holds the last value it was told per workspace. It is a live cache of
+what task-framework reported, not a second source of truth — in-memory only,
+discarded on restart like every other bit of state in this file.
 """
 from __future__ import annotations
 
@@ -92,3 +99,36 @@ def get_current_session() -> dict:
     except Exception as exc:
         _log.warning("[get_current_session] failed: %s", exc)
         return {}
+
+
+_active_task_by_workspace: dict[str, dict] = {}
+
+
+def set_active_task(workspace: str, task_id: str, title: str = "") -> None:
+    """Store (or clear) the pushed active-task state for a workspace.
+
+    Called from POST /set-active-taskid. An empty task_id clears the entry —
+    that is how tasks__clear_active signals "no active task" rather than
+    leaving a stale one behind. A missing workspace is a no-op: there is
+    nothing to key the entry by.
+    """
+    if not workspace:
+        return
+    if not task_id:
+        _active_task_by_workspace.pop(workspace, None)
+        return
+    _active_task_by_workspace[workspace] = {
+        "task_id": task_id,
+        "title": title,
+        "ts": _time.time(),
+    }
+
+
+def get_active_task(workspace: str) -> dict:
+    """Return the last pushed {task_id, title, ts} for a workspace, plus the
+    workspace itself — or {} if nothing has been pushed for it (including an
+    empty workspace)."""
+    entry = _active_task_by_workspace.get(workspace)
+    if not entry:
+        return {}
+    return {"workspace": workspace, **entry}
