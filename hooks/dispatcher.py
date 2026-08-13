@@ -78,20 +78,10 @@ def _format_system_prompt(ctx: dict) -> str:
         lines.append("")
 
     vault_ctx = ctx.get("vault_context") or {}
-    if vault_ctx:
-        lines.append("## Soul context")
-        if "user" in vault_ctx:
-            lines.append("### Identity")
-            lines.append(vault_ctx["user"])
-            lines.append("")
-        if "soul" in vault_ctx:
-            lines.append("### Soul")
-            lines.append(vault_ctx["soul"])
-            lines.append("")
-        if "memory" in vault_ctx:
-            lines.append("### Memory")
-            lines.append(vault_ctx["memory"])
-            lines.append("")
+    if "work" in vault_ctx:
+        lines.append("## Work context")
+        lines.append(vault_ctx["work"])
+        lines.append("")
 
     if ctx["memories"]:
         lines.append("## Injected memories")
@@ -123,9 +113,7 @@ def _format_system_prompt(ctx: dict) -> str:
 
 from hooks.paths import VAULT_ROOT as _VAULT_ROOT
 _LIFE_OS_FILES = {
-    "soul":   _VAULT_ROOT / "LIFE_OS" / "soul.md",
-    "user":   _VAULT_ROOT / "LIFE_OS" / "Debaditya.md",
-    "memory": _VAULT_ROOT / "LIFE_OS" / "memory.md",
+    "work": _VAULT_ROOT / "LIFE_OS" / "work.md",
 }
 
 
