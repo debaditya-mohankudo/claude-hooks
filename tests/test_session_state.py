@@ -1,16 +1,19 @@
-"""Tests for hooks/session_state.py — get_current_session, get_active_session,
-and _latest_checkpoint_tuple (the cross-thread "most recent" lookup)."""
+"""Tests for hooks/session_state.py — get_current_session and
+_latest_checkpoint_tuple (the cross-thread "most recent" lookup).
+
+get_active_session was removed (task:8529435a) — active_task_id/
+active_task_title stopped being written into checkpoint state once
+task:882d67fa moved active-task ownership fully to task-framework, so it
+always returned {}. Ask task-framework (tasks__active) for the live answer.
+"""
 from unittest.mock import MagicMock, patch
 
-from hooks.session_state import get_active_session, get_current_session
+from hooks.session_state import get_current_session
 
 
-def _make_checkpoint_tuple(thread_id: str, turn: int, ts: str, active_task_id: str = ""):
+def _make_checkpoint_tuple(thread_id: str, turn: int, ts: str):
     tup = MagicMock()
     channel_values = {"turn": turn}
-    if active_task_id:
-        channel_values["active_task_id"] = active_task_id
-        channel_values["active_task_title"] = f"Title for {active_task_id}"
     tup.checkpoint = {"channel_values": channel_values, "ts": ts}
     tup.config = {"configurable": {"thread_id": thread_id}}
     return tup
@@ -54,8 +57,8 @@ class TestGetCurrentSession:
         assert result == {}
 
     def test_does_not_require_active_task(self):
-        # Unlike get_active_session, a checkpoint with no active_task_id still
-        # yields a session_id — that's the whole point of this helper.
+        # No active-task concept lives here at all — a bare checkpoint still
+        # yields a session_id, which is the whole point of this helper.
         tup = _make_checkpoint_tuple("sess-xyz", 0, ts="2026-07-28T01:00:00+00:00")
         with _mock_checkpointer({"sess-xyz": tup}):
             result = get_current_session()
@@ -100,51 +103,3 @@ class TestGetCurrentSession:
         with _mock_checkpointer({"aaa-old": a_thread, "zzz-new": z_thread}):
             result = get_current_session()
         assert result["session_id"] == "zzz-new"
-
-
-class TestGetActiveSession:
-    def test_returns_active_task_from_most_recent_thread(self):
-        old_thread = _make_checkpoint_tuple(
-            "old-session", turn=1, ts="2020-01-01T00:00:00+00:00", active_task_id="task-old"
-        )
-        new_thread = _make_checkpoint_tuple(
-            "new-session", turn=3, ts="2026-07-28T01:30:00+00:00", active_task_id="task-new"
-        )
-        with _mock_checkpointer({"old-session": old_thread, "new-session": new_thread}):
-            result = get_active_session()
-        assert result["task_id"] == "task-new"
-        assert result["session_id"] == "new-session"
-
-    def test_no_active_task_returns_empty(self):
-        tup = _make_checkpoint_tuple("sess-abc", 0, ts="2026-07-28T01:00:00+00:00")
-        with _mock_checkpointer({"sess-abc": tup}):
-            result = get_active_session()
-        assert result == {}
-
-    def test_a_finished_task_is_still_reported_from_the_checkpoint(self):
-        """This function reports the checkpoint, not the truth.
-
-        It used to resolve the id against proj_tasks.db and drop done and
-        abandoned tasks. That made it look authoritative about a fact this repo
-        no longer owns — task-framework holds the active task and is the only
-        thing that can say whether one is still open. Filtering here would mean
-        a second active-task pointer with nothing to reconcile it against, so
-        a stale checkpoint now reports what it holds and the caller resolves it.
-        """
-        tup = _make_checkpoint_tuple("sess-abc", 1, ts="2026-07-28T01:00:00+00:00", active_task_id="task-1")
-        with _mock_checkpointer({"sess-abc": tup}):
-            result = get_active_session()
-        assert result["task_id"] == "task-1"
-
-    # test_no_task_store_is_consulted removed here (task:87ec7876). It proved
-    # get_active_session never calls src.tools.tasks.handle_get by patching that
-    # target and asserting it wasn't hit. The module is gone, so the patch
-    # target no longer exists — the property is now true unconditionally, and
-    # the test above already covers the behavior that matters.
-
-    def test_no_checkpointer_returns_empty(self):
-        graph = MagicMock()
-        graph.checkpointer = None
-        with patch("langchain_learning.session_graph._graph", graph):
-            result = get_active_session()
-        assert result == {}

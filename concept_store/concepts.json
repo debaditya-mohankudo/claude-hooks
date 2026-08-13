@@ -386,7 +386,7 @@
         "POST /hook/{event} calls dispatcher handler and returns hookSpecificOutput, a top-level decision/reason dict (Stop only), or {}",
         "GET /health returns {status: ok}",
         "GET /session/memory returns last N events from server_memory",
-        "GET /session/current returns {session_id, turn} from the most recent checkpoint — no active task required, unlike GET /session/active",
+        "GET /session/current returns {session_id, turn} from the most recent checkpoint — no active task required. GET /session/active was removed (task:8529435a); task-framework owns active-task state, queried via tasks__active",
         "_safe_json(request) -> dict — always returns a dict, never raises; malformed/empty/missing body returns {} with a logged warning"
       ],
       "created_at": "2026-06-29T09:47:25.286219+00:00",
@@ -395,7 +395,6 @@
         "hooks/server.py:1-14",
         "hooks/server.py:41-59 (lifespan, MemorySaver construction)",
         "hooks/server.py: session_current() -> get_current_session()",
-        "hooks/server.py: session_active() -> get_active_session()",
         "pyproject.toml: uvloop dependency",
         "~/Library/LaunchAgents/com.debaditya.claude-hooks-pipeline.plist: uvicorn launch args, single process, no --workers",
         "hooks/server.py: _safe_json() — shared JSON-parse helper used by all 6 /hook/{event} endpoints",
@@ -406,7 +405,7 @@
         "Checkpoint state lives only in-process memory (MemorySaver) — discarded on every server restart/reload; nothing about session/task-activation state persists across a restart except what server_memory.py separately logs to SQLite",
         "Per-thread checkpoint history is capped at 5000 rows via NoopNode on every Stop event, not by the server itself",
         "Server runs on port 8766 as a single uvicorn worker process — deliberately not multi-worker/per-session",
-        "GET /session/active and GET /session/current both read live in-memory MemorySaver state (not a DB); /session/active requires an active task, /session/current does not",
+        "GET /session/current reads live in-memory MemorySaver state (not a DB); it does not require an active task — GET /session/active (which did) was removed (task:8529435a)",
         "Event loop is uvloop, not stdlib asyncio — controlled entirely by whether uvloop is installed",
         "All 6 /hook/{event} endpoints (UserPromptSubmit, PreToolUse, PostToolUse, Stop, SessionStart, SessionEnd) parse their body via the shared _safe_json(request) helper, which catches any JSON-parse failure and returns {} instead of letting it propagate to the generic exception handler as a 500 — found missing (task:33419f95, log audit 2026-07-26) after an empty/malformed body crashed pre_tool_use with an unhandled JSONDecodeError. Any NEW hook endpoint added here must use _safe_json too, not a bare `await request.json()`, to preserve this fail-open guarantee."
       ],
@@ -489,16 +488,15 @@
     "session-state-latest-checkpoint-lookup": {
       "confidence": 0.9,
       "contracts": [
-        "get_current_session() -> {session_id, turn} or {} if no checkpoint exists anywhere",
-        "get_active_session() -> {task_id, title, session_id, turn} or {} if no active task on the latest checkpoint"
+        "get_current_session() -> {session_id, turn} or {} if no checkpoint exists anywhere"
       ],
       "created_at": "2026-07-28T01:58:12.018834+00:00",
-      "description": "get_current_session/get_active_session back GET /session/current and GET /session/active — the only signals available for 'what session am I in' before any thread_id is known. Both use _latest_checkpoint_tuple() to find the single most-recently-written checkpoint across all threads. get_active_session used to resolve the checkpoint's task id against proj_tasks.db to drop done/abandoned tasks (task:87ec7876) — that made it look authoritative about a fact this repo no longer owns. It now reports the checkpoint verbatim: a stale checkpoint can name a finished task, which is correct for a session echo feeding a UI endpoint rather than a second active-task pointer with nothing to reconcile it against.",
+      "description": "get_current_session backs GET /session/current — the only signal available for 'what session am I in' before any thread_id is known. Uses _latest_checkpoint_tuple() to find the single most-recently-written checkpoint across all threads. get_active_session (and GET /session/active) were removed (task:8529435a): active_task_id/active_task_title stopped being written into checkpoint state once task:882d67fa moved active-task ownership fully to task-framework, so the function always returned {}. Ask task-framework (tasks__active) for the live answer instead.",
       "evidence": [
         "hooks/session_state.py:48"
       ],
       "invariants": [
-        "Never resolves active_task_id against any task store — reports the checkpoint as-is"
+        "No active-task concept lives in this module anymore — session_state.py only ever reports session_id/turn from the checkpoint, never a task id"
       ],
       "last_validated": "2026-08-01T05:48:37.367361+00:00",
       "module": "hooks/session_state.py",

@@ -10,11 +10,11 @@ what made the old `next(iter(checkpointer.list(None)))` approach get stuck on it
 
 task:b63088a1 fixed the root cause: session_graph.get_session_graph(session_id) now
 routes any TEST_SESSION_PREFIX'd session_id to an isolated _test_graph instead of the
-shared production one. hooks/session_state.py's get_current_session/get_active_session
-(backing GET /session/current and GET /session/active) read `sg._graph` directly and were
-NOT changed — they were never the thing writing test data, only the thing reading it, and
-they already exhibit the correct behavior once nothing test-related is written to `sg._graph`
-in the first place.
+shared production one. hooks/session_state.py's get_current_session (backing
+GET /session/current) reads `sg._graph` directly and was NOT changed — it was
+never the thing writing test data, only the thing reading it, and it already
+exhibits the correct behavior once nothing test-related is written to
+`sg._graph` in the first place.
 
 This test proves the isolation holds end-to-end: posting test-prefixed traffic must NOT
 change what /session/current reports.

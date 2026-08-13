@@ -1,9 +1,15 @@
-"""Live session/task-activation lookups against the in-process MemorySaver checkpoint.
+"""Live session lookups against the in-process MemorySaver checkpoint.
 
-Extracted out of hooks/ui/deps.py (epic:a6216a10, task:050ee644) — these two
-functions back the production /session/active and /session/current endpoints
-in hooks/server.py, consumed by mcp__claude-hooks__hooks__session_id and other
-MCP tools. They are not UI-dashboard code and must survive the /ui removal.
+Extracted out of hooks/ui/deps.py (epic:a6216a10, task:050ee644) — backs the
+production /session/current endpoint in hooks/server.py, consumed by
+mcp__claude-hooks__hooks__session_id and other MCP tools. Not UI-dashboard
+code and must survive the /ui removal.
+
+get_active_session() (the /session/active-backing counterpart) was removed
+(task:8529435a) — active_task_id/active_task_title stopped being written into
+checkpoint state once task:882d67fa moved active-task ownership fully to
+task-framework, so it always returned {}. Ask task-framework directly
+(tasks__active) for the live answer.
 """
 from __future__ import annotations
 
@@ -45,51 +51,14 @@ def _latest_checkpoint_tuple(checkpointer):
     return best
 
 
-def get_active_session() -> dict:
-    """Return what the most recent session checkpoint believes is active.
-
-    REPORTS THE CHECKPOINT, NOT THE TRUTH. This used to resolve the task
-    against proj_tasks.db to drop done and abandoned ones, which made it look
-    authoritative about a fact this repo no longer owns: task-framework holds
-    the active task, scoped per workspace, and it is the only thing that can
-    answer whether one is still open.
-
-    A stale checkpoint can therefore name a task that has since finished. That
-    is honest for what this is — a session echo used by the UI endpoint — and
-    the alternative was a second active-task pointer disagreeing with the real
-    one, with nothing to reconcile them. Callers wanting the live answer ask
-    task-framework.
-    """
-    try:
-        import langchain_learning.session_graph as sg
-        checkpointer = getattr(sg._graph, "checkpointer", None)
-        if not checkpointer:
-            return {}
-        latest = _latest_checkpoint_tuple(checkpointer)
-        if not latest:
-            return {}
-        state = latest.checkpoint.get("channel_values", {})
-        task_id = state.get("active_task_id", "")
-        if not task_id:
-            return {}
-        return {
-            "task_id": task_id,
-            "title": state.get("active_task_title", ""),
-            "session_id": latest.config["configurable"]["thread_id"],
-            "turn": state.get("turn", 0),
-        }
-    except Exception:
-        return {}
-
-
 def get_current_session() -> dict:
     """Return {session_id, turn} from the single most-recent checkpoint write.
 
-    Unlike get_active_session, does NOT require an active task — this is the
-    only signal available before any task has been activated in a session.
-    Returns {} if the graph has no checkpointer or no checkpoint exists yet
-    (e.g. called before the first UserPromptSubmit of a brand-new session has
-    finished writing its checkpoint — a real race, not just a hypothetical one).
+    Does not require an active task — this is the only signal available
+    before any task has been activated in a session. Returns {} if the graph
+    has no checkpointer or no checkpoint exists yet (e.g. called before the
+    first UserPromptSubmit of a brand-new session has finished writing its
+    checkpoint — a real race, not just a hypothetical one).
     """
     try:
         import langchain_learning.session_graph as sg

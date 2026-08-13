@@ -193,23 +193,12 @@ async def health():
     return {"status": "ok"}
 
 
-@app.get("/session/active")
-async def session_active():
-    """Active task — returns the task currently active in the live MemorySaver checkpoint.
-
-    Returns {task_id, title, session_id, turn} if a task is active, or {} if none.
-    Source is the in-memory MemorySaver (not the DB) so reflects real-time state.
-    """
-    from hooks.session_state import get_active_session
-    return JSONResponse(content=get_active_session())
-
-
 @app.get("/session/current")
 async def session_current():
     """Current session_id — from the single most-recent checkpoint write, no active
-    task required. Use this (not /session/active) when no task has been activated
-    yet — that's the case /session/active can't answer, since it only returns a
-    session_id when active_task_id is set. Returns {} if no checkpoint exists yet.
+    task required. /session/active (which task is active in this checkpoint) was
+    removed (task:8529435a) — task-framework owns that fact; ask tasks__active.
+    Returns {} if no checkpoint exists yet.
     """
     from hooks.session_state import get_current_session
     return JSONResponse(content=get_current_session())
@@ -255,7 +244,7 @@ async def session_detail(session_id: str):
     """Full checkpoint state for one session — latest channel_values from the live MemorySaver.
 
     Returns {session_id, turn_count, state} where state is the checkpoint's channel_values
-    dict (active_task_id, turn, domains, etc.) as of the most recent write for this thread.
+    dict (turn, domains, etc.) as of the most recent write for this thread.
     Returns {"detail": "not found"} (404) if no checkpoint exists for session_id.
 
     Routes through get_session_graph(session_id) (task:b63088a1) so a
