@@ -100,10 +100,30 @@ def test_includes_tool_hints():
     assert "tasks__create" in result
 
 
-# Active task, execution contract, task decisions/memories/history, relevant
-# code, and related tasks/commits rendering tests removed (task:882d67fa) —
-# that context is task-framework's now; _format_system_prompt no longer
-# renders any of it.
+# Execution contract, task decisions/memories/history, relevant code, and
+# related tasks/commits rendering tests removed (task:882d67fa) — that context
+# is task-framework's now; _format_system_prompt does not render any of it.
+#
+# Active task itself came back (task:c2e36050) via a different mechanism: not
+# a pull from proj_tasks.db, but a render of whatever task-framework last
+# pushed to hooks/session_state.get_active_task (task:996cc8f0).
+
+def test_includes_active_task_when_set():
+    result = _format_system_prompt(_base_ctx(active_task={"task_id": "abc123", "title": "Fix the thing"}))
+    assert "## Active task" in result
+    assert "task:abc123" in result
+    assert "Fix the thing" in result
+    assert "focus on it" in result.lower()
+
+
+def test_omits_active_task_block_when_absent():
+    result = _format_system_prompt(_base_ctx())
+    assert "## Active task" not in result
+
+
+def test_omits_active_task_block_when_empty_dict():
+    result = _format_system_prompt(_base_ctx(active_task={}))
+    assert "## Active task" not in result
 
 # _check_task_body_format and its tests were removed here (task:87ec7876). The
 # tool it gated, mcp__claude-hooks__tasks__create, has no implementation left

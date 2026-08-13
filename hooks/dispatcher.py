@@ -83,6 +83,15 @@ def _format_system_prompt(ctx: dict) -> str:
         lines.append(vault_ctx["work"])
         lines.append("")
 
+    active_task = ctx.get("active_task") or {}
+    if active_task.get("task_id"):
+        lines.append("## Active task")
+        lines.append(
+            f"task:{active_task['task_id']} — \"{active_task.get('title', '')}\" is active. "
+            "Focus on it so it does not drift. If it is done, confirm with the user and close it."
+        )
+        lines.append("")
+
     if ctx["memories"]:
         lines.append("## Injected memories")
         for mem in ctx["memories"]:
@@ -150,6 +159,8 @@ def _handle_user_prompt_submit(hook_input: dict) -> dict | None:
     elapsed_ms = (time.monotonic() - t0) * 1000
 
     ctx["vault_context"] = _load_vault_context()
+    from hooks.session_state import get_active_task
+    ctx["active_task"] = get_active_task(cwd)
     system_prompt = _format_system_prompt(ctx)
 
     # One-shot node output for this UPS turn (e.g. LogTaskEventsNode's

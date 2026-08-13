@@ -78,7 +78,7 @@
         "All sections are markdown-formatted"
       ],
       "created_at": "2026-06-29T09:47:25.284960+00:00",
-      "description": "Assembles the UserPromptSubmit additionalSystemPrompt from SessionState context (memories, task context, related tasks/commits, rag chunks) into markdown sections, applying a token budget before rendering.",
+      "description": "Assembles the UserPromptSubmit additionalSystemPrompt from SessionState context into markdown sections. STALE (task:c2e36050, 2026-08-14): most of this entry's contracts/invariants below describe the pre-task:882d67fa pull-based task-context pipeline (LoadRelatedTasksNode, task_body, execution_contract, activate_task.py, mid_task_decisions) — all removed, none currently exist. Needs a full re-read and rewrite, not attempted here; only the active-task section below is current.",
       "evidence": [
         "hooks/dispatcher.py:_format_system_prompt"
       ],
@@ -92,7 +92,8 @@
         "mid_task_decisions (Task decisions section) is capped to the most recent _MAX_DECISIONS (15) entries by langchain_learning/nodes/decision_task.py, sliced on every tasks__add_decision append — not trimmed in dispatcher.py itself. This checkpoint state exists solely for prompt injection; the durable decision history lives in the task's DB record, unaffected by the slice.",
         "execution_contract is rendered as its own section, independent of task_body — it is NOT subject to _TASK_BODY_CHAR_CAP truncation (a fixed north-star template built once at task activation by activate_task.py._build_execution_contract, must stay byte-identical every turn). Cleared alongside the other active-task fields at all three deactivation sites: DeactivateTaskNode (tasks__clear_active/tasks__finish), ActivateTaskNode's pop-to-empty-stack, and LogTaskEventsNode's \"task:<id> done\" auto-close (task:eb46ac47 — this third site was originally missed).",
         "After _format_system_prompt, the UPS handler appends one-shot node output: if ctx['pending_hook_output'].hookSpecificOutput has hookEventName == 'UserPromptSubmit', its additionalContext is appended to the assembled system prompt (e.g. LogTaskEventsNode's /task-introspection nudge after a \"task:<id> done\" auto-close, task:eb46ac47). run_session() surfaces-and-clears the checkpoint copy (mirroring run_post_tool/run_stop), so the payload renders exactly once and cannot leak into the next PostToolUse response; the hookEventName gate prevents a stale cross-event payload from ever being rendered here.",
-        "The '## Repo memories' section and repo_task_memories (task:850ddd65's per-repo memory split) were removed by task:a7ddc132 — task_memories now always comes from the global MEMORY.sqlite scorer, with no per-repo alternative source."
+        "The '## Repo memories' section and repo_task_memories (task:850ddd65's per-repo memory split) were removed by task:a7ddc132 — task_memories now always comes from the global MEMORY.sqlite scorer, with no per-repo alternative source.",
+        "CURRENT (task:c2e36050): '## Active task' renders task_id/title from ctx['active_task'] (a dict, or {} if unset) — a live PUSH from task-framework's tasks__set_active/clear_active via hooks/session_state.get_active_task(cwd), populated fresh in _handle_user_prompt_submit every UPS call (task:996cc8f0). Not a pull from any task store, and not the old activate_task.py mechanism this concept otherwise describes."
       ],
       "last_validated": "2026-07-29T18:34:33.582070+00:00",
       "module": "hooks/dispatcher.py",
