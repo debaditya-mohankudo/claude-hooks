@@ -113,15 +113,18 @@ def set_active_task(workspace: str, task_id: str, title: str = "") -> None:
     nothing to key the entry by.
     """
     if not workspace:
+        _log.warning("set_active_task: missing workspace, ignoring push (task_id=%r)", task_id)
         return
     if not task_id:
-        _active_task_by_workspace.pop(workspace, None)
+        had_entry = _active_task_by_workspace.pop(workspace, None) is not None
+        _log.info("set_active_task: cleared workspace=%s (had_entry=%s)", workspace, had_entry)
         return
     _active_task_by_workspace[workspace] = {
         "task_id": task_id,
         "title": title,
         "ts": _time.time(),
     }
+    _log.info("set_active_task: workspace=%s task_id=%s title=%.60r", workspace, task_id, title)
 
 
 def get_active_task(workspace: str) -> dict:

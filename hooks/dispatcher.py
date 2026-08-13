@@ -160,7 +160,15 @@ def _handle_user_prompt_submit(hook_input: dict) -> dict | None:
 
     ctx["vault_context"] = _load_vault_context()
     from hooks.session_state import get_active_task
-    ctx["active_task"] = get_active_task(cwd)
+    active_task = get_active_task(cwd)
+    ctx["active_task"] = active_task
+    if active_task.get("task_id"):
+        log.info(
+            "UPS active_task: session=%s workspace=%s task_id=%s title=%.60r",
+            session_id[:8], cwd, active_task["task_id"], active_task.get("title", ""),
+        )
+    else:
+        log.debug("UPS active_task: session=%s workspace=%s none pushed", session_id[:8], cwd)
     system_prompt = _format_system_prompt(ctx)
 
     # One-shot node output for this UPS turn (e.g. LogTaskEventsNode's
@@ -188,12 +196,13 @@ def _handle_user_prompt_submit(hook_input: dict) -> dict | None:
     log.info(
         "UPS done: session=%s elapsed_ms=%.0f memories=%d tools=%d "
         "ctx_chars(memories=%d) ctx_tokens(memories=%d) "
-        "prompt_chars=%d prompt_tokens=%d",
+        "prompt_chars=%d prompt_tokens=%d active_task=%s",
         session_id[:8], elapsed_ms,
         len(ctx.get("memories", [])), len(ctx.get("tool_hints", [])),
         memories_chars,
         memories_tokens,
         len(system_prompt), prompt_tokens,
+        active_task.get("task_id") or "none",
     )
 
     if system_prompt:
