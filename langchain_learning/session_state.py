@@ -19,7 +19,6 @@ class SessionState(TypedDict):
     memories: list[dict]
     keywords: list[str]
     tool_hints: list[dict]
-    active_review: dict              # open review child task checklist — {review_task_id, template, items: [{id, label, type, status}]}
     active_task_domain: str          # domain tag of the active task (e.g. "claude-hooks"); emitted by ActivateTaskNode for downstream nodes
     task_files: list[str]            # file paths from the active task's Files: section; emitted by ActivateTaskNode, consumed by backfill nodes
     backfill_count: int              # number of memory records backfilled this activation; written by BackfillNodeProtocol implementors

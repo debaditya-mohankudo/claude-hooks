@@ -53,18 +53,6 @@ Use the repo where the relevant changes were made — this is not always the pri
 - If changes are in the current project → omit `--repo` (uses CWD)
 - If the user specifies a path explicitly → use `--repo <that path>`
 
-## Sync with main before committing (claude-hooks-dev/-test only)
-
-If the target repo is `~/workspace/claude-hooks-dev` or `~/workspace/claude-hooks-test`, merge `main` into it before committing new work — not just at `/deploy` time (task:701215e2):
-
-```bash
-git -C <repo-path> merge main --no-edit
-```
-
-Why: main can drift ahead via direct edits (has happened more than once — see CLAUDE.md's Development Workflow section) since dev/test only pull it in at `/deploy`. Catching that drift here, before adding a new commit on top, means any conflict is small and obvious to resolve — instead of surfacing later as a real merge conflict during `/deploy --ship`, tangled up with unrelated new work. If the merge itself conflicts, resolve it before proceeding (read each hunk, confirm which side is current, commit the resolution) — don't commit new work on top of an unmerged state.
-
-Skip silently for every other repo — this is specific to claude-hooks' dev→test→main worktree structure.
-
 ## Running tests before commit
 
 Before committing, check if a test suite exists in the repo and run it:
@@ -157,7 +145,7 @@ Keep only hits where the memory's `files` field actually contains the changed pa
 **Step 3 — check git signal on each matching memory:**
 For each matching memory, get its full body via `memory__get` and run:
 ```bash
-git -C ~/workspace/claude-hooks-dev log --since="{memory.updated}" --oneline -- {memory.files}
+git -C ~/workspace/claude-hooks log --since="{memory.updated}" --oneline -- {memory.files}
 ```
 If commits exist since `memory.updated` → the memory may be stale.
 

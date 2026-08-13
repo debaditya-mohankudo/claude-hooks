@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cd /Users/debaditya/workspace/claude-hooks-dev && uv run python concept_store/diff_hook.py"
+            "command": "cd /Users/debaditya/workspace/claude-hooks && uv run python concept_store/diff_hook.py"
           }
         ]
       }

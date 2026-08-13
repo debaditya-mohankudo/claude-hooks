@@ -63,35 +63,6 @@ def _extract_prompt(hook_input: dict) -> str:
 # UserPromptSubmit
 # ---------------------------------------------------------------------------
 
-# Token budget for injected memories. The other task-activation context
-# categories (related_tasks, related_commits, task_rag_chunks, task_body) that
-# used to share this budget are gone with the nodes that produced them
-# (task:882d67fa) — task-framework owns that context now.
-_CONTEXT_TOKEN_BUDGET = 4000
-
-
-def _enforce_context_budget(ctx: dict) -> None:
-    """Trim ctx["memories"] (lowest-scored last, since the list is pre-sorted
-    descending by score) until it fits _CONTEXT_TOKEN_BUDGET tokens, or the
-    list is empty. Mutates ctx in place.
-    """
-    from src.tools.tokens import count_tokens
-
-    def _combined_tokens() -> int:
-        return count_tokens("".join(m.get("body", "") for m in ctx.get("memories", [])))
-
-    memories = ctx.get("memories", [])
-    dropped = 0
-    while memories and _combined_tokens() > _CONTEXT_TOKEN_BUDGET:
-        memories.pop()
-        dropped += 1
-    if dropped:
-        log.warning(
-            "UPS context budget exceeded — dropped %d lowest-scored memories to fit %d-token budget",
-            dropped, _CONTEXT_TOKEN_BUDGET,
-        )
-
-
 def _format_system_prompt(ctx: dict) -> str:
     """Convert SessionState dict into the injected system prompt block."""
     lines: list[str] = []
@@ -147,20 +118,6 @@ def _format_system_prompt(ctx: dict) -> str:
     # context is task-framework's now, read via tasks__context rather than
     # pushed into the system prompt every turn.
 
-    if ctx.get("active_review"):
-        rev = ctx["active_review"]
-        template = rev.get("template", "")
-        items = rev.get("items", [])
-        if items:
-            lines.append(f"## Active review checklist ({template})")
-            for item in items:
-                status = item.get("status", "pending")
-                marker = "[x]" if status == "pass" else "[-]" if status == "fail" else "[ ]"
-                label = item.get("label", "")
-                kind = item.get("type", "")
-                lines.append(f"- {marker} {label} [{kind}]")
-            lines.append("")
-
     return "\n".join(lines).strip()
 
 
@@ -205,7 +162,6 @@ def _handle_user_prompt_submit(hook_input: dict) -> dict | None:
     elapsed_ms = (time.monotonic() - t0) * 1000
 
     ctx["vault_context"] = _load_vault_context()
-    _enforce_context_budget(ctx)
     system_prompt = _format_system_prompt(ctx)
 
     # One-shot node output for this UPS turn (e.g. LogTaskEventsNode's

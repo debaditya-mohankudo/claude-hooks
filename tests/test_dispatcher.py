@@ -18,8 +18,6 @@ from dispatcher import (
     _extract_prompt,
     _get_claude_session_id,
     _format_system_prompt,
-    _enforce_context_budget,
-    _CONTEXT_TOKEN_BUDGET,
     _read_last_usage,
     _maybe_context_size_nudge,
     _CONTEXT_NUDGE_SHOWN_BAND,
@@ -79,38 +77,6 @@ def _base_ctx(**kwargs) -> dict:
 
 def test_empty_ctx_returns_empty_string():
     assert _format_system_prompt(_base_ctx()) == ""
-
-
-# ── _enforce_context_budget ───────────────────────────────────────────────────
-
-def test_under_budget_leaves_memories_untouched():
-    ctx = _base_ctx(memories=[{"name": "m1", "body": "short body"}])
-    _enforce_context_budget(ctx)
-    assert len(ctx["memories"]) == 1
-
-
-def test_over_budget_drops_lowest_scored_memories_from_tail():
-    # Pre-sorted descending by score: highest-value memory first, lowest last.
-    # A single ~5-word body is well under budget; padding one entry huge forces a trim.
-    huge_body = "word " * 20000  # far exceeds _CONTEXT_TOKEN_BUDGET on its own
-    ctx = _base_ctx(memories=[
-        {"name": "high-value", "body": "short"},
-        {"name": "low-value", "body": huge_body},
-    ])
-    _enforce_context_budget(ctx)
-    remaining = [m["name"] for m in ctx["memories"]]
-    assert "high-value" in remaining
-    assert "low-value" not in remaining
-
-
-def test_drops_until_empty_if_still_over_budget():
-    huge_body = "word " * 20000
-    ctx = _base_ctx(memories=[
-        {"name": "a", "body": huge_body},
-        {"name": "b", "body": huge_body},
-    ])
-    _enforce_context_budget(ctx)
-    assert ctx["memories"] == []
 
 
 def test_includes_turn_state_block():

@@ -1,72 +1,23 @@
 #!/usr/bin/env bash
-# Two-phase deploy:
-#   deploy.sh          → dev → test  (run tests, restart server from test worktree)
-#   deploy.sh --ship   → test → main (final merge to main, no tests)
+# Single-phase deploy: run unit gate, restart the live server from main,
+# then run the full suite (unit + integration) against it.
 #
-# Server always runs from ~/workspace/claude-hooks-test (test branch).
-# Never touch main directly — only --ship merges into it.
+# The dev/test/main three-worktree layout was retired — only main exists now,
+# and the hook server runs directly from ~/workspace/claude-hooks.
 
 set -euo pipefail
 
 MAIN_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-DEV_DIR="$(dirname "$MAIN_DIR")/claude-hooks-dev"
-TEST_DIR="$(dirname "$MAIN_DIR")/claude-hooks-test"
-
-SHIP=false
-if [[ "${1:-}" == "--ship" ]]; then
-    SHIP=true
-fi
+cd "$MAIN_DIR"
 
 echo "=== claude-hooks deploy ==="
 
-if $SHIP; then
-    # --- Phase 2: test → main (ship) ---
-    cd "$MAIN_DIR"
-
-    # Pre-merge divergence check (task:5e2a3216, fixed task:701215e2 — the
-    # first version used `git log test..main` with no --no-merges, which
-    # matched every past "Merge branch 'test' into main" commit (each is, by
-    # definition, unique to main) and fired on literally every ship. Only
-    # non-merge commits unique to main are a real out-of-band-edit signal.
-    MAIN_ONLY=$(git log test..main --no-merges --oneline)
-    if [ -n "$MAIN_ONLY" ]; then
-        echo "WARNING: main has non-merge commits that test does not — main may have been edited out-of-band:" >&2
-        echo "$MAIN_ONLY" >&2
-        echo "This merge may hit real conflicts. Review the commits above before proceeding." >&2
-    fi
-
-    # --no-ff forces an explicit merge commit even when a fast-forward is
-    # possible (main/test rarely diverge otherwise) — without it, main's log
-    # is indistinguishable from a direct commit and the "this batch cleared
-    # the test gate" checkpoint disappears from history entirely.
-    echo "Merging test → main..."
-    git merge test --no-ff --no-edit -m "Merge branch 'test' into main (deploy.sh --ship)"
-    echo "=== Shipped to main. ==="
-    exit 0
-fi
-
-# --- Phase 1: dev → test ---
-
-# 1. Confirm worktrees exist
-for DIR in "$DEV_DIR" "$TEST_DIR"; do
-    if [ ! -d "$DIR/.git" ] && [ ! -f "$DIR/.git" ]; then
-        echo "ERROR: worktree not found at $DIR" >&2
-        exit 1
-    fi
-done
-
-# 2. Quick unit gate in dev (no server needed)
-echo "Running unit tests in dev worktree..."
-cd "$DEV_DIR"
+# 1. Quick unit gate (no server needed)
+echo "Running unit tests..."
 uv run python -m pytest tests/ -q -m "not integration"
 echo "Unit tests passed."
 
-# 3. Merge dev → test
-echo "Merging dev → test..."
-cd "$TEST_DIR"
-git merge dev --no-edit
-
-# 4. Verify server is up, then restart via launchctl so it picks up the new code
+# 2. Restart server via launchctl so it picks up the new code
 PLIST_LABEL="com.debaditya.claude-hooks-pipeline"
 
 PRE_HEALTH=$(curl -sf --max-time 3 http://127.0.0.1:8766/health || echo '{"status":"unreachable"}')
@@ -110,7 +61,7 @@ if [ "$STATUS" != "ok" ]; then
     exit 1
 fi
 
-# 5. Full suite (unit + integration) from test worktree against live server
+# 3. Full suite (unit + integration) against the live server
 # NOTE: pyproject.toml's addopts bakes in `-m "not integration"`, which silently
 # wins over a bare `pytest tests/ -q` — must override the marker expression
 # explicitly or integration tests never actually run despite this being the
@@ -122,12 +73,12 @@ fi
 # combined run took ~62s and intermittently failed a timing-sensitive perf
 # test (-n auto oversubscribing across both suites at once); two sequential
 # runs took ~40s total and didn't reproduce the flake.
-echo "Running unit tests from test worktree..."
+echo "Running unit tests..."
 UNIT_OUTPUT=$(uv run python -m pytest tests/ -q -m "not integration" 2>&1)
 echo "$UNIT_OUTPUT"
 UNIT_COUNT=$(echo "$UNIT_OUTPUT" | tail -1 | grep -oE '^[0-9]+' || echo 0)
 
-echo "Running integration tests from test worktree..."
+echo "Running integration tests..."
 INTEGRATION_OUTPUT=$(uv run python -m pytest tests/ -q -m "integration" 2>&1)
 echo "$INTEGRATION_OUTPUT"
 INTEGRATION_COUNT=$(echo "$INTEGRATION_OUTPUT" | tail -1 | grep -oE '^[0-9]+' || echo 0)
@@ -137,4 +88,4 @@ if [ "$INTEGRATION_COUNT" -eq 0 ]; then
     exit 1
 fi
 echo "Confirmed: unit=$UNIT_COUNT, integration=$INTEGRATION_COUNT tests ran."
-echo "=== Deploy complete. Server is up on test. Run 'deploy.sh --ship' to merge to main. ==="
+echo "=== Deploy complete. Server restarted and full suite passed on main. ==="

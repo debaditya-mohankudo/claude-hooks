@@ -65,12 +65,11 @@ uv run python -m pytest tests/ -q -m "not integration"
 uv run python -m pytest tests/ -q
 ```
 
-- The **live hook server** runs from a separate worktree
-  (`~/workspace/claude-hooks-test`, port 8766) with its own checkpoint DB —
-  editing this repo does not affect it directly; changes are deployed via
-  `scripts/deploy.sh` (dev → test → main).
-- Don't assume `git rev-parse HEAD` reflects the running server's code —
-  the server tracks whichever worktree/branch was last deployed.
+- The **live hook server** runs from this same worktree (`~/workspace/claude-hooks`,
+  port 8766) — editing code here does not affect the running process until it
+  restarts; `scripts/deploy.sh` restarts it and re-runs the full suite against it.
+- Don't assume editing a file changes the running server's behavior —
+  it only picks up new code on restart.
 
 ## When editing
 
