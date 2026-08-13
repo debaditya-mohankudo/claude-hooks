@@ -26,36 +26,27 @@ Run this in Claude Code after cloning the repo. It detects your OS, checks prere
 
 Gates are the one part of this system that isn't a suggestion. They sit in `PreToolUse`, before a tool call executes, and they deny it outright if a prerequisite wasn't actually satisfied — no relying on Claude's own judgment or its in-context memory of "yeah I already checked that."
 
-The clearest example: sending an iMessage. The gate requires that `contacts__search` was actually called recently, *and* that the name searched for shows up in what you asked for — so a stale or hallucinated contact lookup can't slip a message to the wrong person:
+The gates for `imessage__send` and `mail__delete` have moved to [LocalMacMCP](https://github.com/debaditya-mohankudo/LocalMacMCP) — they live alongside the MCP tools they guard now, not here.
+
+The one gate this repo still owns is the git-commit gate: it requires every commit to reference an active task, rather than trusting Claude's own claim that one exists.
 
 ```text
-contacts__search(name="Alice")
-imessage__send(recipient="+1-555-...", message="running late, be there in 10")
+Bash(git commit -m "fix: ... task:27a9c6ed")
 ```
 
 ```text
-✓ ALLOW — contacts__search found for 'Alice', 'Alice' present in prompt → message sent
+✓ ALLOW — task:27a9c6ed found in commit message → commit created
 ```
 
-Skip the search, or search for a different name than the one you actually asked about, and it's denied before the message ever goes out:
+Commit without a `task:<id>` reference (in the message, or in a file passed via `-F`) and it's denied before the commit is made:
 
 ```text
-Blocked: imessage__send — contacts__search was called for 'Bob' but that name does not
-appear in the current or previous prompt. Search for the intended recipient first.
+Blocked: git commit is missing a task:<id> reference. Add 'task:<id>' to the commit
+message body (or the file passed via -F), or activate a task first with
+tasks__set_active.
 ```
 
-Deleting mail works the same way, just simpler — no name to double-check, just proof you actually read it first:
-
-```text
-mail__read(...)
-mail__delete(message_ids=[...])
-```
-
-```text
-✓ ALLOW — mail__read found within the last 120s → deleted
-```
-
-Both of these are declared entirely in a YAML config, not Python — adding a gate for some other tool in another repo is a config edit, not a code change. Task and git-commit gates work the same underlying way but need database access, so they stay as small Python classes instead.
+It needs database access to resolve active tasks, so it stays as a small Python class rather than a YAML-declared gate like the ones that moved to LocalMacMCP.
 
 ---
 
