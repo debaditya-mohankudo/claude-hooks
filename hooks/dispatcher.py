@@ -18,8 +18,10 @@ Session graph call graph:
   PreToolUse        → run_gate()
   Stop              → run_stop()
 """
+import json as _json
 import os
 import re
+import subprocess as _subprocess
 import sys
 import time
 from pathlib import Path
@@ -83,14 +85,14 @@ def _format_system_prompt(ctx: dict) -> str:
         lines.append(vault_ctx["work"])
         lines.append("")
 
-    active_task = ctx.get("active_task") or {}
-    if active_task.get("task_id"):
-        lines.append("## Active task")
-        lines.append(
-            f"task:{active_task['task_id']} — \"{active_task.get('title', '')}\" is active. "
-            "Focus on it so it does not drift. If it is done, confirm with the user and close it."
-        )
-        lines.append("")
+    # The once-per-turn '## Active task' block (task:996cc8f0) was removed here
+    # (task:8be768df): taskfw's PostToolUse hook (taskfw/drift_hook.py) now
+    # announces the active task on every tool call in the turn, not just at
+    # turn start, making this weaker announcement redundant rather than
+    # complementary — see MEMORY.md's now-superseded
+    # active_task_reminder_vs_drift_nudge note. ctx["active_task"] is still
+    # populated below and logged for observability; it just no longer renders
+    # into the injected prompt.
 
     if ctx["memories"]:
         lines.append("## Injected memories")
@@ -295,6 +297,66 @@ def _maybe_context_size_nudge(hook_input: dict, session_id: str) -> dict | None:
     }
 
 
+_TASKFW_DRIFT_HOOK_BIN = "/Users/debaditya/workspace/task-framework/.venv/bin/taskfw-drift-hook"
+
+
+def _maybe_taskfw_drift_nudge(hook_input: dict, cwd: str) -> dict | None:
+    """Awareness nudge for taskfw's active task, sourced from taskfw itself.
+
+    Shells out to taskfw's own CLI (taskfw/drift_hook.py, task:8be768df)
+    rather than reading or reimplementing any task-framework state here —
+    same fail-open subprocess pattern as GitCommitGate._head_commit_message
+    (hooks/gates.py: subprocess.run(..., timeout=..., check=False) wrapped in
+    a broad except), applied to a foreign binary instead of git. A daemon and
+    a direct Python import were both considered and rejected earlier
+    (task:8be768df's grooming) over cross-venv coupling and process
+    lifecycle cost; a stateless CLI subprocess call carries neither — it's
+    the same shape this file already uses for git, just pointed at a
+    different binary.
+
+    Runs before the `if not tool_name.startswith('mcp__')` early-return below
+    so it fires on every tool type (Bash/Read/Write/Edit included), not just
+    MCP calls — matching _maybe_context_size_nudge's placement, the only
+    other nudge in this file with that requirement.
+
+    task-framework remains the sole owner of the active-task/drift logic —
+    this only invokes taskfw's own binary and passes its output through
+    unchanged; it never reads taskfw's store or re-derives the nudge text.
+    """
+    try:
+        result = _subprocess.run(
+            [_TASKFW_DRIFT_HOOK_BIN],
+            input=_json.dumps(hook_input).encode(),
+            capture_output=True, timeout=5, check=False,
+            env={**os.environ, "TASKFW_SCOPE": cwd},
+        )
+        if result.returncode != 0 or not result.stdout.strip():
+            return None
+        return _json.loads(result.stdout)
+    except Exception as exc:
+        log.debug("taskfw drift nudge failed: %s", exc)
+        return None
+
+
+def _merge_drift_nudge(hook_output: dict | None, drift_nudge: dict | None) -> dict | None:
+    """Fold drift_nudge's additionalContext onto hook_output's, or return
+    whichever one is present alone. Both share the same hookSpecificOutput/
+    additionalContext shape (PostToolUse has no other field to collide on),
+    so concatenating the two context strings is a safe merge, not a
+    structural one.
+    """
+    if not drift_nudge:
+        return hook_output
+    if not hook_output:
+        return drift_nudge
+    drift_text = drift_nudge.get("hookSpecificOutput", {}).get("additionalContext", "")
+    existing = hook_output.setdefault("hookSpecificOutput", {})
+    existing["additionalContext"] = "\n\n".join(
+        filter(None, [existing.get("additionalContext", ""), drift_text])
+    )
+    return hook_output
+
+
 def _handle_post_tool_use(hook_input: dict) -> dict | None:
     from core.tool_registry import strip_mcp_prefix
 
@@ -325,14 +387,25 @@ def _handle_post_tool_use(hook_input: dict) -> dict | None:
         log.info("PTU context-size nudge: session=%s tool=%s", session_id[:8], tool_name)
         return context_nudge
 
+    # Computed here (before the mcp__-only early-returns below) so it covers
+    # every tool type, but NOT returned here — this fires on every call
+    # (task:8be768df, no interval), unlike the rare _maybe_context_size_nudge
+    # above, so returning early would permanently skip run_post_tool (tool-hint
+    # logging, memory scoring) for as long as any task is active. Merged into
+    # whichever exit point below actually fires instead; see _merge_drift_nudge.
+    cwd = hook_input.get("cwd") or os.environ.get("CLAUDE_CWD") or os.getcwd()
+    drift_nudge = _maybe_taskfw_drift_nudge(hook_input, cwd)
+    if drift_nudge:
+        log.info("PTU taskfw drift nudge: session=%s tool=%s", session_id[:8], tool_name)
+
     if not tool_name or not tool_name.startswith("mcp__"):
         log.info("PTU skip: non-MCP tool=%s", tool_name)
-        return None
+        return drift_nudge
 
     short_name = strip_mcp_prefix(tool_name) or tool_name
     if short_name.startswith("memory__"):
         log.info("PTU skip: memory tool=%s", short_name)
-        return None
+        return drift_nudge
 
     from langchain_learning.session_graph import run_post_tool, get_session_graph, _config
     try:
@@ -357,7 +430,7 @@ def _handle_post_tool_use(hook_input: dict) -> dict | None:
         log.info("PTU done: session=%s tool=%s elapsed_ms=%.0f hook_output=yes", session_id[:8], short_name, elapsed)
     else:
         log.info("PTU done: session=%s tool=%s elapsed_ms=%.0f", session_id[:8], short_name, elapsed)
-    return hook_output or None
+    return _merge_drift_nudge(hook_output or None, drift_nudge)
 
 
 # ---------------------------------------------------------------------------
@@ -379,9 +452,22 @@ _FAIL_CLOSED_TOOLS = {"imessage__send", "mail__compose"}
 # Drift reflection nudge — removed (task:f1d46386). It read active_task_id/title
 # from a claude-hooks session checkpoint (set by the now-deleted activate_task.py,
 # see 6633bf1) — task-framework owns the active task now, so the nudge was ported
-# there instead: taskfw.dispatcher.drift_reflection_nudge, reading directly from
-# taskfw's own store, wired into tasks__update/check_item/add_decision/add_commit.
-# Do not re-add a claude-hooks-side copy; task-framework is the one owner.
+# there instead: taskfw.dispatcher.drift_reflection_nudge.
+#
+# Trigger mechanism changed again (task:8be768df): it was wired onto 7 of
+# taskfw's own MCP tools (tasks__update/check_item/add_decision/add_commit/
+# context/get/active), which only saw taskfw's own tool calls — a stretch of
+# Bash/Read/Write/Edit turns with no taskfw call never advanced it. It now
+# fires from taskfw/drift_hook.py, a stateless PostToolUse hook Claude Code
+# invokes directly (registered in settings.json alongside this file's own
+# client.py entry), on every tool call in the session regardless of which
+# server it targets.
+# Do not re-add a claude-hooks-side copy of the nudge itself, and do not
+# re-add the '## Active task' UserPromptSubmit block removed alongside this
+# (see _format_system_prompt) — it announced the active task once per turn,
+# which the every-call PostToolUse hook now makes redundant rather than
+# complementary. task-framework remains the one owner of the active task and
+# any reminder derived from it.
 
 
 # Nudge toward tmux for Bash commands (memory: prefer-tmux-for-commands) — tmux panes

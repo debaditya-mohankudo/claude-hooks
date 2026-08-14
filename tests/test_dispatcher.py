@@ -104,16 +104,18 @@ def test_includes_tool_hints():
 # related tasks/commits rendering tests removed (task:882d67fa) — that context
 # is task-framework's now; _format_system_prompt does not render any of it.
 #
-# Active task itself came back (task:c2e36050) via a different mechanism: not
-# a pull from proj_tasks.db, but a render of whatever task-framework last
-# pushed to hooks/session_state.get_active_task (task:996cc8f0).
+# Active task came back (task:c2e36050) via a render of whatever
+# task-framework last pushed to hooks/session_state.get_active_task
+# (task:996cc8f0), then was removed again (task:8be768df): taskfw's
+# PostToolUse-driven drift nudge (_maybe_taskfw_drift_nudge, wired into
+# _handle_post_tool_use) now announces the active task on every tool call in
+# the turn, making this once-per-turn block redundant rather than
+# complementary. ctx["active_task"] is still populated and logged (see
+# _handle_user_prompt_submit) for observability — it just renders nothing.
 
-def test_includes_active_task_when_set():
+def test_omits_active_task_block_even_when_set():
     result = _format_system_prompt(_base_ctx(active_task={"task_id": "abc123", "title": "Fix the thing"}))
-    assert "## Active task" in result
-    assert "task:abc123" in result
-    assert "Fix the thing" in result
-    assert "focus on it" in result.lower()
+    assert "## Active task" not in result
 
 
 def test_omits_active_task_block_when_absent():

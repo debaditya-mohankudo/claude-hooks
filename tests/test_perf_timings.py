@@ -28,8 +28,15 @@ import pytest
 
 class TestDispatcherSkips:
     def test_memory_tools_skipped(self):
-        """memory__ tools must not trigger the pipeline at all."""
-        with patch("langchain_learning.session_graph.run_post_tool") as mock_run:
+        """memory__ tools must not trigger the run_post_tool pipeline.
+
+        They may still carry the taskfw drift nudge (task:8be768df) — that
+        fires on every tool call, memory__ included, since universal coverage
+        is the entire point of moving it off taskfw's own tool-call counting.
+        Only run_post_tool's tool-hint/memory-scoring pipeline is skipped.
+        """
+        with patch("langchain_learning.session_graph.run_post_tool") as mock_run, \
+                patch("hooks.dispatcher._maybe_taskfw_drift_nudge", return_value=None):
             from hooks.dispatcher import _handle_post_tool_use
             result = _handle_post_tool_use({
                 "tool_name": "mcp__local-mac__memory__add",
