@@ -299,6 +299,18 @@ def _maybe_context_size_nudge(hook_input: dict, session_id: str) -> dict | None:
 
 _TASKFW_DRIFT_HOOK_BIN = "/Users/debaditya/workspace/task-framework/.venv/bin/taskfw-drift-hook"
 
+# Per-session PostToolUse call count, feeding taskfw's own every-Nth-call gate
+# (task:1c8f0815). taskfw/drift_hook.py runs as a fresh subprocess per call, so it
+# has no way to count calls itself — this process is the long-running one
+# (dispatcher.py runs inside claude-hooks' FastAPI server, one process per
+# server lifetime, not per call), so it's the only side that can cheaply keep
+# an in-memory per-session counter, same pattern as _CONTEXT_NUDGE_SHOWN_BAND
+# above. The counter is only ever incremented and handed to taskfw as raw
+# data; the decision of whether to nudge on a given count stays inside
+# taskfw's own drift_reflection_nudge, per this file's existing rule that
+# task-framework owns the active-task/drift logic.
+_TASKFW_DRIFT_CALL_COUNT: dict[str, int] = {}
+
 
 def _maybe_taskfw_drift_nudge(hook_input: dict, cwd: str) -> dict | None:
     """Awareness nudge for taskfw's active task, sourced from taskfw itself.
@@ -322,11 +334,19 @@ def _maybe_taskfw_drift_nudge(hook_input: dict, cwd: str) -> dict | None:
     task-framework remains the sole owner of the active-task/drift logic —
     this only invokes taskfw's own binary and passes its output through
     unchanged; it never reads taskfw's store or re-derives the nudge text.
+    The one exception is the call counter (task:1c8f0815): taskfw can't hold
+    that state itself (see _TASKFW_DRIFT_CALL_COUNT above), so it's computed
+    here and injected into the payload as "_taskfw_drift_call_count" for
+    taskfw to gate on.
     """
+    session_id = hook_input.get("session_id", "")
+    call_count = _TASKFW_DRIFT_CALL_COUNT.get(session_id, 0) + 1
+    _TASKFW_DRIFT_CALL_COUNT[session_id] = call_count
+    payload = {**hook_input, "_taskfw_drift_call_count": call_count}
     try:
         result = _subprocess.run(
             [_TASKFW_DRIFT_HOOK_BIN],
-            input=_json.dumps(hook_input).encode(),
+            input=_json.dumps(payload).encode(),
             capture_output=True, timeout=5, check=False,
             env={**os.environ, "TASKFW_SCOPE": cwd},
         )
