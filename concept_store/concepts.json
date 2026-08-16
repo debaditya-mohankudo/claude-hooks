@@ -58,16 +58,9 @@
         "tests/test_dispatcher.py: test_read_last_usage_*, test_context_size_nudge_*"
       ],
       "invariants": [
-        "Every hook event must map to exactly one handler in _HANDLERS",
-        "PreToolUse handlers that fail on irreversible tools must deny, not allow",
-        "Handlers return None to pass through or a dict with hookSpecificOutput to act",
-        "Two distinct PreToolUse response categories: gates (deny-capable checks like _check_task_body_format, run_gate) must resolve to a strict allow/deny decision; reminders (like _maybe_tmux_nudge for Bash) are allow-only and use additionalContext to surface non-blocking context — reminders never deny",
-        "Two distinct handler return shapes exist: PreToolUse/UserPromptSubmit handlers return None or a dict wrapping hookSpecificOutput; Stop handlers (_handle_stop) return None or a plain top-level {\"decision\": \"block\", \"reason\": ...} dict per Claude Code's Stop-hook schema (not wrapped in hookSpecificOutput). The turn-completion chime no longer uses Stop-hook blocking: since 150df2a the sound plays server-side via PlaySoundNode (detached afplay subprocess, start_new_session=True — no Claude round-trip). NoopNode marks the first Stop of a turn by setting state['stop_alert_sent']=True, which gates PlaySoundNode (next node in the stop chain) so the chime fires exactly once per turn; sound_played guards replays within the same turn, and run_session() resets stop_alert_sent=False on the next UserPromptSubmit. run_stop() in session_graph.py still surfaces-and-clears pending_hook_output for any node that sets one (task:aacf3ef3 history; refactored by 150df2a).",
-        "The drift-reflection nudge (_maybe_drift_reflection_nudge, fired every 8th Write/Edit/MultiEdit under an active task, read from the session checkpoint) was removed here and ported to task-framework as taskfw.dispatcher.drift_reflection_nudge (task:f1d46386) — task-framework owns the active task since commit 6633bf1 deleted claude-hooks' langchain_learning task nodes (activate_task.py, load_related_tasks, log_task_events) on that basis. Do not re-add a claude-hooks-side drift/north-star nudge; task-framework is the one owner of active-task state and any reminder derived from it.",
-        "The Execution Contract (activate_task.py._build_execution_contract, a fixed philosophy block rendered every turn via _format_system_prompt while a task was active) died with the same 6633bf1 deletion and has no live equivalent anywhere as of task:f1d46386 — it is not merely moved, unlike the drift nudge.",
-        "PostToolUse also has a non-blocking reminder pattern, added task:e849c7ad: _maybe_context_size_nudge reads the real API usage (input_tokens + cache_creation_input_tokens + cache_read_input_tokens) from the most recent assistant message.usage block in hook_input.transcript_path — not tiktoken/cl100k_base (that only approximates the size of this repo's own injected memory payload, a different and smaller quantity). Fires once per 50K-token band crossed past 100K, tracked in a module-level dict keyed by session_id (same lifetime/pattern as _TMUX_NUDGE_SHOWN). Runs before _handle_post_tool_use's `if not tool_name.startswith(\"mcp__\"): return None` early-return so it fires on every tool type, not just MCP calls — the only nudge in this file that does so; every other PostToolUse/PreToolUse logic in this handler is MCP-only or Bash-only respectively."
+        "_maybe_taskfw_drift_nudge (PostToolUse) only logs the two branches taskfw itself cannot observe: rc!=0 and exception (dispatcher-side subprocess-integration failures). It does NOT log the empty-stdout (no-active-task/throttled) or fired outcomes — those are logged once, with more precision, by task-framework's own taskfw/drift_hook.py build_nudge; duplicating them here was removed (task:50aa6dc5) as a second, less-informative copy of a decision this process doesn't own. Do not re-add logging for those two branches."
       ],
-      "last_validated": "2026-08-06T17:24:44.348277+00:00",
+      "last_validated": "2026-08-16T03:03:28.971940+00:00",
       "module": "hooks/dispatcher.py",
       "name": "dispatcher-hook-event-routing"
     },
@@ -555,6 +548,6 @@
     "commit": "5f62c6b5150a20fe7198d7bd6c155c4b3c0d3101",
     "extracted_at": "2026-07-23T05:42:23Z",
     "note": "incremental upsert (task:a2fd402d)",
-    "updated_at": "2026-08-09T12:36:19.498241+00:00"
+    "updated_at": "2026-08-16T03:03:28.972021+00:00"
   }
 }
