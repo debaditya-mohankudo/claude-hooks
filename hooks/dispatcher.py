@@ -357,18 +357,16 @@ def _maybe_taskfw_drift_nudge(hook_input: dict, cwd: str) -> dict | None:
             )
             return None
         if not result.stdout.strip():
-            # Silence is ambiguous by design (drift_hook.py's own docstring):
-            # no active task and "throttled, not this call_count" look
-            # identical on stdout. log.info rather than log.debug because
-            # setup("dispatcher") pins this logger at INFO — a debug call
-            # here would never reach the SQLite log store at all, silently
-            # discarded before the handler ever sees it.
-            log.info(
-                "taskfw drift nudge skipped (no active task or throttled): session=%s call_count=%d",
-                session_id[:8], call_count,
-            )
+            # Silence is ambiguous (drift_hook.py's own docstring): no active
+            # task and "throttled, not this call_count" look identical on
+            # stdout, and taskfw already owns and logs both cases on its own
+            # side (throttled at INFO; no-active-task deliberately at DEBUG,
+            # to avoid flooding on the common case) — logging here too would
+            # just be a second, less precise copy of a decision this process
+            # doesn't own. See task:50aa6dc5.
             return None
-        log.info("taskfw drift nudge fired: session=%s call_count=%d", session_id[:8], call_count)
+        # taskfw already logs "drift nudge fired" at INFO on its own side;
+        # this stays silent rather than duplicating it. See task:50aa6dc5.
         return _json.loads(result.stdout)
     except Exception as exc:
         log.info("taskfw drift nudge failed: session=%s call_count=%d error=%s", session_id[:8], call_count, exc)
