@@ -250,23 +250,6 @@
       "module": "",
       "name": "live-session-audit"
     },
-    "load-active-task-pass-through": {
-      "confidence": 0.95,
-      "contracts": [
-        "__call__(state) -> {} always"
-      ],
-      "created_at": "2026-08-01T05:48:37.368670+00:00",
-      "description": "Pass-through node — active_task_id already lives in checkpoint state. Used to suppress the task for a turn when its project:<name> tag disagreed with the current cwd, reading proj_tasks.db to get the tag. That suppression, _project_from_cwd, and the _cfg import it needed were all removed (task:87ec7876): the tag was a guess derived from a working directory, and the lookup read a store this repo no longer owns. task-framework scopes the active task by workspace path directly, so what this approximated is now answered exactly by the system that owns it. The node now only logs.",
-      "evidence": [
-        "langchain_learning/nodes/load_active_task.py"
-      ],
-      "invariants": [
-        "Touches no database — returns {} unconditionally, active task or not"
-      ],
-      "last_validated": "2026-08-01T05:48:37.368670+00:00",
-      "module": "langchain_learning/nodes/load_active_task.py",
-      "name": "load-active-task-pass-through"
-    },
     "log-tool-usage-single-writer": {
       "confidence": 0.92,
       "contracts": [
@@ -532,34 +515,12 @@
       "last_validated": "2026-08-01T17:52:06.216210+00:00",
       "module": "src/toon.py",
       "name": "toon-encoding-shared-module"
-    },
-    "ups-nodes-cwd-first-repo-resolution": {
-      "confidence": 0.95,
-      "contracts": [
-        "LoadTaskCodeNode.__call__ resolves .code_embeddings.tvim/.meta.json from Path(state['cwd']) first",
-        "LoadRelatedCommitsNode._resolve_diff_index(cwd) resolves .diff_embeddings.tvim/.meta.json from Path(cwd) first, returns (index, meta)",
-        "Both fall back to a hardcoded claude-hooks default path only when no index exists at the cwd-derived path"
-      ],
-      "created_at": "2026-07-02T11:30:00.000000+00:00",
-      "description": "Repeated pattern across UPS task-context fan-out nodes: any node resolving a repo-scoped index/resource must try state['cwd']'s repo first, falling back to a hardcoded default repo (claude-hooks) only if nothing exists at cwd. LoadTaskCodeNode (langchain_learning/nodes/load_task_code.py) established this; LoadRelatedCommitsNode (langchain_learning/nodes/load_related_commits.py) was fixed to match it in task:4b7ccfe8 after being found to always query claude-hooks' diff index regardless of the active task's actual repo.",
-      "evidence": [
-        "langchain_learning/nodes/load_task_code.py",
-        "langchain_learning/nodes/load_related_commits.py"
-      ],
-      "invariants": [
-        "A task can be activated from any repo, not just claude-hooks — a node that skips the cwd check silently returns data from the wrong repo instead of failing loudly or returning empty",
-        "cwd-derived resolution is tried first and only falls back to the default repo path if the cwd-scoped resource is missing, never the other way around",
-        "New UPS nodes that read a repo-local file/index (TurboVec .tvim, git log, etc.) must follow this same resolution order"
-      ],
-      "last_validated": "2026-07-02T11:30:00.000000+00:00",
-      "module": "langchain_learning/nodes/load_task_code.py",
-      "name": "ups-nodes-cwd-first-repo-resolution"
     }
   },
   "meta": {
     "commit": "5f62c6b5150a20fe7198d7bd6c155c4b3c0d3101",
     "extracted_at": "2026-07-23T05:42:23Z",
     "note": "incremental upsert (task:a2fd402d)",
-    "updated_at": "2026-08-17T17:19:36.385741+00:00"
+    "updated_at": "2026-08-17T17:21:57.971596+00:00"
   }
 }
