@@ -1,17 +1,4 @@
 {
-  "hooks": {
-    "PostToolUse": [
-      {
-        "matcher": "Edit|Write",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "cd /Users/debaditya/workspace/claude-hooks && uv run python concept_store/diff_hook.py"
-          }
-        ]
-      }
-    ]
-  },
   "permissions": {
     "allow": [
       "mcp__claude-hooks__hooks__server_memory",

@@ -53,9 +53,12 @@ DOMAIN_MAP: dict[str, tuple[str, list[str]]] = {
     # duplicate of task-framework's own concept__* tools, same on-disk format,
     # same repo-explicit-no-default contract. Kept alive only by inertia until
     # a shape mismatch in taskfw's concept__get (fixed there first) made
-    # removing this one safe. concept_store/store.py itself stays — extractor.py,
-    # diff.py, and diff_hook.py use the ConceptStore class directly, unrelated
-    # to this MCP wrapper.
+    # removing this one safe. concept_store/store.py itself stays — the
+    # extract-concepts skill and symbol_resolver.py still use ConceptStore
+    # directly, unrelated to this MCP wrapper. extractor.py/claude_cli.py/
+    # diff.py/diff_hook.py (LLM one-shot extraction + drift-detection hook)
+    # were retired in task:85e6001f — the extract-concepts skill is the
+    # extraction path now.
 }
 
 
