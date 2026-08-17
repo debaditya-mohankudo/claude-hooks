@@ -1,5 +1,25 @@
 {
   "concepts": {
+    "concept-store-symbol-only-evidence": {
+      "confidence": 0.8,
+      "contracts": [
+        "ConceptStore.upsert()/get()/list() are unaware of the evidence format — validation lives only in the test asserting the citation regex, not in store.py itself"
+      ],
+      "created_at": "2026-08-17T17:17:54.663352+00:00",
+      "description": "ConceptStore's evidence field cites code locations as \"file:symbol\" (or \"file:Class.method\", or bare \"file\" when nothing encloses the cited spot) — never a line number. symbol_resolver.py resolves a citation to its current line range on demand via AST, so citations survive line drift instead of going stale as code shifts around them. The extract-concepts skill (~/.claude/skills/extract-concepts/skill.md) is the sole path that writes new concepts now; the old LLM one-shot extractor.py/claude_cli.py/diff.py/diff_hook.py pipeline (which produced file:line citations and re-extracted on every Edit/Write via a PostToolUse hook) was retired.",
+      "evidence": [
+        "concept_store/store.py:ConceptStore",
+        "concept_store/symbol_resolver.py:resolve_symbol",
+        "tests/test_symbol_resolver.py"
+      ],
+      "invariants": [
+        "every evidence string in concepts.json matches ^[^\\s:]+(:[A-Za-z_][A-Za-z0-9_]*(\\.[A-Za-z_][A-Za-z0-9_]*)?)?$ — file, file:symbol, or file:Class.method, never a line number or range",
+        "resolve_symbol() only descends one level into a class (Class.method), matching how citations are ever written"
+      ],
+      "last_validated": "2026-08-17T17:17:54.663401+00:00",
+      "module": "concept_store/store.py",
+      "name": "concept-store-symbol-only-evidence"
+    },
     "config-db-paths-and-domains": {
       "confidence": 0.95,
       "contracts": [
@@ -51,7 +71,6 @@
         "hooks/dispatcher.py:_HANDLERS",
         "hooks/dispatcher.py:main",
         "hooks/dispatcher.py:_handle_pre_tool_use",
-        "langchain_learning/nodes/activate_task.py",
         "taskfw/dispatcher.py:drift_reflection_nudge",
         "hooks/dispatcher.py:_maybe_context_size_nudge",
         "tests/test_dispatcher.py"
@@ -59,7 +78,7 @@
       "invariants": [
         "_maybe_taskfw_drift_nudge (PostToolUse) only logs the two branches taskfw itself cannot observe: rc!=0 and exception (dispatcher-side subprocess-integration failures). It does NOT log the empty-stdout (no-active-task/throttled) or fired outcomes — those are logged once, with more precision, by task-framework's own taskfw/drift_hook.py build_nudge; duplicating them here was removed (task:50aa6dc5) as a second, less-informative copy of a decision this process doesn't own. Do not re-add logging for those two branches."
       ],
-      "last_validated": "2026-08-16T03:03:28.971940+00:00",
+      "last_validated": "2026-08-17T17:19:36.385682+00:00",
       "module": "hooks/dispatcher.py",
       "name": "dispatcher-hook-event-routing"
     },
@@ -541,6 +560,6 @@
     "commit": "5f62c6b5150a20fe7198d7bd6c155c4b3c0d3101",
     "extracted_at": "2026-07-23T05:42:23Z",
     "note": "incremental upsert (task:a2fd402d)",
-    "updated_at": "2026-08-16T03:03:28.972021+00:00"
+    "updated_at": "2026-08-17T17:19:36.385741+00:00"
   }
 }
