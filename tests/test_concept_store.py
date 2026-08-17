@@ -10,7 +10,7 @@ _CONCEPT = {
     "invariants": ["all hooks must return HookResult", "unknown events route to noop"],
     "contracts": ["returns dict with hookSpecificOutput or None"],
     "confidence": 0.9,
-    "evidence": ["hooks/dispatcher.py:42"],
+    "evidence": ["hooks/dispatcher.py:main"],
 }
 
 

@@ -19,7 +19,9 @@ class ConceptStore:
         invariants  — list[str] of constraints that must always hold
         contracts   — list[str] of promises to callers
         confidence  — float 0.0–1.0
-        evidence    — list[str] of "file:line" references
+        evidence    — list[str] of "file:symbol" references (or bare "file" when
+                      the citation has no enclosing symbol); never a line number,
+                      since a symbol name doesn't drift the way a line does
         last_validated — ISO timestamp
         created_at     — ISO timestamp
     """
