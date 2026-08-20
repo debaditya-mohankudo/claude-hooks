@@ -232,6 +232,28 @@ async def session_active_task(workspace: str = ""):
     return JSONResponse(content=get_active_task(workspace))
 
 
+@app.get("/cache")
+async def cache_list():
+    """Overview of every in-process cache in hooks/cache_store.py — name -> keys.
+
+    Content-free by design (dropped the values) so this stays cheap to poll;
+    fetch GET /cache/{name} for the actual content of one cache.
+    """
+    from hooks.cache_store import list_caches
+    return JSONResponse(content=list_caches())
+
+
+@app.get("/cache/{name}")
+async def cache_get(name: str):
+    """Current content of one named cache from hooks/cache_store.py.
+
+    Returns {} for a name that doesn't exist yet — same as an empty cache,
+    since get_cache() creates caches lazily on first use.
+    """
+    from hooks.cache_store import get_cache
+    return JSONResponse(content=get_cache(name))
+
+
 @app.get("/session/live")
 async def session_live():
     """Live claude CLI processes — OS-level, not checkpoint-based.

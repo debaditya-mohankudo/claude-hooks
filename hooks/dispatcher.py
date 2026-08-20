@@ -128,18 +128,36 @@ _LIFE_OS_FILES = {
 }
 
 
+from hooks.cache_store import get_cache as _get_cache
+_vault_context_cache = _get_cache("vault_context")
+
+
 def _load_vault_context() -> dict[str, str]:
-    """Read LIFE_OS md files for always-on identity/memory context."""
+    """Read LIFE_OS md files for always-on identity/memory context.
+
+    iCloud's file provider briefly locks these files during sync, raising
+    OSError [Errno 11] EDEADLK. dispatcher.py is imported once into the
+    long-running hook server process (hooks/server.py, task:b3964f85), so the
+    "vault_context" entry in hooks/cache_store.py's registry survives across
+    hook calls without needing disk state (also readable via GET
+    /cache/vault_context). Fall back to the last successfully read content
+    rather than dropping the context for that turn.
+    """
     result = {}
     for key, path in _LIFE_OS_FILES.items():
         try:
             text = path.read_text(encoding="utf-8").strip()
             if text:
                 result[key] = text
+                _vault_context_cache[key] = text
         except FileNotFoundError:
             pass
         except Exception as exc:
-            log.warning("vault_context: failed to read %s: %s", path, exc)
+            if key in _vault_context_cache:
+                log.info("vault_context: failed to read %s (%s), using cached copy", path, exc)
+                result[key] = _vault_context_cache[key]
+            else:
+                log.warning("vault_context: failed to read %s: %s", path, exc)
     return result
 
 
