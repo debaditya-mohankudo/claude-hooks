@@ -70,6 +70,21 @@ package Requirements {
     }
     satisfy requirement MemoryScoringPerDomainRequirement by system.stores;
 
+    requirement def VaultContextTransientReadFailureRequirement {
+        doc /* Source: concept cache-store (hooks/cache_store.py) and
+             * hooks/dispatcher.py (_load_vault_context). iCloud's file
+             * provider briefly locks LIFE_OS vault files during sync,
+             * raising OSError [Errno 11] EDEADLK; this fired on nearly
+             * every prompt on 2026-08-20 and silently dropped vault
+             * context. A transient read failure must fall back to the
+             * last successfully cached content (in-process, per-name
+             * registry in cache_store.py) rather than drop context, and
+             * is logged at INFO/DEBUG once a cached value exists —
+             * WARNING is reserved for a first-ever failed read with
+             * nothing cached yet (task:a07b7f1b). */
+    }
+    satisfy requirement VaultContextTransientReadFailureRequirement by system.hookServer;
+
     // DELIBERATELY ABSENT — JiraHierarchyRequirement (stories/tasks/bugs must
     // have an epic parent) was removed with the gate that enforced it. The gate
     // went first (task:6240c675) because it registered under the bare name
