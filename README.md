@@ -8,7 +8,7 @@ A small FastAPI server that intercepts Claude Code's hook events — persistent 
 
 ## Looking for task tracking?
 
-Task tracking (epics/tasks/subtasks, grooming, decision logging, retrospectives) has moved to its own project: [task-framework](https://github.com/debaditya-mohankudo/Lite-Task-Framework-w-Claude-hooks). It's MCP-native and host-agnostic — install it separately and its `taskfw-mcp` server plugs into this repo's hooks the same way any other MCP server does. This repo no longer ships the `/task-framework`, `/task-create`, `/task-grooming`, `/task-implementation`, `/task-introspection`, or `/task-log-decision` skills — they live there now.
+Task tracking (epics/tasks/subtasks, grooming, decision logging, retrospectives) has moved to its own project: [task-framework](https://github.com/debaditya-mohankudo/Lite-Task-Framework). It's MCP-native and host-agnostic — install it separately and its `taskfw-mcp` server plugs into this repo's hooks the same way any other MCP server does. This repo no longer ships the `/task-framework`, `/task-create`, `/task-grooming`, `/task-implementation`, `/task-introspection`, or `/task-log-decision` skills — they live there now.
 
 ---
 
@@ -52,7 +52,7 @@ It needs database access to resolve active tasks, so it stays as a small Python 
 
 ## claude-hooks, briefly
 
-Underneath the gates is a small FastAPI server that intercepts all four Claude Code hook events (`UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop`) and runs them through one LangGraph pipeline. It injects relevant memories and (if [task-framework](https://github.com/debaditya-mohankudo/Lite-Task-Framework-w-Claude-hooks) is installed) active-task context into every prompt, tracks which MCP tools get used so it can recommend the right one next time, and keeps all of that state durable across restarts in a single SQLite-backed checkpoint — so nothing above (gates, memory) depends on Claude's own context window to stay coherent.
+Underneath the gates is a small FastAPI server that intercepts all four Claude Code hook events (`UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop`) and runs them through one LangGraph pipeline. It injects relevant memories and (if [task-framework](https://github.com/debaditya-mohankudo/Lite-Task-Framework) is installed) active-task context into every prompt, tracks which MCP tools get used so it can recommend the right one next time, and keeps all of that state durable across restarts in a single SQLite-backed checkpoint — so nothing above (gates, memory) depends on Claude's own context window to stay coherent.
 
 **The full architecture** — components, design decisions, database inventory, the graph topology itself: [Architecture](docs/ARCHITECTURE.md).
 
@@ -76,7 +76,7 @@ Pending (saved to task:7f1e):
 Waiting for your input.
 ```
 
-Claude captures what's still pending and stops — no half-finished reasoning, no context dropped. If [task-framework](https://github.com/debaditya-mohankudo/Lite-Task-Framework-w-Claude-hooks) is installed and a task is active, the pending list is also saved to the task so it resurfaces next session.
+Claude captures what's still pending and stops — no half-finished reasoning, no context dropped. If [task-framework](https://github.com/debaditya-mohankudo/Lite-Task-Framework) is installed and a task is active, the pending list is also saved to the task so it resurfaces next session.
 
 ---
 
