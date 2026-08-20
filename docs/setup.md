@@ -26,7 +26,7 @@ How to get claude-hooks running from scratch on a new machine or when sharing th
 ## 1. Clone and install dependencies
 
 ```bash
-git clone https://github.com/debaditya-mohankudo/Lite-Task-Framework-w-Claude-hooks ~/workspace/claude-hooks
+git clone https://github.com/debaditya-mohankudo/claude-hooks ~/workspace/claude-hooks
 cd ~/workspace/claude-hooks
 uv sync
 ```

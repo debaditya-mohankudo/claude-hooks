@@ -266,4 +266,4 @@ Say:
 > mcp__claude-hooks__hooks__read_logs_sqlite
 > ```
 >
-> Want task tracking (epics, tasks, decision logging)? That's a separate project: [task-framework](https://github.com/debaditya-mohankudo/Lite-Task-Framework-w-Claude-hooks). Good luck!
+> Want task tracking (epics, tasks, decision logging)? That's a separate project: [task-framework](https://github.com/debaditya-mohankudo/Lite-Task-Framework). Good luck!

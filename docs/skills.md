@@ -5,7 +5,7 @@ tags: skills, /gc, /pause, /onboarding, /what-am-i-working-on, skill index, slas
 
 Skills live in `skills/<name>` and are synced to `~/.claude/skills/<name>` after every change. Invoke with `/<name>` in any Claude session.
 
-> Task-lifecycle skills (`/task-framework`, `/task-create`, `/task-grooming`, `/task-implementation`, `/task-introspection`, `/task-log-decision`) have moved to the separate [task-framework](https://github.com/debaditya-mohankudo/Lite-Task-Framework-w-Claude-hooks) project.
+> Task-lifecycle skills (`/task-framework`, `/task-create`, `/task-grooming`, `/task-implementation`, `/task-introspection`, `/task-log-decision`) have moved to the separate [task-framework](https://github.com/debaditya-mohankudo/Lite-Task-Framework) project.
 
 ## Skills index
 
@@ -34,7 +34,7 @@ Stages all changes, runs unit tests, commits with a derived message, and appends
 
 ### /pause
 
-Finishes any in-flight tool call, saves pending intent (to the active task via `mcp__taskfw__tasks__update`, if [task-framework](https://github.com/debaditya-mohankudo/Lite-Task-Framework-w-Claude-hooks) is installed and a task is active), then waits for user input. Task stays active; history continues when the user resumes.
+Finishes any in-flight tool call, saves pending intent (to the active task via `mcp__taskfw__tasks__update`, if [task-framework](https://github.com/debaditya-mohankudo/Lite-Task-Framework) is installed and a task is active), then waits for user input. Task stays active; history continues when the user resumes.
 
 → `skills/pause/skill.md`
 
