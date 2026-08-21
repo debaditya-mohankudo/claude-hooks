@@ -6,6 +6,13 @@ updated: 2026-08-17
 model: haiku
 ---
 
+Canonical home: this repo (claude-hooks), because the skill is primarily about
+claude-hooks' own systems — server_memory.sqlite and the /session/live
+endpoint (both owned by hooks/server.py) — with taskfw logs as one
+secondary section. ~/.claude/skills/what-am-i-working-on/ is a deployed
+copy, not a second source of truth; edit here and re-copy, not the other
+way round. Do not fork a copy into task-framework or any other repo.
+
 ## Intent
 
 Quick cold-start orientation tool. Fetches the last 50 events from the hook server's unified event log, plus which `claude` CLI processes are actually live right now, and presents both as a summary.
@@ -28,10 +35,10 @@ Present it as: count of live sessions, and for each one its pid and elapsed time
 
 If either call fails (event log tool returns `{error: ...}`, or the curl fails/connection refused), report that the hook server is unreachable and suggest checking `launchctl list | grep claude-hooks`.
 
-3. Fetch the last 10 `task-*` skill invocations (which task-skill, i.e. task-grooming/task-implementation/task-introspection, fired most recently — a different signal than the event log's tool-call history):
+3. Fetch the last 10 taskfw log events (everything in taskfw's own operational log — MCP tool calls like `tasks__check_item`, skill-invocation markers, server lifecycle lines — not just task-skill invocations, since that filter was hiding most of the log):
 
 ```python
-mcp__taskfw__tasks__logs(limit=200)
+mcp__taskfw__tasks__logs(limit=10)
 ```
 
-`logger` has no prefix query, so this over-fetches and filters client-side (same approach as the `task-skill-logs` skill): keep rows whose `logger` starts with `taskfw.skill.`, take the most recent 10 (rows are already most-recent-first), and present as timestamp / skill name (prefix stripped) / task_id / message. If fewer than 10 skill-invocation rows turn up in the 200 fetched, say so rather than padding; if the `mcp__taskfw__*` tools aren't available in this session, skip this section silently rather than failing the whole summary.
+No client-side filtering — present all 10 rows as-is: timestamp / logger / message. If the `mcp__taskfw__*` tools aren't available in this session, skip this section silently rather than failing the whole summary.
