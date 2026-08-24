@@ -80,9 +80,9 @@ def _format_system_prompt(ctx: dict) -> str:
         lines.append("")
 
     vault_ctx = ctx.get("vault_context") or {}
-    if "work" in vault_ctx:
-        lines.append("## Work context")
-        lines.append(vault_ctx["work"])
+    if "dev_personality" in vault_ctx:
+        lines.append("## Dev personality")
+        lines.append(vault_ctx["dev_personality"])
         lines.append("")
 
     # The once-per-turn '## Active task' block (task:996cc8f0) was removed here
@@ -124,7 +124,8 @@ def _format_system_prompt(ctx: dict) -> str:
 
 from hooks.paths import VAULT_ROOT as _VAULT_ROOT
 _LIFE_OS_FILES = {
-    "work": _VAULT_ROOT / "LIFE_OS" / "work.md",
+    "dev_personality": _VAULT_ROOT / "LIFE_OS" / "dev_personality.md",
+    # "work": _VAULT_ROOT / "LIFE_OS" / "work.md",  # replaced by dev_personality.md (task:9bbd67dd)
 }
 
 

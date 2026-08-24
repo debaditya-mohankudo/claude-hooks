@@ -100,6 +100,27 @@ def test_includes_tool_hints():
     assert "tasks__create" in result
 
 
+def test_includes_dev_personality():
+    result = _format_system_prompt(_base_ctx(
+        vault_context={"dev_personality": "compounding reward"},
+    ))
+    assert "## Dev personality" in result
+    assert "compounding reward" in result
+
+
+def test_omits_dev_personality_block_when_absent():
+    result = _format_system_prompt(_base_ctx(vault_context={}))
+    assert "## Dev personality" not in result
+
+
+def test_work_context_no_longer_rendered():
+    # work.md was replaced by dev_personality.md (task:9bbd67dd) — even if a
+    # stale "work" key is still present in vault_context, it must not render.
+    result = _format_system_prompt(_base_ctx(vault_context={"work": "terse responses"}))
+    assert "## Work context" not in result
+    assert "terse responses" not in result
+
+
 # Execution contract, task decisions/memories/history, relevant code, and
 # related tasks/commits rendering tests removed (task:882d67fa) — that context
 # is task-framework's now; _format_system_prompt does not render any of it.
