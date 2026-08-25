@@ -1,0 +1,197 @@
+{
+  "meta": {
+    "note": "Ubiquitous-language ontology for this repo's domain: the vocabulary the code embodies, and the explicit typed relations between terms (is-a, part-of, relates, persists, references, describes, determines). Deliberately separate from concept_store/concepts.json -- that store is architecture PER MODULE (one summary per file) and answers 'what does this module promise'. This file is vocabulary PER DOMAIN TERM and answers 'what is this thing, and what is it to the others' -- a term here can span several modules (SessionState alone is written and read by nearly every node in the graph), and a module can define several terms, so it does not fit concept_store's per-file shape. Ground truth is still the code; this is a durable, human-readable map of the graph rather than N separate summaries. Modelled on task-framework/ontology/task-domain.json, following the same shape ACME_Cert_Life_Cycle_Agent_By_Claude_Cowork's ontology/acme-cert-lifecycle-domain.json used.",
+    "repo": "claude-hooks",
+    "created_at": "2026-08-25"
+  },
+  "bounded_contexts": {
+    "Hook Dispatch": "The raw Claude Code hook event surface: reading stdin JSON, POSTing it to the FastAPI server, and routing each event type (UserPromptSubmit, PreToolUse, PostToolUse, Stop, SessionStart, SessionEnd) to its handler. Concerned with getting the payload from Claude Code's process to the right handler function -- not with what that handler decides.",
+    "Gates/Enforcement": "The anti-hallucination send-gate system: verifying a tool call against session history before it is allowed to execute, and the separate commit-traceability check that every git commit references a task id. Fails open on any internal error -- a gate that can't evaluate never blocks the call.",
+    "Session & Checkpoint State": "The SessionState schema and its persistence: one LangGraph MemorySaver checkpoint per session_id (thread_id), the four public entry points that read/invoke/write it, and the bookkeeping (checkpoint trim, live-session audit) needed to keep an in-memory, non-persistent store from growing unboundedly.",
+    "LangGraph Node Pipeline": "The node callables that actually do work inside the compiled session graph -- one class per file, wired together by session_graph.py's four event chains and looked up by name through NODE_REGISTRY. Distinct from Session & Checkpoint State: this context is the node implementations and their structural contracts (NodeCallable, BackfillNodeProtocol), not the state they read and write.",
+    "Memory & Retrieval": "Scoring and injecting relevant MEMORY.sqlite rows and tool_hints.sqlite rows into a turn via cheap keyword-overlap signals (no embeddings). Defines the Protocol seam (MemoryRetriever, ToolScorer) that lets nodes swap in a null implementation for tests without touching the production scoring code.",
+    "Observability": "Answering 'what happened, and what was I working on' after the fact: the consolidated cross-session event timeline (server_memory), the raw log sink every module writes through (SQLiteHandler), and the MCP tools that expose both for querying.",
+    "Concept Store": "The per-module architectural-fact store this repo maintains about its own source (concept_store/), and about which repo boundary a piece of evidence is allowed to cross.",
+    "MCP Tool Surface": "The FastMCP tool registry claude-hooks exposes to callers: mapping domain names to Python modules, generating one MCP tool per action, and the separate personal tool->domain/tool->skill lookup used by the LangGraph pipeline to describe tool calls generically."
+  },
+  "terms": {
+    "HookDispatchTable": {
+      "bounded_context": "Hook Dispatch",
+      "definition": "The dict in hooks/dispatcher.py mapping each Claude Code hook event name to its handler function (_handle_user_prompt_submit, _handle_pre_tool_use, _handle_post_tool_use, _handle_stop, _handle_session_start, _handle_session_end). Single entry point for every hook event this repo processes; main() reads stdin JSON and looks the event type up here.",
+      "evidence": "hooks/dispatcher.py:main, hooks/dispatcher.py:_handle_user_prompt_submit"
+    },
+    "HookClient": {
+      "bounded_context": "Hook Dispatch",
+      "definition": "The thin process Claude Code actually invokes per hook event: reads the hook JSON payload from stdin (utils.read_stdin, tolerant of raw control characters) and POSTs it to the persistent FastAPI server at localhost:8766/hook/{event}. Forwards the real per-session cwd Claude Code already supplied -- does not resolve or guess it.",
+      "evidence": "hooks/client.py, hooks/utils.py:read_stdin"
+    },
+    "HookServer": {
+      "bounded_context": "Hook Dispatch",
+      "definition": "The persistent FastAPI process (uvicorn hooks.server:app) that HookClient talks to, replacing a slower per-invocation subprocess dispatcher. Opens the single MemorySaver at process startup and passes it into build_session_graph -- the one place that checkpointer instance is constructed for the whole server lifetime.",
+      "evidence": "hooks/server.py:lifespan"
+    },
+    "CopilotBridge": {
+      "bounded_context": "Hook Dispatch",
+      "definition": "A CLI-driven alternative to HookClient for non-Claude-Code callers (Copilot-oriented workflows, shell wrappers) that sends the same prompt/pre-tool/post-tool events to the same HookServer, without needing Claude Code's native hook payload format.",
+      "evidence": "hooks/copilot_client.py"
+    },
+    "GateContext": {
+      "bounded_context": "Gates/Enforcement",
+      "definition": "The dataclass a PreToolUse call is packaged into before a Gate evaluates it: tool_name, tool_input, the current prompt's tool calls so far, the whole session's tool history keyed by prompt_id, and the current + previous prompt's raw text. What a Gate actually sees -- it never touches SessionState directly.",
+      "evidence": "hooks/gates.py:GateContext, langchain_learning/nodes/gate_check.py:GateCheckNode.__call__"
+    },
+    "Gate": {
+      "bounded_context": "Gates/Enforcement",
+      "definition": "Abstract base for one send-gate rule: given a tool name and GateContext, decide allow or deny with a reason. GitCommitGate and GitCommitMcpGate are the two concrete gates checking every commit references a task:<id>; other gates are composable verifier chains loaded from gate_rules.yaml or hardcoded.",
+      "evidence": "hooks/gates.py:Gate, hooks/gates.py:GitCommitGate, hooks/gates.py:check"
+    },
+    "GatePolicy": {
+      "bounded_context": "Gates/Enforcement",
+      "definition": "The Protocol seam GateCheckNode dispatches through instead of importing hooks.gates directly. DefaultGatePolicy wraps hooks.gates.check() as the production backend; a test can pass a stub GatePolicy to avoid the full gate machinery. Structural (no inheritance) per the retrievers.py design principle.",
+      "evidence": "langchain_learning/retrievers.py:GatePolicy, langchain_learning/retrievers.py:DefaultGatePolicy"
+    },
+    "GateCheckNode": {
+      "bounded_context": "Gates/Enforcement",
+      "definition": "The LangGraph node PreToolUse routes to. Builds a GateContext from SessionState, dispatches to its GatePolicy, and fails open (gate_denied=False) on any internal error -- a gate that cannot evaluate must never block the call it was supposed to check.",
+      "evidence": "langchain_learning/nodes/gate_check.py:GateCheckNode"
+    },
+    "SessionState": {
+      "bounded_context": "Session & Checkpoint State",
+      "definition": "The single TypedDict every node in the compiled session graph reads and returns a partial slice of; LangGraph merges partial returns into the running state. Carries routing (event_type), per-turn fields (prompt, tool_name, tool_result), and cross-turn fields (session_tools, session_prompt_texts) side by side, though a given event only touches its own subset.",
+      "evidence": "langchain_learning/session_state.py:SessionState"
+    },
+    "SessionGraph": {
+      "bounded_context": "Session & Checkpoint State",
+      "definition": "The single compiled LangGraph StateGraph handling all four hook event types via one topology: START routes by event_type to load_turn (user_prompt_submit), gate_check (pre_tool_use), log_tool_usage (post_tool_use), or noop (stop/unknown). get_session_graph(session_id) is the one chokepoint every public entry point (run_session, run_gate, run_post_tool, run_stop, prewarm_session) calls to reach it.",
+      "evidence": "langchain_learning/session_graph.py:build_session_graph, langchain_learning/session_graph.py:get_session_graph"
+    },
+    "SessionCheckpoint": {
+      "bounded_context": "Session & Checkpoint State",
+      "definition": "One session's persisted SessionState, keyed by session_id as LangGraph's thread_id, held by the process-wide MemorySaver. In-memory only -- does not survive a server restart -- replacing a SqliteSaver that corrupted twice in production. Test sessions (session_id prefixed integration-test-) route to an isolated _test_graph's own MemorySaver so integration-test writes never land in the production checkpoint store.",
+      "evidence": "langchain_learning/session_graph.py:TEST_SESSION_PREFIX, hooks/server.py:lifespan"
+    },
+    "CheckpointTrim": {
+      "bounded_context": "Session & Checkpoint State",
+      "definition": "NoopNode's per-Stop-event cap on one thread's checkpoint history to 5000 rows (lexicographically-largest checkpoint_ids kept, since LangGraph checkpoint_ids sort chronologically). Exists because MemorySaver, unlike the SqliteSaver it replaced, has no built-in eviction -- without this, a long-running session's history grows unboundedly in RAM. Costs time-travel/resume-from-old-turn ability for evicted checkpoints only, never current-state correctness.",
+      "evidence": "langchain_learning/nodes/noop.py:_trim_thread_checkpoints, langchain_learning/nodes/noop.py:_CHECKPOINT_ROW_CAP"
+    },
+    "ActiveSessionLookup": {
+      "bounded_context": "Session & Checkpoint State",
+      "definition": "get_current_session(), the only signal available for 'what session am I in' before any thread_id is explicitly known -- finds the single most-recently-written checkpoint across all threads via _latest_checkpoint_tuple(). Backs GET /session/current on HookServer.",
+      "evidence": "hooks/session_state.py:get_current_session, hooks/session_state.py:_latest_checkpoint_tuple"
+    },
+    "NodeCallable": {
+      "bounded_context": "LangGraph Node Pipeline",
+      "definition": "The structural (Protocol, not inheritance) contract every session-graph node satisfies: callable with a SessionState, returns a dict of partial state updates. What lets NODE_REGISTRY instantiate any registered class uniformly regardless of which hook-event step it implements.",
+      "evidence": "langchain_learning/nodes/base.py:NodeCallable"
+    },
+    "BackfillNodeProtocol": {
+      "bounded_context": "LangGraph Node Pipeline",
+      "definition": "The contract for the single pluggable memory-backfill slot in the UPS graph, wired after task_files is populated. BackfillMemoryFilesNode is the default token-overlap implementation; swapping strategies means replacing the graph edge, not subclassing -- multiple strategies must be composed inside one node rather than adding parallel backfill edges. Currently unwired (see NodeRegistry) because the node that populated task_files was removed.",
+      "evidence": "langchain_learning/nodes/base.py:BackfillNodeProtocol, langchain_learning/nodes/backfill_memory_files.py:BackfillMemoryFilesNode"
+    },
+    "NodeRegistry": {
+      "bounded_context": "LangGraph Node Pipeline",
+      "definition": "The dict + get_node() factory that turns a node name into a fresh NodeCallable instance for graph wiring. Enforces that every registered value is a class (freshly instantiated per lookup), never a pre-built instance shared across graphs.",
+      "evidence": "langchain_learning/nodes/registry.py:NODE_REGISTRY, langchain_learning/nodes/registry.py:get_node"
+    },
+    "McpHookBridgeNode": {
+      "bounded_context": "LangGraph Node Pipeline",
+      "definition": "The generic PostToolUse bridge for the __hook__ convention: any MCP tool whose response includes a __hook__ key gets its payload piped into pending_hook_output (and from there into additionalSystemPrompt) with no per-integration PostToolUse node needed. _post_tool_route checks for __hook__ presence after log_tool_usage and routes here only when it is set.",
+      "evidence": "langchain_learning/nodes/mcp_hook_bridge.py:McpHookBridgeNode, langchain_learning/session_graph.py:_post_tool_route"
+    },
+    "NoopNode": {
+      "bounded_context": "LangGraph Node Pipeline",
+      "definition": "Routed to for stop events and unrecognised event types. Marks the first Stop of a turn (gating PlaySoundNode so the completion chime fires once), runs CheckpointTrim on every Stop regardless of that gating, and logs a warning when more than one live `claude` CLI process is detected -- surfacing forgotten detached sessions passively.",
+      "evidence": "langchain_learning/nodes/noop.py:NoopNode, langchain_learning/nodes/noop.py:live_claude_sessions"
+    },
+    "MemoryRetriever": {
+      "bounded_context": "Memory & Retrieval",
+      "definition": "The Protocol LoadMemoriesNode dispatches through: given prompt tokens, return scored memory rows. CombinationSignalRetriever (production) wraps score_memories() against MEMORY.sqlite; NullMemoryRetriever returns [] for tests. retrievers.py never imports from nodes/ or hooks/ -- the dependency arrow runs one way, nodes/ -> retrievers.py.",
+      "evidence": "langchain_learning/retrievers.py:MemoryRetriever, langchain_learning/retrievers.py:CombinationSignalRetriever"
+    },
+    "ToolScorer": {
+      "bounded_context": "Memory & Retrieval",
+      "definition": "The Protocol ScoreToolsNode dispatches through: given prompt keywords, return scored tool_hints.sqlite rows. KeywordOverlapScorer (production) scores kw_overlap + log1p(usage_count)*0.3, but only when kw_overlap > 0 -- usage count is a tie-breaker on an existing match, never enough on its own to manufacture relevance for an unrelated, frequently-called tool.",
+      "evidence": "langchain_learning/retrievers.py:ToolScorer, langchain_learning/retrievers.py:KeywordOverlapScorer"
+    },
+    "LoadMemoriesNode": {
+      "bounded_context": "Memory & Retrieval",
+      "definition": "The UPS-chain node that tokenises the prompt, calls its MemoryRetriever, and records both which memories surfaced (via server_memory.record_memories) and their hit counts (via _memory_scoring.record_memory_hits) -- each recording wrapped so a failure there degrades observability, never the memories returned to the turn.",
+      "evidence": "langchain_learning/nodes/load_memories.py:LoadMemoriesNode"
+    },
+    "ServerMemory": {
+      "bounded_context": "Observability",
+      "definition": "The two-layer consolidated cross-session event timeline (SQLite + in-memory cache) answering 'what was I working on': prompts, MCP tool calls, and task activations recorded as one chronological sequence, write-through so a read never has to reconcile the two layers.",
+      "evidence": "hooks/server_memory.py:ServerMemory, hooks/server_memory.py:get_server_memory"
+    },
+    "SQLiteHandler": {
+      "bounded_context": "Observability",
+      "definition": "The shared logging.Handler every hook and LangChain pipeline module logs through, writing to hook_logs in claude_hooks.sqlite. Singleton per DB path; redirects to a test DB when CLAUDE_HOOKS_TEST_LOG_DB is set. Auto-prunes to keep hook_logs from growing without bound once it crosses 50,000 rows.",
+      "evidence": "src/logger.py:SQLiteHandler"
+    },
+    "Concept": {
+      "bounded_context": "Concept Store",
+      "definition": "A durable per-module architectural fact -- description, contracts, invariants, evidence -- keyed by module path. Its evidence field cites 'file:symbol' locations, resolved by symbol_resolver.py, never a bare line number (line numbers drift on every unrelated edit; symbol names mostly don't).",
+      "evidence": "concept_store/store.py, concept_store/symbol_resolver.py"
+    },
+    "MCPToolMap": {
+      "bounded_context": "MCP Tool Surface",
+      "definition": "The dict in src/dispatcher.py mapping each domain name to a (module, [action]) pair; build_dispatcher registers one FastMCP tool per action, named domain__action. Every tool module registered this way lives under src/tools/.",
+      "evidence": "src/dispatcher.py:build_dispatcher"
+    },
+    "ToolDomainMap": {
+      "bounded_context": "MCP Tool Surface",
+      "definition": "The personal tool-name-prefix -> domain and tool-name -> skill lookup, loaded once from an iCloud-synced JSON file (falling back to empty dicts if missing). infer_domain/infer_skill are how the LangGraph pipeline (e.g. ScoreToolsNode's output) describes a raw MCP tool call in domain/skill terms without hardcoding every tool by name.",
+      "evidence": "hooks/core/tool_registry.py:infer_domain, hooks/core/tool_registry.py:TOOL_DOMAIN_MAP"
+    }
+  },
+  "relations": [
+    {"subject": "HookClient", "predicate": "references", "object": "HookServer",
+     "note": "HookClient POSTs the stdin payload to localhost:8766/hook/{event}; the two never share a process, only an HTTP contract."},
+    {"subject": "CopilotBridge", "predicate": "relates", "object": "HookClient",
+     "note": "Functional analogue for non-Claude-Code callers -- same HookServer, same event vocabulary, different invocation surface (CLI args vs. stdin JSON from Claude Code itself)."},
+    {"subject": "HookDispatchTable", "predicate": "part-of", "object": "HookServer",
+     "note": "The subprocess dispatcher.py dispatch table and the FastAPI server's routes cover the same event set; server.py is the one HookClient actually talks to in production, dispatcher.py remains for fallback/testing."},
+    {"subject": "HookServer", "predicate": "persists", "object": "SessionCheckpoint",
+     "note": "HookServer's lifespan opens the single MemorySaver at process startup and hands it to build_session_graph -- the one place a SessionCheckpoint's storage is constructed."},
+    {"subject": "SessionCheckpoint", "predicate": "part-of", "object": "SessionGraph",
+     "note": "A checkpoint only exists as the persisted state of one thread_id inside the graph's compiled MemorySaver; it has no identity or storage independent of the graph that wrote it."},
+    {"subject": "SessionState", "predicate": "part-of", "object": "SessionCheckpoint",
+     "note": "The TypedDict shape that gets serialised into the checkpoint on every graph invoke; the checkpoint is 'a SessionState at time T for thread_id X', not a separate schema."},
+    {"subject": "CheckpointTrim", "predicate": "references", "object": "SessionCheckpoint",
+     "note": "Reaches into the live MemorySaver's .storage/.writes internals for one thread_id and deletes the oldest entries past the row cap -- a defensive, MemorySaver-specific operation, no-ops for any other checkpointer implementation."},
+    {"subject": "ActiveSessionLookup", "predicate": "references", "object": "SessionCheckpoint",
+     "note": "Scans across all threads' checkpoints for the most recently written one -- the only way to answer 'current session' before a thread_id is supplied, since no session identity exists outside the checkpoint store."},
+    {"subject": "NodeCallable", "predicate": "describes", "object": "SessionState",
+     "note": "Every NodeCallable's contract is exactly 'takes a SessionState, returns a partial SessionState update' -- the Protocol is defined purely in terms of that one shared type."},
+    {"subject": "NodeRegistry", "predicate": "persists", "object": "NodeCallable",
+     "note": "Not persistence in the storage sense -- NodeRegistry is the sole place fresh NodeCallable instances are constructed from, matching the analogous relation in ACME's and task-framework's ontologies for their own registries."},
+    {"subject": "BackfillNodeProtocol", "predicate": "is-a", "object": "NodeCallable",
+     "note": "A BackfillNodeProtocol implementor is still just a NodeCallable (same call signature); the extra protocol exists only to document the specific state fields (task_files, active_task_domain) the backfill slot is expected to read."},
+    {"subject": "McpHookBridgeNode", "predicate": "is-a", "object": "NodeCallable",
+     "note": "Structurally an ordinary PostToolUse node; its distinguishing behaviour (piping any tool's __hook__ payload through generically) is a routing decision made in SessionGraph's _post_tool_route, not a different contract shape."},
+    {"subject": "GateCheckNode", "predicate": "is-a", "object": "NodeCallable",
+     "note": "Same NodeCallable contract as every other node; listed under Gates/Enforcement rather than LangGraph Node Pipeline because its behaviour (deny/allow via GatePolicy) is the point, not its place in the graph."},
+    {"subject": "GateCheckNode", "predicate": "references", "object": "GatePolicy",
+     "note": "Dispatches through the Protocol seam rather than importing hooks.gates.check directly, so tests can substitute a stub GatePolicy without touching the real gate machinery."},
+    {"subject": "GatePolicy", "predicate": "describes", "object": "GateContext",
+     "note": "GatePolicy.check's second argument is always a GateContext; the Protocol's shape is defined in terms of that dataclass even though GateContext itself is defined in hooks/gates.py, not retrievers.py."},
+    {"subject": "Gate", "predicate": "relates", "object": "GateContext",
+     "note": "Every concrete Gate (GitCommitGate, GitCommitMcpGate, and gate_rules.yaml-loaded chains) receives a GateContext to decide against; a Gate never reads SessionState or the hook payload directly."},
+    {"subject": "LoadMemoriesNode", "predicate": "references", "object": "MemoryRetriever",
+     "note": "Accepts a MemoryRetriever at construction, defaulting to CombinationSignalRetriever -- the node owns when retrieval happens, the retriever owns how memories are scored."},
+    {"subject": "MemoryRetriever", "predicate": "relates", "object": "ToolScorer",
+     "note": "Sibling Protocols in retrievers.py serving the same architectural role (swap production scoring for a null stub in tests) for two different data sources -- MEMORY.sqlite rows vs. tool_hints.sqlite rows."},
+    {"subject": "LoadMemoriesNode", "predicate": "references", "object": "ServerMemory",
+     "note": "Calls record_memories() after scoring so which memories surfaced becomes part of the same cross-session timeline as prompts and tool calls -- a one-directional call, not a shared data structure."},
+    {"subject": "ServerMemory", "predicate": "relates", "object": "SQLiteHandler",
+     "note": "Both write to claude_hooks.sqlite but through separate tables and separate write paths (ServerMemory's own consolidated-timeline logic vs. the generic logging.Handler every module shares) -- co-located storage, not a shared schema."},
+    {"subject": "Concept", "predicate": "describes", "object": "SourceModule",
+     "note": "Keyed by module path across this entire repo (hooks/, src/, langchain_learning/) -- the only bounded context whose subject is the codebase itself rather than a runtime behaviour."},
+    {"subject": "MCPToolMap", "predicate": "relates", "object": "HookDispatchTable",
+     "note": "Both are dispatch tables keyed by name, but route different protocols -- MCPToolMap wires FastMCP tool calls (src/tools/*), HookDispatchTable wires Claude Code hook JSON events (hooks/dispatcher.py) -- no shared code path between them."},
+    {"subject": "ToolDomainMap", "predicate": "references", "object": "ToolScorer",
+     "note": "infer_domain/infer_skill are used to describe a tool_hints.sqlite row's origin in domain/skill terms; ToolScorer's own scoring does not depend on ToolDomainMap being populated (falls back to 'global'/empty skill when the personal registry file is absent)."}
+  ]
+}

@@ -62,6 +62,12 @@ principles rather than specifics, and points at things that are checked:
 - **`concept_store/concepts.json`** — architectural facts per module, with
   invariants and contracts. Drift-checked on every edit. Read and write it
   through the `concept__*` MCP tools.
+- **`ontology/claude-hooks-domain.json`** — the domain vocabulary: bounded
+  contexts, terms that span modules (SessionState, GateContext, NodeRegistry),
+  and typed relations between them. Answers "what is this thing, and how does
+  it relate to the others" — concept_store answers "what does this module
+  promise" instead. Not drift-checked; re-verify evidence against source
+  before trusting a term.
 - **`models/*.sysml`** — the structural model and its requirements, enforced by
   `tests/test_models.py`.
 - **`tests/`** — the compatibility contract. When behaviour is load-bearing,
