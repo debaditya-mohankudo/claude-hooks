@@ -35,6 +35,16 @@
       "definition": "A CLI-driven alternative to HookClient for non-Claude-Code callers (Copilot-oriented workflows, shell wrappers) that sends the same prompt/pre-tool/post-tool events to the same HookServer, without needing Claude Code's native hook payload format.",
       "evidence": "hooks/copilot_client.py"
     },
+    "PreToolUse": {
+      "bounded_context": "Hook Dispatch",
+      "definition": "The Claude Code hook event fired before any tool call executes -- not scoped to this repo's own tools, but to every tool call Claude Code makes across every MCP server on the machine (astrology, taskfw, local-mac, sysml-mcp, etc.) plus built-ins like Bash and Edit. HookDispatchTable routes it to _handle_pre_tool_use (dispatcher.py) or POST /hook/PreToolUse (server.py), which runs GateCheckNode against the current session checkpoint. Fails closed only for irreversible tools on internal dispatcher error -- GateCheckNode itself still fails open.",
+      "evidence": "hooks/server.py:115, hooks/dispatcher.py:669, hooks/dispatcher.py:694"
+    },
+    "PostToolUse": {
+      "bounded_context": "Hook Dispatch",
+      "definition": "The Claude Code hook event fired after any tool call returns, machine-wide across every MCP server and built-in tool, mirroring PreToolUse's scope. Routed to _handle_post_tool_use (dispatcher.py) or POST /hook/PostToolUse (server.py), which runs log_tool_usage and then conditionally McpHookBridgeNode when the tool response carries a __hook__ key.",
+      "evidence": "hooks/server.py:130, hooks/dispatcher.py:669, langchain_learning/session_graph.py:_post_tool_route"
+    },
     "GateContext": {
       "bounded_context": "Gates/Enforcement",
       "definition": "The dataclass a PreToolUse call is packaged into before a Gate evaluates it: tool_name, tool_input, the current prompt's tool calls so far, the whole session's tool history keyed by prompt_id, and the current + previous prompt's raw text. What a Gate actually sees -- it never touches SessionState directly.",
@@ -147,6 +157,16 @@
     }
   },
   "relations": [
+    {"subject": "PreToolUse", "predicate": "part-of", "object": "HookDispatchTable",
+     "note": "One of the six Claude Code hook event names the table routes; PreToolUse specifically maps to _handle_pre_tool_use / POST /hook/PreToolUse."},
+    {"subject": "PostToolUse", "predicate": "part-of", "object": "HookDispatchTable",
+     "note": "Maps to _handle_post_tool_use / POST /hook/PostToolUse -- the counterpart event to PreToolUse, firing after the tool call returns rather than before."},
+    {"subject": "PreToolUse", "predicate": "determines", "object": "GateCheckNode",
+     "note": "PreToolUse is the sole event type that reaches GateCheckNode -- the event triggers the gate evaluation, not the other way around."},
+    {"subject": "PostToolUse", "predicate": "relates", "object": "McpHookBridgeNode",
+     "note": "McpHookBridgeNode only runs on PostToolUse, and only when the tool response carries a __hook__ key -- _post_tool_route checks for that key after log_tool_usage."},
+    {"subject": "PreToolUse", "predicate": "relates", "object": "PostToolUse",
+     "note": "Paired before/after events for the same underlying tool call, fired for every tool across every MCP server on the machine -- not scoped to claude-hooks' own tools."},
     {"subject": "HookClient", "predicate": "references", "object": "HookServer",
      "note": "HookClient POSTs the stdin payload to localhost:8766/hook/{event}; the two never share a process, only an HTTP contract."},
     {"subject": "CopilotBridge", "predicate": "relates", "object": "HookClient",
