@@ -127,11 +127,10 @@ def test_work_context_no_longer_rendered():
 #
 # Active task came back (task:c2e36050) via a render of whatever
 # task-framework last pushed to hooks/session_state.get_active_task
-# (task:996cc8f0), then was removed again (task:8be768df): taskfw's
-# PostToolUse-driven drift nudge (_maybe_taskfw_drift_nudge, wired into
-# _handle_post_tool_use) now announces the active task on every tool call in
-# the turn, making this once-per-turn block redundant rather than
-# complementary. ctx["active_task"] is still populated and logged (see
+# (task:996cc8f0), then was removed again (task:8be768df). A taskfw
+# PostToolUse-driven drift nudge briefly filled that role and was itself
+# removed (task:00d9483f) — there is now no per-turn active-task announcement
+# from either side. ctx["active_task"] is still populated and logged (see
 # _handle_user_prompt_submit) for observability — it just renders nothing.
 
 def test_omits_active_task_block_even_when_set():

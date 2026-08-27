@@ -93,12 +93,11 @@
         "hooks/dispatcher.py:_HANDLERS",
         "hooks/dispatcher.py:main",
         "hooks/dispatcher.py:_handle_pre_tool_use",
-        "taskfw/dispatcher.py:drift_reflection_nudge",
         "hooks/dispatcher.py:_maybe_context_size_nudge",
         "tests/test_dispatcher.py"
       ],
       "invariants": [
-        "_maybe_taskfw_drift_nudge (PostToolUse) only logs the two branches taskfw itself cannot observe: rc!=0 and exception (dispatcher-side subprocess-integration failures). It does NOT log the empty-stdout (no-active-task/throttled) or fired outcomes — those are logged once, with more precision, by task-framework's own taskfw/drift_hook.py build_nudge; duplicating them here was removed (task:50aa6dc5) as a second, less-informative copy of a decision this process doesn't own. Do not re-add logging for those two branches."
+        "PostToolUse returns None for non-MCP tools and for memory__ tools before reaching run_post_tool — those two early-returns exist only to skip the tool-hint/memory-scoring pipeline, not to carry any nudge. The taskfw-drift subprocess that once rode through here (_maybe_taskfw_drift_nudge / _merge_drift_nudge) was removed with task-framework's own drift nudge (task:00d9483f); do not re-add a cross-repo subprocess call on this path."
       ],
       "last_validated": "2026-08-17T17:19:36.385682+00:00",
       "module": "hooks/dispatcher.py",
