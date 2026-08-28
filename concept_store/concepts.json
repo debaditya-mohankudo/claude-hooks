@@ -315,10 +315,10 @@
     "mcp-dispatcher-domain-tool-map": {
       "confidence": 0.98,
       "contracts": [
-        "build_dispatcher(mcp) registers all tools from DOMAIN_MAP onto the FastMCP instance"
+        "build_dispatcher(mcp) registers all tools from DOMAIN_MAP onto the MCPServer instance"
       ],
       "created_at": "2026-06-29T09:47:25.286803+00:00",
-      "description": "FastMCP tool registry. Maps domain names to (module, [action]) pairs. Each action becomes an MCP tool named domain__action. All tool modules live under src/tools/. The 'tasks' entry was removed (task:87ec7876) along with tools/tasks.py — build_dispatcher imports every DOMAIN_MAP module unconditionally at startup, so a stale entry here would have broken server boot, not just one tool call.",
+      "description": "MCPServer tool registry. Maps domain names to (module, [action]) pairs. Each action becomes an MCP tool named domain__action. All tool modules live under src/tools/. The 'tasks' entry was removed (task:87ec7876) along with tools/tasks.py — build_dispatcher imports every DOMAIN_MAP module unconditionally at startup, so a stale entry here would have broken server boot, not just one tool call. (mcp 2.x renamed FastMCP to MCPServer, imported from mcp.server; the .tool() registration API is unchanged — task:9376b389.)",
       "evidence": [
         "src/dispatcher.py:DOMAIN_MAP"
       ],
@@ -328,29 +328,30 @@
         "Handler functions must be named handle_<action> in their module",
         "Every DOMAIN_MAP entry's module must be importable — build_dispatcher loads all of them unconditionally at startup"
       ],
-      "last_validated": "2026-08-01T05:48:37.366067+00:00",
+      "last_validated": "2026-08-28T07:50:37.787195+00:00",
       "module": "src/dispatcher.py",
-      "name": "mcp-dispatcher-domain-tool-map"
+      "name": "mcp-dispatcher-domain-tool-map",
+      "related": []
     },
     "mcp-server-bootstrap": {
       "confidence": 0.95,
       "contracts": [
-        "mcp.run() starts the FastMCP server when invoked as __main__"
+        "mcp.run() starts the MCPServer when invoked as __main__"
       ],
       "created_at": "2026-06-29T09:47:25.288066+00:00",
-      "description": "MCP server entry point. Calls build_dispatcher to register all tools, then bootstraps by ensuring Ollama is running and rebuilding the task TurboVec embedding index if missing.",
+      "description": "MCP server entry point. Instantiates MCPServer(\"claude-hooks\"), calls build_dispatcher to register all tools, then bootstraps by ensuring Ollama is running and seeding tool_hints keywords. (mcp 2.x renamed FastMCP to MCPServer, imported from mcp.server — task:9376b389. The task TurboVec index rebuild referenced in older versions of this concept was removed in task:87ec7876/task:d6ddb40f.)",
       "evidence": [
         "mcp_server.py:_ensure_ollama",
         "mcp_server.py:_bootstrap"
       ],
       "invariants": [
         "Ollama must be running for semantic task neighbor search to work",
-        "Task index is rebuilt at startup only if missing — not on every start",
         "Bootstrap failures are logged and swallowed — never crash the server"
       ],
-      "last_validated": "2026-06-29T09:47:25.288066+00:00",
+      "last_validated": "2026-08-28T07:50:42.374490+00:00",
       "module": "mcp_server.py",
-      "name": "mcp-server-bootstrap"
+      "name": "mcp-server-bootstrap",
+      "related": []
     },
     "memory-scoring-global-batch-limit": {
       "confidence": 0.9,
@@ -542,6 +543,6 @@
     "commit": "5f62c6b5150a20fe7198d7bd6c155c4b3c0d3101",
     "extracted_at": "2026-07-23T05:42:23Z",
     "note": "incremental upsert (task:a2fd402d)",
-    "updated_at": "2026-08-20T23:23:38.030432+00:00"
+    "updated_at": "2026-08-28T07:50:42.374537+00:00"
   }
 }
