@@ -1,4 +1,4 @@
-"""FastMCP dispatcher for claude-hooks MCP server.
+"""MCPServer dispatcher for claude-hooks MCP server.
 
 Maps domain → (module, [actions]). Each action becomes a tool named domain__action.
 Add new tool modules here as they are migrated in.
@@ -11,7 +11,7 @@ import inspect
 import sys
 from pathlib import Path
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server import MCPServer
 
 # Ensure src/ is on the path for relative imports within tool modules
 _SRC = Path(__file__).resolve().parent
@@ -62,7 +62,7 @@ DOMAIN_MAP: dict[str, tuple[str, list[str]]] = {
 }
 
 
-def build_dispatcher(mcp: FastMCP) -> None:
+def build_dispatcher(mcp: MCPServer) -> None:
     for domain, (module_path, actions) in DOMAIN_MAP.items():
         module = _load_module(module_path)
         for action in actions:

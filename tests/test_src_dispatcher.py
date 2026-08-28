@@ -1,4 +1,4 @@
-"""Tests for src/dispatcher.py — FastMCP domain dispatcher."""
+"""Tests for src/dispatcher.py — MCPServer domain dispatcher."""
 from __future__ import annotations
 
 from unittest.mock import MagicMock, patch

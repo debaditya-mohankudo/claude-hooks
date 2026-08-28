@@ -7,10 +7,10 @@ sys.path.insert(0, str(Path(__file__).parent / "src"))
 # same requirement LogToolUsageNode already has at hook-server runtime.
 sys.path.insert(0, str(Path(__file__).parent / "hooks"))
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server import MCPServer
 from src.dispatcher import build_dispatcher
 
-mcp = FastMCP("claude-hooks")
+mcp = MCPServer("claude-hooks")
 build_dispatcher(mcp)
 
 
