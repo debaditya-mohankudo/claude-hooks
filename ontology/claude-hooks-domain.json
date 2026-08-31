@@ -10,6 +10,7 @@
     "Session & Checkpoint State": "The SessionState schema and its persistence: one checkpoint per session, the public entry points that read/invoke/write it, and the bookkeeping (checkpoint trim, live-session audit) needed to keep an in-memory, non-persistent store from growing unboundedly.",
     "LangGraph Node Pipeline": "The node callables that actually do work inside the compiled session graph -- one class per file, wired together into event chains and looked up by name through a registry. Distinct from Session & Checkpoint State: this context is the node implementations and their structural contracts, not the state they read and write.",
     "Memory & Retrieval": "Scoring and injecting relevant memories and tool hints into a turn via cheap keyword-overlap signals (no embeddings). Defines the seam that lets nodes swap in a null implementation for tests without touching the production scoring code.",
+    "Ambient Context": "Always-on identity and working-style text attached to every prompt turn without any scoring or retrieval -- read straight from the user's vault files and injected verbatim. Distinct from Memory & Retrieval, which selects rows by keyword overlap; this context injects a fixed set of files in full, every turn.",
     "Observability": "Answering 'what happened, and what was I working on' after the fact: the consolidated cross-session event timeline, the raw log sink every module writes through, and the MCP tools that expose both for querying.",
     "Concept Store": "The per-module architectural-fact store this repo maintains about its own source, and about which repo boundary a piece of evidence is allowed to cross.",
     "MCP Tool Surface": "The tool registry claude-hooks exposes to callers: mapping domain names to modules, generating one tool per action, and the separate personal tool->domain/tool->skill lookup used by the pipeline to describe tool calls generically."
@@ -135,6 +136,16 @@
       "definition": "The UPS-chain node that tokenises the prompt, calls its MemoryRetriever, and records which memories surfaced and their hit counts -- recording is wrapped so a failure there degrades observability only, never the memories returned to the turn.",
       "evidence": "langchain_learning/nodes/load_memories.py:LoadMemoriesNode"
     },
+    "VaultContext": {
+      "bounded_context": "Ambient Context",
+      "definition": "The block of identity/preference text read straight from the user's vault LIFE_OS files and attached to every UserPromptSubmit turn after the scored pipeline has run. Unscored and unfiltered -- every configured file is injected in full. Falls back to the last good copy when iCloud briefly locks a file, and never blocks the turn on a read failure.",
+      "evidence": "hooks/dispatcher.py:_load_vault_context"
+    },
+    "DevPersonality": {
+      "bounded_context": "Ambient Context",
+      "definition": "The single vault file (LIFE_OS/dev_personality.md) whose content sets the tone and working style Claude adopts in its responses. The one VaultContext entry currently wired -- it replaced the earlier work.md (task:9bbd67dd). Renders as the '## Dev personality' section of the injected system prompt, above '## Injected memories'.",
+      "evidence": "hooks/dispatcher.py:_LIFE_OS_FILES, _format_system_prompt"
+    },
     "ServerMemory": {
       "bounded_context": "Observability",
       "definition": "The two-layer consolidated cross-session event timeline answering 'what was I working on': prompts, tool calls, and task activations recorded as one chronological sequence, write-through so a read never has to reconcile the two layers.",
@@ -223,6 +234,14 @@
     {"subject": "MCPToolMap", "predicate": "relates", "object": "HookDispatchTable",
      "note": "Both are dispatch tables keyed by name, but route different protocols -- MCPToolMap wires MCP tool calls, HookDispatchTable wires Claude Code hook events -- no shared code path between them."},
     {"subject": "ToolDomainMap", "predicate": "references", "object": "ToolScorer",
-     "note": "Used to describe a tool-hint row's origin in domain/skill terms; ToolScorer's own scoring does not depend on ToolDomainMap being populated (falls back to 'global'/empty skill when the personal registry is absent)."}
+     "note": "Used to describe a tool-hint row's origin in domain/skill terms; ToolScorer's own scoring does not depend on ToolDomainMap being populated (falls back to 'global'/empty skill when the personal registry is absent)."},
+    {"subject": "DevPersonality", "predicate": "part-of", "object": "VaultContext",
+     "note": "VaultContext is the mechanism -- read a fixed set of LIFE_OS files, inject them verbatim; DevPersonality is its one configured payload. Adding another key to _LIFE_OS_FILES would add a second sibling here."},
+    {"subject": "VaultContext", "predicate": "part-of", "object": "UserPromptSubmit",
+     "note": "Attached to ctx after run_session() returns, on every UserPromptSubmit turn; no other hook event loads it."},
+    {"subject": "VaultContext", "predicate": "relates", "object": "MemoryRetriever",
+     "note": "Sibling ways of populating the injected system prompt that render as adjacent sections -- VaultContext is verbatim always-on identity text, MemoryRetriever is keyword-scored rows -- sharing no code path; VaultContext is loaded in the dispatcher after the graph, not by a node."},
+    {"subject": "DevPersonality", "predicate": "relates", "object": "UserPromptSubmit",
+     "note": "Its content is injected before Claude sees the prompt and shapes the tone/style of the turn's response -- the reason it is modelled rather than left as an implementation detail of _format_system_prompt. Not 'determines': unlike UserPromptSubmit->LoadMemoriesNode or PreToolUse->GateCheckNode, it does not trigger the event or route it, it only colours the output; the mechanism link is VaultContext part-of UserPromptSubmit."}
   ]
 }
