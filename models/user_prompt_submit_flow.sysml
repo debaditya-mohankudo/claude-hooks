@@ -28,13 +28,21 @@ package UserPromptSubmitFlow {
                  * log_task_events -> END. */
         }
         action loadVaultContext {
-            doc /* dispatcher.py adds vault_context after the graph returns. */
+            doc /* dispatcher.py adds vault_context after the graph returns:
+                 * _load_vault_context() reads the fixed set of LIFE_OS files
+                 * (_LIFE_OS_FILES — currently just dev_personality.md) verbatim,
+                 * unscored, falling back to the last cached copy on a transient
+                 * read failure. See requirements.sysml
+                 * VaultContextTransientReadFailureRequirement. */
         }
         action enforceContextBudget {
             doc /* dispatcher.py trims context to fit the token/char budget. */
         }
         action formatSystemPrompt {
-            doc /* dispatcher.py assembles additionalSystemPrompt text from ctx. */
+            doc /* dispatcher.py assembles additionalSystemPrompt text from ctx:
+                 * _format_system_prompt() renders the "## Dev personality" block
+                 * (from vault_context) above "## Injected memories", then the
+                 * scored memories and tool hints. */
         }
         action injectResponse {
             doc /* Response flows server.py -> client.py -> Claude Code, injecting the prompt. */
