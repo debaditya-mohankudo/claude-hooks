@@ -127,54 +127,9 @@ class TestSessionDetail:
         assert isinstance(r.json()["state"], dict)
 
 
-# ---------------------------------------------------------------------------
-# POST /set-active-taskid + GET /session/active-task (task:996cc8f0)
-# ---------------------------------------------------------------------------
-
-class TestActiveTaskPush:
-    def setup_method(self):
-        import hooks.session_state as session_state
-        session_state._active_task_by_workspace.clear()
-
-    def teardown_method(self):
-        import hooks.session_state as session_state
-        session_state._active_task_by_workspace.clear()
-
-    def test_set_returns_ok(self, client):
-        r = client.post("/set-active-taskid", json={
-            "workspace": "/repo/api-test-a", "task_id": "task-1", "title": "Do the thing",
-        })
-        assert r.status_code == 200
-        assert r.json() == {"ok": True}
-
-    def test_set_then_get_roundtrips(self, client):
-        client.post("/set-active-taskid", json={
-            "workspace": "/repo/api-test-b", "task_id": "task-2", "title": "Second thing",
-        })
-        r = client.get("/session/active-task", params={"workspace": "/repo/api-test-b"})
-        body = r.json()
-        assert body["task_id"] == "task-2"
-        assert body["title"] == "Second thing"
-        assert body["workspace"] == "/repo/api-test-b"
-
-    def test_unknown_workspace_returns_empty(self, client):
-        r = client.get("/session/active-task", params={"workspace": "/repo/api-test-never-set"})
-        assert r.json() == {}
-
-    def test_no_workspace_param_returns_empty(self, client):
-        r = client.get("/session/active-task")
-        assert r.json() == {}
-
-    def test_empty_task_id_clears_entry(self, client):
-        client.post("/set-active-taskid", json={"workspace": "/repo/api-test-c", "task_id": "task-3"})
-        client.post("/set-active-taskid", json={"workspace": "/repo/api-test-c", "task_id": ""})
-        r = client.get("/session/active-task", params={"workspace": "/repo/api-test-c"})
-        assert r.json() == {}
-
-    def test_malformed_body_does_not_500(self, client):
-        r = client.post("/set-active-taskid", content=b"not json", headers={"content-type": "application/json"})
-        assert r.status_code == 200
-        assert r.json() == {"ok": True}
+# POST /set-active-taskid + GET /session/active-task (task:996cc8f0) and their
+# TestActiveTaskPush coverage were removed (task:173e6846) — task-framework
+# stopped pushing the active task and nothing here read the cache back.
 
 
 # ---------------------------------------------------------------------------

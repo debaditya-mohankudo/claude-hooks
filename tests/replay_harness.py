@@ -34,7 +34,7 @@ HOOKS_DB   = Path("~/Library/Mobile Documents/com~apple~CloudDocs/Databases/clau
 BASELINE   = Path(__file__).parent / "replay_baseline.json"
 
 # Fields extracted from "UPS done" log line
-_DONE_FIELDS = ["domains", "memories", "tools", "active_task", "related", "rag_chunks"]
+_DONE_FIELDS = ["domains", "memories", "tools", "related", "rag_chunks"]
 
 
 # ---------------------------------------------------------------------------
@@ -55,9 +55,6 @@ def _parse_ups_done(msg: str) -> dict | None:
     # tools count
     m = re.search(r"tools=(\d+)", msg)
     out["tools_count"] = int(m.group(1)) if m else 0
-    # active_task
-    m = re.search(r"active_task=(\S*)", msg)
-    out["active_task"] = m.group(1) if m else ""
     # domains list
     m = re.search(r"domains=(\[.*?\])", msg)
     try:
@@ -90,8 +87,6 @@ def _parse_ups_enter(msg: str) -> dict | None:
     out["cwd"] = m.group(1) if m else ""
     m = re.search(r"prompt_len=(\d+)", msg)
     out["prompt_len"] = int(m.group(1)) if m else 0
-    m = re.search(r"active_task=(\S+)", msg)
-    out["active_task"] = m.group(1) if m else ""
     return out
 
 
@@ -267,7 +262,6 @@ def cmd_capture(args):
             out = replay_event(sg, event)
             baseline.append(out)
             print(f"  [{i}/{len(events)}] session={event['session'][:8]} "
-                  f"active_task={event.get('active_task','')[:8] or '-'} "
                   f"domains={out['domains']} memories={out['memories_count']} "
                   f"related={out['related']}")
         except Exception as exc:

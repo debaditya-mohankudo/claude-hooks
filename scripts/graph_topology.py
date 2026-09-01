@@ -5,7 +5,7 @@ Reads the graph structure statically (no LangGraph import needed) and returns a 
 
     {
         "load_turn":          {"chain": "user-prompt-submit", "position": 1},
-        "load_active_task":   {"chain": "user-prompt-submit", "position": 2},
+        "load_memories":      {"chain": "user-prompt-submit", "position": 2},
         ...
         "gate_check":         {"chain": "pre-tool-use",       "position": 1},
         ...
@@ -21,29 +21,20 @@ from __future__ import annotations
 _CHAINS: dict[str, list[str]] = {
     "user-prompt-submit": [
         "load_turn",
-        "load_task_history",
-        "load_task_commits",
         "load_memories",
-        "load_prompt_context",
-        "cwd_domain_detect",
-        "keyword_score",
-        "combination_score",
-        "memory_domain_signal",
-        "apply_threshold",
-        "score_tools",        # conditional — may be skipped at runtime
-        "set_prompt_id",
-        "log_task_events",
+        "score_tools",        # fans out from load_turn alongside load_memories
+        "set_prompt_id",      # fan-in
     ],
     "pre-tool-use": [
         "gate_check",
     ],
     "post-tool-use": [
         "log_tool_usage",
-        "update_tool_keywords",
+        "mcp_hook_bridge",    # conditional — only for __hook__ MCP results
     ],
     "stop": [
-        # stop chain uses noop in session_graph; real work is in stop_hook_lc.py outside graph
         "noop",
+        "play_sound",
     ],
 }
 

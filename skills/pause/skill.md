@@ -27,7 +27,7 @@ If nothing is pending (Claude was idle), skip to Step 3.
 
 ### Step 2 — Save to active task (if one exists)
 
-If there is an active task (visible in `## Active task` in the system prompt), task tracking is provided by the separate [task-framework](https://github.com/debaditya-mohankudo/Lite-Task-Framework) project's MCP server:
+If there is an active task (check with `mcp__taskfw__tasks__active`), task tracking is provided by the separate [task-framework](https://github.com/debaditya-mohankudo/Lite-Task-Framework) project's MCP server:
 
 ```python
 mcp__taskfw__tasks__update(

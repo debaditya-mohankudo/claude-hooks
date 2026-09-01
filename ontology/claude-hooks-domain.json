@@ -38,7 +38,7 @@
     },
     "UserPromptSubmit": {
       "bounded_context": "Hook Dispatch",
-      "definition": "The event fired when the user submits a prompt, before Claude sees it. The point where memories, active-task context, and other injected context get attached to the turn.",
+      "definition": "The event fired when the user submits a prompt, before Claude sees it. The point where scored memories, tool hints, and the dev-personality vault file get attached to the turn. Active-task context is not attached here — task-framework owns it (task:173e6846).",
       "evidence": "hooks/dispatcher.py:_handle_user_prompt_submit"
     },
     "PreToolUse": {

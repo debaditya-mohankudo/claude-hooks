@@ -106,28 +106,24 @@
     "dispatcher-system-prompt-assembly": {
       "confidence": 0.95,
       "contracts": [
-        "Returns a string (may be empty) to be injected as additionalSystemPrompt",
-        "All sections are markdown-formatted"
+        "_format_system_prompt(ctx) -> str — the additionalSystemPrompt body for a UserPromptSubmit turn; \"\\n\".join(lines).strip(), so an empty string when ctx carries nothing renderable",
+        "All sections are markdown-formatted, emitted in a fixed order: '## Turn state', '## Dev personality', '## Injected memories', '## Suggested tools'"
       ],
       "created_at": "2026-06-29T09:47:25.284960+00:00",
-      "description": "Assembles the UserPromptSubmit additionalSystemPrompt from SessionState context into markdown sections. STALE (task:c2e36050, 2026-08-14): most of this entry's contracts/invariants below describe the pre-task:882d67fa pull-based task-context pipeline (LoadRelatedTasksNode, task_body, execution_contract, activate_task.py, mid_task_decisions) — all removed, none currently exist. Needs a full re-read and rewrite, not attempted here; only the active-task section below is current.",
+      "description": "Assembles the UserPromptSubmit additionalSystemPrompt from the SessionState-derived ctx dict into markdown sections. Rewritten task:173e6846 (2026-09-01) after the long STALE period (task:c2e36050): the pre-task:882d67fa pull-based task-context pipeline this entry used to describe (LoadRelatedTasksNode, task_body, execution_contract, activate_task.py, mid_task_decisions, '## Repo memories', new-project note) is entirely gone, and so is the task:996cc8f0 '## Active task' push block (removed task:8be768df in the prompt, cache removed task:173e6846). What remains is four small sections: turn identifiers, the dev-personality vault file, scored memories, and scored tool hints.",
       "evidence": [
         "hooks/dispatcher.py:_format_system_prompt"
       ],
       "invariants": [
-        "Sections are only emitted when their data is non-empty",
-        "Related tasks section is populated when LoadRelatedTasksNode finds semantically similar done tasks via TurboVec neighbor search (capped at 3); empty when no active task, no rag index, or no matching done neighbors",
-        "Task context summary takes precedence over raw task history when both exist",
-        "New-project note is emitted when ctx['cwd_unmapped'] is true (set by CwdDomainDetectNode only on the first turn a session's cwd is unmapped, tracked via cwd_domain_reminder_sent in checkpoint state so it fires once per session, not every turn)",
-        "There is no token-budget trimming of ctx['memories'] before assembly — _enforce_context_budget was removed; memories render as scored/returned by the retriever.",
-        "task_body is hard-truncated to _TASK_BODY_CHAR_CAP (3000 chars) at render time, appending an \"...[truncated]\" marker when cut — it has no upstream length cap (a task's body can be arbitrarily long, e.g. a large epic scaffold).",
-        "mid_task_decisions (Task decisions section) is capped to the most recent _MAX_DECISIONS (15) entries by langchain_learning/nodes/decision_task.py, sliced on every tasks__add_decision append — not trimmed in dispatcher.py itself. This checkpoint state exists solely for prompt injection; the durable decision history lives in the task's DB record, unaffected by the slice.",
-        "execution_contract is rendered as its own section, independent of task_body — it is NOT subject to _TASK_BODY_CHAR_CAP truncation (a fixed north-star template built once at task activation by activate_task.py._build_execution_contract, must stay byte-identical every turn). Cleared alongside the other active-task fields at all three deactivation sites: DeactivateTaskNode (tasks__clear_active/tasks__finish), ActivateTaskNode's pop-to-empty-stack, and LogTaskEventsNode's \"task:<id> done\" auto-close (task:eb46ac47 — this third site was originally missed).",
-        "After _format_system_prompt, the UPS handler appends one-shot node output: if ctx['pending_hook_output'].hookSpecificOutput has hookEventName == 'UserPromptSubmit', its additionalContext is appended to the assembled system prompt (e.g. LogTaskEventsNode's /task-introspection nudge after a \"task:<id> done\" auto-close, task:eb46ac47). run_session() surfaces-and-clears the checkpoint copy (mirroring run_post_tool/run_stop), so the payload renders exactly once and cannot leak into the next PostToolUse response; the hookEventName gate prevents a stale cross-event payload from ever being rendered here.",
-        "The '## Repo memories' section and repo_task_memories (task:850ddd65's per-repo memory split) were removed by task:a7ddc132 — task_memories now always comes from the global MEMORY.sqlite scorer, with no per-repo alternative source.",
-        "CURRENT (task:c2e36050): '## Active task' renders task_id/title from ctx['active_task'] (a dict, or {} if unset) — a live PUSH from task-framework's tasks__set_active/clear_active via hooks/session_state.get_active_task(cwd), populated fresh in _handle_user_prompt_submit every UPS call (task:996cc8f0). Not a pull from any task store, and not the old activate_task.py mechanism this concept otherwise describes."
+        "Each section is emitted only when its data is non-empty; a ctx with no session_id/prompt_id, no dev_personality, no memories and no tool_hints yields \"\"",
+        "'## Turn state' lists '- session_id: X' and/or '- prompt_id: Y', each line only when that value is present; the header is emitted if either is",
+        "'## Dev personality' renders ctx['vault_context']['dev_personality'] verbatim when that key exists — the only vault file rendered here (a stale 'work' key is ignored, task:9bbd67dd)",
+        "'## Injected memories' renders each memory as '### {name} [{domain}]' followed by its stripped body; there is no token-budget trimming here (_enforce_context_budget was removed) — memories render exactly as the retriever scored/returned them",
+        "'## Suggested tools' renders each hint as '- `{tool}` (skill={skill}, used={count}x)'",
+        "No active-task section in any form: _format_system_prompt has no active_task branch and the handler no longer populates ctx['active_task'] (push cache removed task:173e6846). task-framework owns the active task; it is read via tasks__context, never pushed here",
+        "The one-shot node-output append is NOT done by this function — _handle_user_prompt_submit appends ctx['pending_hook_output'].hookSpecificOutput.additionalContext after calling _format_system_prompt, gated on hookEventName == 'UserPromptSubmit'. run_session() surfaces-and-clears the checkpoint copy so any such payload renders exactly once and cannot leak into the next PostToolUse response"
       ],
-      "last_validated": "2026-07-29T18:34:33.582070+00:00",
+      "last_validated": "2026-09-01T00:00:00.000000+00:00",
       "module": "hooks/dispatcher.py",
       "name": "dispatcher-system-prompt-assembly"
     },
@@ -400,8 +396,7 @@
         "POST /hook/{event} calls dispatcher handler and returns hookSpecificOutput, a top-level decision/reason dict (Stop only), or {}",
         "GET /health returns {status: ok}",
         "GET /session/memory returns last N events from server_memory",
-        "GET /session/current returns {session_id, turn} from the most recent checkpoint — no active task required. GET /session/active was removed (task:8529435a); task-framework owns active-task state, queried via tasks__active",
-        "POST /set-active-taskid accepts {workspace, task_id, title}, stores it in an in-memory dict keyed by workspace; empty/missing task_id clears the entry. GET /session/active-task?workspace=... reads it back, or {} if nothing was ever pushed for that workspace (task:996cc8f0)",
+        "GET /session/current returns {session_id, turn} from the most recent checkpoint — no active task required. GET /session/active was removed (task:8529435a); task-framework owns active-task state, queried via tasks__active. POST /set-active-taskid and GET /session/active-task (the task:996cc8f0 push cache) were also removed (task:173e6846) — task-framework stopped pushing and nothing here read the cache back",
         "_safe_json(request) -> dict — always returns a dict, never raises; malformed/empty/missing body returns {} with a logged warning"
       ],
       "created_at": "2026-06-29T09:47:25.286219+00:00",
@@ -409,7 +404,6 @@
       "evidence": [
         "hooks/server.py",
         "hooks/server.py:session_current",
-        "hooks/server.py:set_active_taskid",
         "pyproject.toml",
         "~/Library/LaunchAgents/com.debaditya.claude-hooks-pipeline.plist",
         "hooks/server.py:_safe_json",
@@ -419,8 +413,7 @@
         "Checkpoint state lives only in-process memory (MemorySaver) — discarded on every server restart/reload; nothing about session/task-activation state persists across a restart except what server_memory.py separately logs to SQLite",
         "Per-thread checkpoint history is capped at 5000 rows via NoopNode on every Stop event, not by the server itself",
         "Server runs on port 8766 as a single uvicorn worker process — deliberately not multi-worker/per-session",
-        "GET /session/current reads live in-memory MemorySaver state (not a DB); it does not require an active task — GET /session/active (which did) was removed (task:8529435a)",
-        "POST /set-active-taskid/GET /session/active-task hold a live PUSH cache from task-framework (task:996cc8f0), not a pull-derived echo like the removed GET /session/active — task-framework remains the durable source of truth, this is just the last value it reported, discarded on restart same as everything else here",
+        "GET /session/current reads live in-memory MemorySaver state (not a DB); it does not require an active task — GET /session/active (which did) was removed (task:8529435a). This server no longer holds any active-task state at all: the /set-active-taskid push cache (task:996cc8f0) was removed (task:173e6846), so the only session state here is session_id/turn from the checkpoint",
         "Event loop is uvloop, not stdlib asyncio — controlled entirely by whether uvloop is installed",
         "All 6 /hook/{event} endpoints (UserPromptSubmit, PreToolUse, PostToolUse, Stop, SessionStart, SessionEnd) parse their body via the shared _safe_json(request) helper, which catches any JSON-parse failure and returns {} instead of letting it propagate to the generic exception handler as a 500 — found missing (task:33419f95, log audit 2026-07-26) after an empty/malformed body crashed pre_tool_use with an unhandled JSONDecodeError. Any NEW hook endpoint added here must use _safe_json too, not a bare `await request.json()`, to preserve this fail-open guarantee."
       ],
@@ -505,7 +498,7 @@
         "get_current_session() -> {session_id, turn} or {} if no checkpoint exists anywhere"
       ],
       "created_at": "2026-07-28T01:58:12.018834+00:00",
-      "description": "get_current_session backs GET /session/current — the only signal available for 'what session am I in' before any thread_id is known. Uses _latest_checkpoint_tuple() to find the single most-recently-written checkpoint across all threads. get_active_session (and GET /session/active) were removed (task:8529435a): active_task_id/active_task_title stopped being written into checkpoint state once task:882d67fa moved active-task ownership fully to task-framework, so the function always returned {}. Ask task-framework (tasks__active) for the live answer instead.",
+      "description": "get_current_session backs GET /session/current — the only signal available for 'what session am I in' before any thread_id is known. Uses _latest_checkpoint_tuple() to find the single most-recently-written checkpoint across all threads. get_active_session (and GET /session/active) were removed (task:8529435a): active_task_id/active_task_title stopped being written into checkpoint state once task:882d67fa moved active-task ownership fully to task-framework, so the function always returned {}. Ask task-framework (tasks__active) for the live answer instead. A later push cache (set_active_task/get_active_task, task:996cc8f0) briefly held the active task in this module; it was removed (task:173e6846) once task-framework stopped pushing and nothing read it back.",
       "evidence": [
         "hooks/session_state.py:_latest_checkpoint_tuple"
       ],

@@ -21,11 +21,15 @@ package UserPromptSubmitFlow {
             doc /* dispatcher.py reads existing checkpoint state before invoking the graph. */
         }
         action graphInvoke {
-            doc /* session_graph.py:run_session() runs the StateGraph: load_turn
-                 * -> load_active_task/load_related_tasks -> fan-out loaders ->
-                 * summarize_task_context -> fan-out (cwd_domain_detect,
-                 * load_memories, score_tools) -> set_prompt_id ->
-                 * log_task_events -> END. */
+            doc /* session_graph.py:run_session() runs the StateGraph. The
+                 * UserPromptSubmit chain is now just: load_turn ->
+                 * (load_memories, score_tools) fan-out -> fan-in at
+                 * set_prompt_id -> END. The task-context pipeline that once
+                 * sat here (load_active_task, load_related_tasks,
+                 * summarize_task_context, cwd_domain_detect, log_task_events)
+                 * is gone (task:882d67fa and follow-ups) — task-framework
+                 * owns active-task context and is asked via tasks__context,
+                 * not announced by a parallel pipeline here. */
         }
         action loadVaultContext {
             doc /* dispatcher.py adds vault_context after the graph returns:

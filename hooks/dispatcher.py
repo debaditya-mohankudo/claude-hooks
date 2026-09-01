@@ -89,9 +89,9 @@ def _format_system_prompt(ctx: dict) -> str:
     # (taskfw/drift_hook.py), which task:00d9483f then removed too — there is
     # now no periodic active-task reminder from either side. taskfw announces
     # the active task once at tasks__set_active and does not re-surface it, and
-    # nothing here reintroduces a per-turn announcement. ctx["active_task"] is
-    # still populated below and logged for observability; it just no longer
-    # renders into the injected prompt.
+    # nothing here reintroduces a per-turn announcement. The push cache that
+    # once fed ctx["active_task"] (hooks/session_state.set_active_task) is gone
+    # too (task:173e6846) — this handler no longer populates or logs it.
 
     if ctx["memories"]:
         lines.append("## Injected memories")
@@ -179,16 +179,6 @@ def _handle_user_prompt_submit(hook_input: dict) -> dict | None:
     elapsed_ms = (time.monotonic() - t0) * 1000
 
     ctx["vault_context"] = _load_vault_context()
-    from hooks.session_state import get_active_task
-    active_task = get_active_task(cwd)
-    ctx["active_task"] = active_task
-    if active_task.get("task_id"):
-        log.info(
-            "UPS active_task: session=%s workspace=%s task_id=%s title=%.60r",
-            session_id[:8], cwd, active_task["task_id"], active_task.get("title", ""),
-        )
-    else:
-        log.debug("UPS active_task: session=%s workspace=%s none pushed", session_id[:8], cwd)
     system_prompt = _format_system_prompt(ctx)
 
     # One-shot node output for this UPS turn (e.g. LogTaskEventsNode's
@@ -216,13 +206,12 @@ def _handle_user_prompt_submit(hook_input: dict) -> dict | None:
     log.info(
         "UPS done: session=%s elapsed_ms=%.0f memories=%d tools=%d "
         "ctx_chars(memories=%d) ctx_tokens(memories=%d) "
-        "prompt_chars=%d prompt_tokens=%d active_task=%s",
+        "prompt_chars=%d prompt_tokens=%d",
         session_id[:8], elapsed_ms,
         len(ctx.get("memories", [])), len(ctx.get("tool_hints", [])),
         memories_chars,
         memories_tokens,
         len(system_prompt), prompt_tokens,
-        active_task.get("task_id") or "none",
     )
 
     if system_prompt:
@@ -407,10 +396,12 @@ _FAIL_CLOSED_TOOLS = {"imessage__send", "mail__compose"}
 # call, threading a per-session call counter in over stdin. All of that is gone:
 # no subprocess, no _TASKFW_DRIFT_CALL_COUNT, no _merge_drift_nudge. taskfw now
 # announces its active task once at tasks__set_active and never re-surfaces it.
-# Do not re-add a claude-hooks-side active-task nudge in any form, and do not
-# re-add the '## Active task' UserPromptSubmit block removed alongside the
-# original (see _format_system_prompt). task-framework remains the one owner of
-# the active task and any reminder derived from it.
+# The /set-active-taskid push cache (hooks/session_state) that briefly let this
+# repo know the active task at all is also gone (task:173e6846). Do not re-add a
+# claude-hooks-side active-task nudge in any form, do not re-add the push cache,
+# and do not re-add the '## Active task' UserPromptSubmit block removed alongside
+# the original (see _format_system_prompt). task-framework remains the one owner
+# of the active task and any reminder derived from it.
 
 
 # Nudge toward tmux for Bash commands (memory: prefer-tmux-for-commands) — tmux panes

@@ -125,26 +125,22 @@ def test_work_context_no_longer_rendered():
 # related tasks/commits rendering tests removed (task:882d67fa) — that context
 # is task-framework's now; _format_system_prompt does not render any of it.
 #
-# Active task came back (task:c2e36050) via a render of whatever
-# task-framework last pushed to hooks/session_state.get_active_task
-# (task:996cc8f0), then was removed again (task:8be768df). A taskfw
-# PostToolUse-driven drift nudge briefly filled that role and was itself
-# removed (task:00d9483f) — there is now no per-turn active-task announcement
-# from either side. ctx["active_task"] is still populated and logged (see
-# _handle_user_prompt_submit) for observability — it just renders nothing.
+# Active task came back (task:c2e36050) via a render of whatever task-framework
+# last pushed to hooks/session_state.get_active_task (task:996cc8f0), then was
+# removed again (task:8be768df). A taskfw PostToolUse-driven drift nudge briefly
+# filled that role and was itself removed (task:00d9483f). The push cache that
+# fed ctx["active_task"] is now gone too (task:173e6846) — this handler no
+# longer populates it and _format_system_prompt has no active-task branch.
+# The guarantee that matters outlives all of that: the assembled prompt never
+# carries an active-task block, no matter what ctx holds.
 
-def test_omits_active_task_block_even_when_set():
-    result = _format_system_prompt(_base_ctx(active_task={"task_id": "abc123", "title": "Fix the thing"}))
-    assert "## Active task" not in result
-
-
-def test_omits_active_task_block_when_absent():
-    result = _format_system_prompt(_base_ctx())
-    assert "## Active task" not in result
-
-
-def test_omits_active_task_block_when_empty_dict():
-    result = _format_system_prompt(_base_ctx(active_task={}))
+def test_never_renders_active_task_block():
+    result = _format_system_prompt(_base_ctx(
+        session_id="sess01", prompt_id="ppp1",
+        memories=[{"name": "m", "domain": "d", "body": "b"}],
+        tool_hints=[{"tool_name": "t", "skill": "s", "count": 1}],
+        vault_context={"dev_personality": "x"},
+    ))
     assert "## Active task" not in result
 
 # _check_task_body_format and its tests were removed here (task:87ec7876). The
