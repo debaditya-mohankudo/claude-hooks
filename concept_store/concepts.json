@@ -3,22 +3,25 @@
     "cache-store": {
       "confidence": 0.8,
       "contracts": [
-        "get_cache(name) returns (and lazily creates) the dict for that cache name; callers key entries within it by path/id themselves.",
+        "get_cache(name, *, persist=False) returns (and lazily creates) the dict for that cache name; callers key entries within it by path/id themselves. persist= is honoured only on the call that first creates the cache.",
         "list_caches() enumerates registered cache names for introspection.",
         "hooks/server.py exposes GET /cache (names -> keys, content-free) and GET /cache/{name} (full content) over HTTP for any registered cache without needing a new endpoint per cache."
       ],
       "created_at": "2026-08-20T23:23:38.029699+00:00",
-      "description": "In-memory, name-keyed registry of dict-of-dicts caches shared across the long-running hooks FastAPI server process. Introduced to survive transient iCloud file-provider read locks (EDEADLK) when reading LIFE_OS vault files in dispatcher.py's _load_vault_context().",
+      "description": "In-memory, name-keyed registry of dict-of-dicts caches shared across the long-running hooks FastAPI server process. Introduced to survive transient iCloud file-provider read locks (EDEADLK) when reading LIFE_OS vault files in dispatcher.py's _load_vault_context(). A cache created with persist=True (only 'vault_context', task:48fdf204) is a _PersistentCache(dict) that loads from config.claude_db_dir/.cache/<name>.json on creation and write-throughs the whole JSON file on every mutation, so the EDEADLK fallback survives a server restart even while dev_personality.md is iCloud-dataless.",
       "evidence": [
         "hooks/cache_store.py:get_cache",
         "hooks/dispatcher.py:_load_vault_context",
-        "hooks/server.py"
+        "hooks/server.py",
+        "tests/test_cache_store.py"
       ],
       "invariants": [
-        "Cache lives in process memory only — no disk persistence; a server restart clears it. Acceptable because dispatcher.py is imported once into the long-running server process, not the short-lived CLI fallback path.",
+        "persist=False (the default) caches live in process memory only and are cleared on server restart. persist=True caches additionally reload their last-written content from config.claude_db_dir/.cache/<name>.json on the first get_cache() after a restart (task:48fdf204 — the earlier 'no disk persistence' invariant is superseded for persisted caches).",
+        "Persistence fails open both directions: a corrupt/unreadable <name>.json starts the cache empty (logs WARNING, no raise); a failed write is swallowed (logs WARNING) so the hook path never breaks.",
+        "_PersistentCache rewrites the entire file per mutation — acceptable only because persisted caches are tiny (vault_context is one ~1KB key).",
         "A cache read failure (e.g. transient OSError) should fall back to the last successfully cached value rather than propagate, logged at INFO/DEBUG once a cached value exists (WARNING only on a first-ever failed read with nothing cached yet)."
       ],
-      "last_validated": "2026-08-20T23:23:38.030347+00:00",
+      "last_validated": "2026-09-03T06:35:28.030347+00:00",
       "module": "hooks/cache_store.py",
       "name": "cache-store"
     },
@@ -544,6 +547,6 @@
     "commit": "5f62c6b5150a20fe7198d7bd6c155c4b3c0d3101",
     "extracted_at": "2026-07-23T05:42:23Z",
     "note": "incremental upsert (task:a2fd402d)",
-    "updated_at": "2026-09-03T06:19:17.423183+00:00"
+    "updated_at": "2026-09-03T06:35:28.322970+00:00"
   }
 }

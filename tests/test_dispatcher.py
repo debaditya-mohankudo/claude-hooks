@@ -25,7 +25,39 @@ from dispatcher import (
     _CONTEXT_NUDGE_STEP,
     _handle_user_prompt_submit,
     _handle_session_end,
+    _load_vault_context,
 )
+import dispatcher as _dispatcher
+
+
+# ── _load_vault_context — EDEADLK fallback to the persisted cache ─────────────
+
+from unittest.mock import MagicMock
+
+
+def _fake_file(exc: Exception) -> MagicMock:
+    m = MagicMock()
+    m.read_text.side_effect = exc
+    return m
+
+
+def test_load_vault_context_falls_back_to_cache_on_read_error(monkeypatch):
+    # read raises EDEADLK (iCloud lock on a dataless file); the cache already
+    # holds a good copy from a previous successful read. Use a plain dict so
+    # the test never touches the real persisted cache file.
+    monkeypatch.setattr(_dispatcher, "_LIFE_OS_FILES",
+                        {"dev_personality": _fake_file(OSError(11, "Resource deadlock avoided"))})
+    monkeypatch.setattr(_dispatcher, "_vault_context_cache", {"dev_personality": "cached identity"})
+
+    assert _load_vault_context() == {"dev_personality": "cached identity"}
+
+
+def test_load_vault_context_drops_key_when_no_cache(monkeypatch):
+    monkeypatch.setattr(_dispatcher, "_LIFE_OS_FILES",
+                        {"dev_personality": _fake_file(OSError(11, "Resource deadlock avoided"))})
+    monkeypatch.setattr(_dispatcher, "_vault_context_cache", {})
+
+    assert _load_vault_context() == {}
 
 
 # ── _get_claude_session_id ────────────────────────────────────────────────────

@@ -129,19 +129,21 @@ _LIFE_OS_FILES = {
 
 
 from hooks.cache_store import get_cache as _get_cache
-_vault_context_cache = _get_cache("vault_context")
+_vault_context_cache = _get_cache("vault_context", persist=True)
 
 
 def _load_vault_context() -> dict[str, str]:
     """Read LIFE_OS md files for always-on identity/memory context.
 
-    iCloud's file provider briefly locks these files during sync, raising
-    OSError [Errno 11] EDEADLK. dispatcher.py is imported once into the
-    long-running hook server process (hooks/server.py, task:b3964f85), so the
-    "vault_context" entry in hooks/cache_store.py's registry survives across
-    hook calls without needing disk state (also readable via GET
-    /cache/vault_context). Fall back to the last successfully read content
-    rather than dropping the context for that turn.
+    iCloud's file provider locks these files during sync, raising OSError
+    [Errno 11] EDEADLK — and dev_personality.md is stored iCloud-dataless, so
+    the first read after a server restart reliably fails until iCloud faults
+    it in. The "vault_context" cache in hooks/cache_store.py is persisted to
+    config.claude_db_dir/.cache/vault_context.json (task:48fdf204): it reloads
+    the last successfully read content on the first hook call after a restart,
+    not just within one server lifetime (also readable via GET
+    /cache/vault_context). Fall back to that rather than dropping the context
+    for the turn.
     """
     result = {}
     for key, path in _LIFE_OS_FILES.items():
