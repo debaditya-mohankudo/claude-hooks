@@ -15,12 +15,14 @@ import sqlite3
 import time
 import urllib.error
 import urllib.request
-from pathlib import Path
 from typing import Optional
 
+from src.config import config as _cfg
 from src.toon import rows_to_toon
 
-_HOOKS_LOG_DB = Path.home() / "Library" / "Mobile Documents" / "com~apple~CloudDocs" / "Databases" / "claude_hooks.sqlite"
+# task:62ea0ea5 — was a hard-coded iCloud path; now routes through config
+# (log DB moved to ~/.claude/claude_hooks.sqlite).
+_HOOKS_LOG_DB = _cfg.log_db
 _SERVER_URL = "http://127.0.0.1:8766"
 
 # One retry with a short sleep absorbs the checkpoint-write race in get_current_session:

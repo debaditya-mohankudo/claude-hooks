@@ -19,7 +19,7 @@ How to get claude-hooks running from scratch on a new machine or when sharing th
   ```
 
   Ollama powers semantic search (task neighbors, code RAG, vault RAG). Without it the MCP server starts but context injection and `tasks__neighbors` will not work.
-- iCloud Drive enabled (two databases live there — see below)
+- iCloud Drive enabled (the LIFE_OS vault and two JSON config files live there — see below)
 
 ---
 
@@ -35,18 +35,26 @@ uv sync
 
 ## 2. Create the iCloud Databases directory
 
-Two databases live in iCloud so they sync across machines:
+The SQLite databases all live under `~/.claude` (created automatically). iCloud
+still holds two JSON config files (`memory_scoring.json`, `tool_registry.json`)
+so scoring tunables and tool mappings sync across machines:
 
 ```bash
 mkdir -p ~/Library/Mobile\ Documents/com~apple~CloudDocs/Databases
 ```
 
-If iCloud is not available, set the override env var (see [Environment variables](#6-environment-variables)):
+If iCloud is not available, set the override env var (see [Environment variables](#7-environment-variables)):
 
 ```bash
 export CLAUDE_HOOKS_ICLOUD_DB_DIR=~/.claude/databases
 mkdir -p ~/.claude/databases
 ```
+
+> `tool_hints.sqlite` and `claude_hooks.sqlite` used to live in iCloud too;
+> task:62ea0ea5 moved them to `~/.claude` — an iCloud-synced SQLite file on
+> the hook write path caused transient read locks / `EDEADLK`. Override their
+> directory with `CLAUDE_HOOKS_CLAUDE_DB_DIR` if `~/.claude` is not where you
+> want them.
 
 ---
 
@@ -58,8 +66,8 @@ All databases are auto-created on first use — nothing to create manually.
 | --- | --- | --- |
 | `MEMORY.sqlite` | `~/.claude/MEMORY.sqlite` | First `memory__add` MCP call |
 | `proj_tasks.db` | `~/.claude/proj_tasks.db` | First `tasks__create` MCP call |
-| `tool_hints.sqlite` | iCloud `Databases/tool_hints.sqlite` | First `post_tool_use` hook run |
-| `claude_hooks.sqlite` | iCloud `Databases/claude_hooks.sqlite` | First hook run |
+| `tool_hints.sqlite` | `~/.claude/tool_hints.sqlite` | First `post_tool_use` hook run |
+| `claude_hooks.sqlite` | `~/.claude/claude_hooks.sqlite` | First hook run |
 | `.tasks_embeddings.tvim` | repo root | MCP server startup (auto-rebuilt if missing) |
 
 ### Configuring your projects
@@ -197,7 +205,8 @@ All variables are optional. Set them in `~/.claude/.env` or export in your shell
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `CLAUDE_HOOKS_ICLOUD_DB_DIR` | `~/Library/Mobile Documents/.../Databases` | Override iCloud path (e.g. when iCloud unavailable) |
+| `CLAUDE_HOOKS_CLAUDE_DB_DIR` | `~/.claude` | Override the dir holding `tool_hints.sqlite` + `claude_hooks.sqlite` |
+| `CLAUDE_HOOKS_ICLOUD_DB_DIR` | `~/Library/Mobile Documents/.../Databases` | Override iCloud path — now only the JSON config files (`memory_scoring.json`, `tool_registry.json`) |
 | `CLAUDE_HOOKS_MEMORY_DB` | `~/.claude/MEMORY.sqlite` | Override memory DB path |
 | `LC_DEV_MODE` | `false` | Set `true` to surface hook errors inline in Claude Code (exit 2 on exception). Use during development only. |
 | `LC_TOP_K` | `7` | Max number of scored memories returned per prompt |
@@ -274,7 +283,7 @@ Add further memories (feedback, reference) as the project evolves.
 
 **Hooks not firing** — check that `~/.claude/settings.json` has the correct absolute path to the repo and that `uv` is on PATH (`which uv`). Use the full path `/Users/<you>/.local/bin/uv` if needed.
 
-**iCloud path errors** — set `CLAUDE_HOOKS_ICLOUD_DB_DIR` to a local directory and restart.
+**iCloud path errors** — the SQLite DBs are under `~/.claude` and don't need iCloud; for the JSON config files set `CLAUDE_HOOKS_ICLOUD_DB_DIR` to a local directory and restart. Override the SQLite DB dir with `CLAUDE_HOOKS_CLAUDE_DB_DIR`.
 
 **Silent failures** — set `LC_DEV_MODE=true` in `~/.claude/.env` to make hook errors surface inline in Claude Code.
 

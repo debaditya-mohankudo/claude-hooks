@@ -130,7 +130,7 @@ uv run python -m pytest tests/test_review_lifecycle_integration.py -v
 
 **Files:** `tests/replay_harness.py`, `tests/test_replay_harness.py`, `tests/replay_baseline.json`
 
-**Source:** Reads `UPS enter` + `UPS done` pairs from `claude_hooks.sqlite` (iCloud). One event per unique session (last UPS of each session).
+**Source:** Reads `UPS enter` + `UPS done` pairs from `claude_hooks.sqlite` (`~/.claude/claude_hooks.sqlite`, resolved via `config.log_db`). One event per unique session (last UPS of each session).
 
 **How it works:**
 
@@ -155,7 +155,7 @@ uv run python tests/replay_harness.py --capture --replay --since 2026-06-13 --li
 uv run python -m pytest tests/test_replay_harness.py -v
 ```
 
-Skips automatically if `claude_hooks.sqlite` is unavailable (iCloud offline) or if no baseline exists. The `test_diff_runs_no_regressions` test compares the last two pytest run_ids in `test_logs.db`.
+Skips automatically if `~/.claude/claude_hooks.sqlite` is not present or if no baseline exists. The `test_diff_runs_no_regressions` test compares the last two pytest run_ids in `test_logs.db`.
 
 **When to run:** Before and after any change to LangGraph nodes, memory retrieval, tool scoring, or domain detection. Not part of routine CI — run manually as a smoke test.
 

@@ -1,7 +1,7 @@
 """Pytest wrapper for the replay harness.
 
 Loads the saved baseline and replays it against the current graph.
-Skips if the hooks DB (iCloud) is not available — CI-safe.
+Skips if the hooks DB (~/.claude/claude_hooks.sqlite) is not present — CI-safe.
 """
 import json
 import pytest
@@ -17,7 +17,7 @@ def _replay_args():
     return args
 
 
-@pytest.mark.skipif(not HOOKS_DB.exists(), reason="claude_hooks.sqlite not available (iCloud offline)")
+@pytest.mark.skipif(not HOOKS_DB.exists(), reason="~/.claude/claude_hooks.sqlite not present")
 def test_replay_matches_baseline(_replay_args):
     """Replay baseline UPS events through the current graph — assert 0 deviations."""
     if not BASELINE.exists():

@@ -52,15 +52,19 @@
       "evidence": [
         "src/config.py",
         "scripts/drop_memory_domain_column.py",
-        "scripts/drop_tool_hints_domain_column.py"
+        "scripts/drop_tool_hints_domain_column.py",
+        "src/tools/hooks.py",
+        "tests/replay_harness.py"
       ],
       "invariants": [
         "MEMORY.sqlite's memories table has no domain column as of task:4c9c21e6 (2026-08-07) — domain is not a retrieval axis for score_memories() anymore, which scores tags-only across a single global batch (see memory-scoring-global-batch-limit).",
-        "tool_hints.sqlite's mcp_tool_hints table has no domain column as of task:5b15dc9b (2026-08-07) — KeywordOverlapScorer (langchain_learning/retrievers.py) scores purely on keyword overlap + usage count now. cwd_domain_map, _load_cwd_domain_map, cwd_domains_json, _CWD_DOMAIN_MAP_DEFAULT were deleted from src/config.py in the same task, and cwd_domains.json (icloud_db_dir) was deleted — nothing in this repo maps CWD to a domain string anymore."
+        "tool_hints.sqlite's mcp_tool_hints table has no domain column as of task:5b15dc9b (2026-08-07) — KeywordOverlapScorer (langchain_learning/retrievers.py) scores purely on keyword overlap + usage count now. cwd_domain_map, _load_cwd_domain_map, cwd_domains_json, _CWD_DOMAIN_MAP_DEFAULT were deleted from src/config.py in the same task, and cwd_domains.json (icloud_db_dir) was deleted — nothing in this repo maps CWD to a domain string anymore.",
+        "config.tool_hints_db and config.log_db resolve under config.claude_db_dir (default ~/.claude) as of task:62ea0ea5 (2026-09-03) — they were icloud_db_dir-relative before. A hot-path SQLite file under iCloud sync caused transient read locks / EDEADLK. config.icloud_db_dir now backs only JSON stores (memory_scoring_json, and tool_registry.json via hooks/paths.py). Env overrides: CLAUDE_HOOKS_CLAUDE_DB_DIR, CLAUDE_HOOKS_ICLOUD_DB_DIR."
       ],
-      "last_validated": "2026-08-07T14:50:43.734620+00:00",
+      "last_validated": "2026-09-03T06:18:44.697188+00:00",
       "module": "src/config.py",
-      "name": "config-db-paths-and-domains"
+      "name": "config-db-paths-and-domains",
+      "related": []
     },
     "db-schema-ddl-and-migrations": {
       "confidence": 0.95,
@@ -183,7 +187,7 @@
         "Callers reading hook_logs (e.g. hooks__read_logs_sqlite MCP tool) should treat it as a rolling ~40-50k row window of recent activity, not a complete historical log -- older entries are permanently gone once pruned, not archived."
       ],
       "created_at": "2026-07-21T22:35:38.512586+00:00",
-      "description": "SQLiteHandler.emit() writes every log record to hook_logs in claude_hooks.sqlite (iCloud-synced), then checks COUNT(*) on every single insert. Once the table reaches 50,000 rows, it prunes down to the newest 40,000 rows in one DELETE, keyed by ts DESC (not id DESC).",
+      "description": "SQLiteHandler.emit() writes every log record to hook_logs in claude_hooks.sqlite (~/.claude/claude_hooks.sqlite as of task:62ea0ea5; iCloud-synced before), then checks COUNT(*) on every single insert. Once the table reaches 50,000 rows, it prunes down to the newest 40,000 rows in one DELETE, keyed by ts DESC (not id DESC).",
       "evidence": [
         "src/logger.py:SQLiteHandler.emit"
       ],
@@ -193,9 +197,10 @@
         "The COUNT(*) check runs on every emit() call (every log line), not on a schedule/batch -- this is an O(n) check per write, acceptable at this volume but a scaling consideration if log volume grows sharply.",
         "Pruning is silent -- emit() swallows all exceptions (bare except: pass), so a failed prune or count-check never surfaces as an error."
       ],
-      "last_validated": "2026-07-25T18:53:11.617148+00:00",
+      "last_validated": "2026-09-03T06:18:59.812800+00:00",
       "module": "src/logger.py",
-      "name": "hook-logs-sqlite-autoprune-at-50k"
+      "name": "hook-logs-sqlite-autoprune-at-50k",
+      "related": []
     },
     "hooks-client-cwd-forwarding": {
       "confidence": 0.9,
@@ -227,7 +232,7 @@
         "handle_checkpoint_query(thread_id=\"\") returns {thread_id, turn_count, prompt_id, keywords, memories, tool_hints, session_context, ...} or {error: ...}; thread_id doubles as session_id, omitted thread_id resolves to the current session via GET /session/current — no 'domains' key as of task:5b15dc9b (2026-08-07), since nothing in SessionState computes domains anymore"
       ],
       "created_at": "2026-06-29T09:47:25.288414+00:00",
-      "description": "MCP tools for querying hook state: server_memory (live chronological timeline via HTTP), checkpoint_query (thin HTTP wrapper over the live server's GET /session/{session_id}, reading in-process MemorySaver state — no longer a SQLite reader as of task:da29c842), and read_logs_sqlite (filtered log reader from claude_hooks.sqlite). Also session_id (added 2026-07-05, task:61703ef7): returns current session_id via GET /session/current with a built-in one-shot retry, absorbing the checkpoint-write race for a brand-new session.",
+      "description": "MCP tools for querying hook state: server_memory (live chronological timeline via HTTP), checkpoint_query (thin HTTP wrapper over the live server's GET /session/{session_id}, reading in-process MemorySaver state — no longer a SQLite reader as of task:da29c842), and read_logs_sqlite (filtered log reader from claude_hooks.sqlite at ~/.claude/claude_hooks.sqlite via config.log_db as of task:62ea0ea5). Also session_id (added 2026-07-05, task:61703ef7): returns current session_id via GET /session/current with a built-in one-shot retry, absorbing the checkpoint-write race for a brand-new session.",
       "evidence": [
         "src/tools/hooks.py",
         "src/tools/hooks.py:handle_session_id",
@@ -238,16 +243,17 @@
       ],
       "invariants": [
         "server_memory hits the live FastAPI server at 127.0.0.1:8766 — fails if server is down",
-        "read_logs_sqlite reads directly from iCloud DB path",
         "session_id retries once (0.5s sleep) if the first /session/current response has no session_id — absorbs the race where a brand-new session's first checkpoint write lags behind the query",
         "checkpoint_query is a thin HTTP wrapper over GET /session/{session_id} — it does NOT read ~/.claude/langgraph_checkpoints.db directly (that sqlite path was retired in production by task:b3964f85; the prior invariant here claiming checkpoint_query reads that file as 'the live DB SqliteSaver writes to in production' was true when confirmed 2026-07-05 (task:61703ef7) but went stale after task:b3964f85's later migration — corrected 2026-07-27, task:da29c842, after the stale assumption caused an unhandled 'no such table: checkpoints' error). checkpoint_query has no 'latest checkpoint across all threads' mode anymore — omitted thread_id resolves only to the current session, matching hooks__session_id's semantics.",
         "read_logs_sqlite's `format` param defaults to \"toon\" (task:d2165715): rows share a uniform schema (id, ts, level, logger, message), which TOON's tabular header+rows encoding compresses well versus repeating JSON keys per row. format=\"json\" is kept as an explicit fallback returning the original {count, rows} dict shape — callers needing the dict shape (e.g. programmatic filtering) must pass format=\"json\" explicitly.",
         "The TOON encoder itself (rows_to_toon/toon_cell) was extracted to src/toon.py (task:4b5bf21f) so src/tools/tasks.py's handle_list could reuse it — hooks.py now imports rows_to_toon rather than defining its own copy.",
-        "A docstring/comment's 'confirmed on <date>' claim is only as fresh as the last re-check against the code it describes — checkpoint_query's docstring cited a specific confirmation date (task:61703ef7) that read as settled fact but silently went stale after a later migration nobody circled back to update. Re-verify dated confirmations against current runtime behavior, don't trust the date alone."
+        "A docstring/comment's 'confirmed on <date>' claim is only as fresh as the last re-check against the code it describes — checkpoint_query's docstring cited a specific confirmation date (task:61703ef7) that read as settled fact but silently went stale after a later migration nobody circled back to update. Re-verify dated confirmations against current runtime behavior, don't trust the date alone.",
+        "read_logs_sqlite reads from config.log_db. _HOOKS_LOG_DB in src/tools/hooks.py is `_cfg.log_db` (was a hard-coded iCloud path until task:62ea0ea5, 2026-09-03), resolving to ~/.claude/claude_hooks.sqlite."
       ],
-      "last_validated": "2026-08-07T14:51:02.862085+00:00",
+      "last_validated": "2026-09-03T06:19:17.423128+00:00",
       "module": "src/tools/hooks.py",
-      "name": "hooks-mcp-tools-observability"
+      "name": "hooks-mcp-tools-observability",
+      "related": []
     },
     "live-session-audit": {
       "confidence": 0.9,
@@ -293,7 +299,7 @@
         "get_logger(name) returns a 'lc.*' prefixed logger for the LCEL pipeline"
       ],
       "created_at": "2026-06-29T09:47:25.287736+00:00",
-      "description": "Shared SQLiteHandler that writes all hook and LangChain pipeline logs to claude_hooks.sqlite in iCloud. Singleton per DB path. Redirects to test DB when CLAUDE_HOOKS_TEST_LOG_DB env var is set. Auto-trims at 50k rows.",
+      "description": "Shared SQLiteHandler that writes all hook and LangChain pipeline logs to claude_hooks.sqlite under ~/.claude (config.log_db; was iCloud before task:62ea0ea5). Singleton per DB path. Redirects to test DB when CLAUDE_HOOKS_TEST_LOG_DB env var is set. Auto-trims at 50k rows.",
       "evidence": [
         "src/logger.py:SQLiteHandler",
         "src/logger.py:setup"
@@ -302,11 +308,13 @@
         "SQLiteHandler is a singleton per db_path — never creates duplicate handlers",
         "emit() never raises — handleError() is a no-op",
         "Log table is auto-trimmed to 40k rows when it exceeds 50k",
-        "Test redirect affects only the default singleton, not custom-path handlers"
+        "Test redirect affects only the default singleton, not custom-path handlers",
+        "_LOG_DB = config.log_db, which resolves to ~/.claude/claude_hooks.sqlite as of task:62ea0ea5 (2026-09-03) — moved off iCloud to keep sync off the write path."
       ],
-      "last_validated": "2026-06-29T09:47:25.287736+00:00",
+      "last_validated": "2026-09-03T06:18:53.050265+00:00",
       "module": "src/logger.py",
-      "name": "logger-sqlite-handler"
+      "name": "logger-sqlite-handler",
+      "related": []
     },
     "mcp-dispatcher-domain-tool-map": {
       "confidence": 0.98,
@@ -536,6 +544,6 @@
     "commit": "5f62c6b5150a20fe7198d7bd6c155c4b3c0d3101",
     "extracted_at": "2026-07-23T05:42:23Z",
     "note": "incremental upsert (task:a2fd402d)",
-    "updated_at": "2026-08-28T07:50:42.374537+00:00"
+    "updated_at": "2026-09-03T06:19:17.423183+00:00"
   }
 }

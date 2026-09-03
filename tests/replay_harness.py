@@ -30,7 +30,11 @@ for _p in (_ROOT, _SRC):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 
-HOOKS_DB   = Path("~/Library/Mobile Documents/com~apple~CloudDocs/Databases/claude_hooks.sqlite").expanduser()
+# task:62ea0ea5 — the hook log DB moved off iCloud to ~/.claude; resolve it
+# through config rather than re-hard-coding the location here.
+from src.config import config as _cfg  # noqa: E402  (sys.path set up above)
+
+HOOKS_DB   = Path(_cfg.log_db)
 BASELINE   = Path(__file__).parent / "replay_baseline.json"
 
 # Fields extracted from "UPS done" log line
