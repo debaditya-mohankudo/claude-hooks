@@ -52,7 +52,7 @@ It needs database access to resolve active tasks, so it stays as a small Python 
 
 ## claude-hooks, briefly
 
-Underneath the gates is a small FastAPI server that intercepts all four Claude Code hook events (`UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop`) and runs them through one LangGraph pipeline. It injects relevant memories into every prompt, tracks which MCP tools get used so it can recommend the right one next time, and keeps all of that state durable across restarts in a single SQLite-backed checkpoint — so nothing above (gates, memory) depends on Claude's own context window to stay coherent.
+Underneath the gates is a small FastAPI server that intercepts all four Claude Code hook events (`UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop`) and runs them through one LangGraph pipeline. It injects relevant memories into every prompt and tracks which MCP tools get used so it can recommend the right one next time. Memories and tool-usage stats are persisted in SQLite stores under `~/.claude`, durable across restarts; per-session graph state is held in-process (MemorySaver) and rebuilt from the live server on demand. Either way, nothing above (gates, memory) depends on Claude's own context window to stay coherent.
 
 **The full architecture** — components, design decisions, database inventory, the graph topology itself: [Architecture](docs/ARCHITECTURE.md).
 
