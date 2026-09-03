@@ -280,8 +280,14 @@ class TestStopHookLc:
         if reset_graph:
             sg_mod._graph = None
 
+        # NoopNode calls live_claude_sessions() (a `ps` subprocess) on every
+        # Stop for its multi-session audit log. Stub it so these tests stay
+        # deterministic regardless of how many `claude` processes the host is
+        # running, and so popen.assert_called_once() below counts only the
+        # PlaySoundNode call.
         with patch("sys.argv", ["dispatcher.py", "Stop"]), \
              patch("sys.stdin", StringIO(json.dumps(hook_input))), \
+             patch("langchain_learning.nodes.noop.live_claude_sessions", return_value=[]), \
              patch("sys.stdout", new_callable=StringIO) as mock_out:
             hook_mod.main()
             out = mock_out.getvalue().strip()
