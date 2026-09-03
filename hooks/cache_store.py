@@ -88,7 +88,7 @@ class _PersistentCache(dict):
 def get_cache(name: str, *, persist: bool = False) -> dict[str, str]:
     """Return the named cache dict, creating it on first use.
 
-    persist=True backs the cache with config.claude_db_dir/cache/<name>.json
+    persist=True backs the cache with config.claude_db_dir/.cache/<name>.json
     (loaded now, written through on mutation). Only honoured when the cache
     is first created — a later get_cache(name) returns whatever was made the
     first time, matching the previous setdefault() semantics.

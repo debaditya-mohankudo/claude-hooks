@@ -13,17 +13,20 @@
         "hooks/cache_store.py:get_cache",
         "hooks/dispatcher.py:_load_vault_context",
         "hooks/server.py",
-        "tests/test_cache_store.py"
+        "tests/test_cache_store.py",
+        "hooks/cache_store.py:_PersistentCache",
+        "tests/test_dispatcher.py"
       ],
       "invariants": [
         "persist=False (the default) caches live in process memory only and are cleared on server restart. persist=True caches additionally reload their last-written content from config.claude_db_dir/.cache/<name>.json on the first get_cache() after a restart (task:48fdf204 — the earlier 'no disk persistence' invariant is superseded for persisted caches).",
         "Persistence fails open both directions: a corrupt/unreadable <name>.json starts the cache empty (logs WARNING, no raise); a failed write is swallowed (logs WARNING) so the hook path never breaks.",
-        "_PersistentCache rewrites the entire file per mutation — acceptable only because persisted caches are tiny (vault_context is one ~1KB key).",
-        "A cache read failure (e.g. transient OSError) should fall back to the last successfully cached value rather than propagate, logged at INFO/DEBUG once a cached value exists (WARNING only on a first-ever failed read with nothing cached yet)."
+        "A cache read failure (e.g. transient OSError) should fall back to the last successfully cached value rather than propagate, logged at INFO/DEBUG once a cached value exists (WARNING only on a first-ever failed read with nothing cached yet).",
+        "_PersistentCache rewrites the entire file per mutation, and its one caller (dispatcher._load_vault_context) assigns the key on every successful read — so a persisted cache takes one synchronous full-file JSON write per UPS turn even when the value is unchanged (task:48fdf204 decision: accepted — file is ~1KB on local disk since the ~/.claude DB dir is off iCloud). Acceptable only because persisted caches are tiny."
       ],
-      "last_validated": "2026-09-03T06:35:28.030347+00:00",
+      "last_validated": "2026-09-03T06:43:01.773684+00:00",
       "module": "hooks/cache_store.py",
-      "name": "cache-store"
+      "name": "cache-store",
+      "related": []
     },
     "concept-store-symbol-only-evidence": {
       "confidence": 0.8,
@@ -547,6 +550,6 @@
     "commit": "5f62c6b5150a20fe7198d7bd6c155c4b3c0d3101",
     "extracted_at": "2026-07-23T05:42:23Z",
     "note": "incremental upsert (task:a2fd402d)",
-    "updated_at": "2026-09-03T06:35:28.322970+00:00"
+    "updated_at": "2026-09-03T06:43:01.773785+00:00"
   }
 }
