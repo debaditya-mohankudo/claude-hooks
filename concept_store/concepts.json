@@ -8,20 +8,20 @@
         "hooks/server.py exposes GET /cache (names -> keys, content-free) and GET /cache/{name} (full content) over HTTP for any registered cache without needing a new endpoint per cache."
       ],
       "created_at": "2026-08-20T23:23:38.029699+00:00",
-      "description": "In-memory, name-keyed registry of dict-of-dicts caches shared across the long-running hooks FastAPI server process. Introduced to survive transient iCloud file-provider read locks (EDEADLK) when reading LIFE_OS vault files in dispatcher.py's _load_vault_context(). A cache created with persist=True (only 'vault_context', task:48fdf204) is a _PersistentCache(dict) that loads from config.claude_db_dir/.cache/<name>.json on creation and write-throughs the whole JSON file on every mutation, so the EDEADLK fallback survives a server restart even while dev_personality.md is iCloud-dataless.",
+      "description": "In-memory, name-keyed registry of dict-of-dicts caches shared across the long-running hooks FastAPI server process. Introduced to survive transient iCloud file-provider read locks (EDEADLK) when reading LIFE_OS vault files in hooks/user_context.py:_load_graph(). A cache created with persist=True (only 'user_context', task:48fdf204) is a _PersistentCache(dict) that loads from config.claude_db_dir/.cache/<name>.json on creation and write-throughs the whole JSON file on every mutation, so the EDEADLK fallback survives a server restart even while user-context-ontology.json is iCloud-dataless.",
       "evidence": [
         "hooks/cache_store.py:get_cache",
-        "hooks/dispatcher.py:_load_vault_context",
+        "hooks/user_context.py:_load_graph",
         "hooks/server.py",
         "tests/test_cache_store.py",
         "hooks/cache_store.py:_PersistentCache",
-        "tests/test_dispatcher.py"
+        "tests/test_user_context.py"
       ],
       "invariants": [
         "persist=False (the default) caches live in process memory only and are cleared on server restart. persist=True caches additionally reload their last-written content from config.claude_db_dir/.cache/<name>.json on the first get_cache() after a restart (task:48fdf204 — the earlier 'no disk persistence' invariant is superseded for persisted caches).",
         "Persistence fails open both directions: a corrupt/unreadable <name>.json starts the cache empty (logs WARNING, no raise); a failed write is swallowed (logs WARNING) so the hook path never breaks.",
         "A cache read failure (e.g. transient OSError) should fall back to the last successfully cached value rather than propagate, logged at INFO/DEBUG once a cached value exists (WARNING only on a first-ever failed read with nothing cached yet).",
-        "_PersistentCache rewrites the entire file per mutation, and its one caller (dispatcher._load_vault_context) assigns the key on every successful read — so a persisted cache takes one synchronous full-file JSON write per UPS turn even when the value is unchanged (task:48fdf204 decision: accepted — file is ~1KB on local disk since the ~/.claude DB dir is off iCloud). Acceptable only because persisted caches are tiny."
+        "_PersistentCache rewrites the entire file per mutation, and its one caller (user_context._load_graph) assigns the 'json' key on every successful read — so a persisted cache takes one synchronous full-file JSON write per UPS turn even when the value is unchanged (task:48fdf204 decision: accepted — file is a few KB on local disk since the ~/.claude DB dir is off iCloud). Acceptable only because persisted caches are tiny."
       ],
       "last_validated": "2026-09-03T06:43:01.773684+00:00",
       "module": "hooks/cache_store.py",
@@ -117,17 +117,18 @@
       "confidence": 0.95,
       "contracts": [
         "_format_system_prompt(ctx) -> str — the additionalSystemPrompt body for a UserPromptSubmit turn; \"\\n\".join(lines).strip(), so an empty string when ctx carries nothing renderable",
-        "All sections are markdown-formatted, emitted in a fixed order: '## Turn state', '## Dev personality', '## Injected memories', '## Suggested tools'"
+        "All sections are markdown-formatted, emitted in a fixed order: '## Turn state', the user-context block (its own '## Dev personality' / '## Financial profile' / '## Relevant context' headings), '## Injected memories', '## Suggested tools'"
       ],
       "created_at": "2026-06-29T09:47:25.284960+00:00",
-      "description": "Assembles the UserPromptSubmit additionalSystemPrompt from the SessionState-derived ctx dict into markdown sections. Rewritten task:173e6846 (2026-09-01) after the long STALE period (task:c2e36050): the pre-task:882d67fa pull-based task-context pipeline this entry used to describe (LoadRelatedTasksNode, task_body, execution_contract, activate_task.py, mid_task_decisions, '## Repo memories', new-project note) is entirely gone, and so is the task:996cc8f0 '## Active task' push block (removed task:8be768df in the prompt, cache removed task:173e6846). What remains is four small sections: turn identifiers, the dev-personality vault file, scored memories, and scored tool hints.",
+      "description": "Assembles the UserPromptSubmit additionalSystemPrompt from the SessionState-derived ctx dict into markdown sections. Rewritten task:173e6846 (2026-09-01) after the long STALE period (task:c2e36050): the pre-task:882d67fa pull-based task-context pipeline this entry used to describe (LoadRelatedTasksNode, task_body, execution_contract, activate_task.py, mid_task_decisions, '## Repo memories', new-project note) is entirely gone, and so is the task:996cc8f0 '## Active task' push block (removed task:8be768df in the prompt, cache removed task:173e6846). What remains is four small sections: turn identifiers, the rendered user-context ontology (hooks/user_context.py — replaced the single dev_personality.md read), scored memories, and scored tool hints.",
       "evidence": [
-        "hooks/dispatcher.py:_format_system_prompt"
+        "hooks/dispatcher.py:_format_system_prompt",
+        "hooks/user_context.py:render_user_context"
       ],
       "invariants": [
-        "Each section is emitted only when its data is non-empty; a ctx with no session_id/prompt_id, no dev_personality, no memories and no tool_hints yields \"\"",
+        "Each section is emitted only when its data is non-empty; a ctx with no session_id/prompt_id, empty user_context, no memories and no tool_hints yields \"\"",
         "'## Turn state' lists '- session_id: X' and/or '- prompt_id: Y', each line only when that value is present; the header is emitted if either is",
-        "'## Dev personality' renders ctx['vault_context']['dev_personality'] verbatim when that key exists — the only vault file rendered here (a stale 'work' key is ignored, task:9bbd67dd)",
+        "The user-context block is ctx['user_context'] appended verbatim (already stripped) when non-empty — _format_system_prompt owns none of its headings; render_user_context builds them from LIFE_OS/user-context-ontology.json (always_on nodes verbatim, tag-hit domain nodes as '## Relevant context'), falling back to dev_personality.md when the graph is unreadable",
         "'## Injected memories' renders each memory as '### {name} [{domain}]' followed by its stripped body; there is no token-budget trimming here (_enforce_context_budget was removed) — memories render exactly as the retriever scored/returned them",
         "'## Suggested tools' renders each hint as '- `{tool}` (skill={skill}, used={count}x)'",
         "No active-task section in any form: _format_system_prompt has no active_task branch and the handler no longer populates ctx['active_task'] (push cache removed task:173e6846). task-framework owns the active task; it is read via tasks__context, never pushed here",
@@ -136,6 +137,31 @@
       "last_validated": "2026-09-01T00:00:00.000000+00:00",
       "module": "hooks/dispatcher.py",
       "name": "dispatcher-system-prompt-assembly"
+    },
+    "user-context-ontology-render": {
+      "confidence": 0.9,
+      "contracts": [
+        "render_user_context(prompt_tokens: set[str] | None) -> str — the ambient block for a UserPromptSubmit turn: always_on nodes rendered verbatim under per-type headings, then a '## Relevant context' list of non-always_on nodes whose tags share >= _MIN_TAG_HITS (2) tokens with prompt_tokens. \"\" when nothing applies.",
+        "Source of truth is LIFE_OS/user-context-ontology.json in the vault (meta / relation_types / nodes / edges). Node fields consumed: type, label, definition, render (optional verbatim text), always_on (bool), tags (space-separated keywords).",
+        "_SECTION_HEADINGS maps node.type -> heading for always_on nodes ('persona' -> 'Dev personality', 'financial' -> 'Financial profile'); an unmapped type falls back to the node's label."
+      ],
+      "created_at": "2026-09-09T00:00:00.000000+00:00",
+      "description": "Builds the ambient identity/working-style block for every UserPromptSubmit turn from a hand-maintained typed ontology in the user's vault, replacing dispatcher's old _load_vault_context() which read the single LIFE_OS/dev_personality.md verbatim. dispatcher._handle_user_prompt_submit calls render_user_context(set(ctx['keywords'])) after run_session() and stashes it at ctx['user_context']; _format_system_prompt appends it verbatim above '## Injected memories'. Two tiers: always_on nodes (persona, financial profile) every turn; the rest (work domains) only when the prompt's tokens hit their tags.",
+      "evidence": [
+        "hooks/user_context.py:render_user_context",
+        "hooks/user_context.py:_load_graph",
+        "hooks/user_context.py:_score_nodes",
+        "hooks/dispatcher.py:_handle_user_prompt_submit",
+        "tests/test_user_context.py"
+      ],
+      "invariants": [
+        "A read/parse failure of the ontology JSON falls back to the last good copy in the persistent 'user_context' cache (key 'json'), then to dev_personality.md verbatim (its '# Dev personality' H1 demoted to H2), then to \"\" — the turn is never blocked and persona context is never silently dropped.",
+        "Scored nodes match on raw tag-token count (>= _MIN_TAG_HITS), not a Jaccard ratio: the curated tag lists are long enough that a ratio threshold would never be reached. always_on nodes are never eligible for the scored block.",
+        "render_user_context owns all headings; _format_system_prompt treats its return value as an opaque pre-stripped string."
+      ],
+      "last_validated": "2026-09-09T00:00:00.000000+00:00",
+      "module": "hooks/user_context.py",
+      "name": "user-context-ontology-render"
     },
     "gates-commit-traceability": {
       "confidence": 0.96,

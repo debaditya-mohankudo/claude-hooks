@@ -78,10 +78,9 @@ def _format_system_prompt(ctx: dict) -> str:
             lines.append(f"- prompt_id: {prompt_id}")
         lines.append("")
 
-    vault_ctx = ctx.get("vault_context") or {}
-    if "dev_personality" in vault_ctx:
-        lines.append("## Dev personality")
-        lines.append(vault_ctx["dev_personality"])
+    user_ctx = (ctx.get("user_context") or "").strip()
+    if user_ctx:
+        lines.append(user_ctx)
         lines.append("")
 
     # The once-per-turn '## Active task' block (task:996cc8f0) was removed here
@@ -121,46 +120,7 @@ def _format_system_prompt(ctx: dict) -> str:
     return "\n".join(lines).strip()
 
 
-from hooks.paths import VAULT_ROOT as _VAULT_ROOT
-_LIFE_OS_FILES = {
-    "dev_personality": _VAULT_ROOT / "LIFE_OS" / "dev_personality.md",
-    # "work": _VAULT_ROOT / "LIFE_OS" / "work.md",  # replaced by dev_personality.md (task:9bbd67dd)
-}
-
-
-from hooks.cache_store import get_cache as _get_cache
-_vault_context_cache = _get_cache("vault_context", persist=True)
-
-
-def _load_vault_context() -> dict[str, str]:
-    """Read LIFE_OS md files for always-on identity/memory context.
-
-    iCloud's file provider locks these files during sync, raising OSError
-    [Errno 11] EDEADLK — and dev_personality.md is stored iCloud-dataless, so
-    the first read after a server restart reliably fails until iCloud faults
-    it in. The "vault_context" cache in hooks/cache_store.py is persisted to
-    config.claude_db_dir/.cache/vault_context.json (task:48fdf204): it reloads
-    the last successfully read content on the first hook call after a restart,
-    not just within one server lifetime (also readable via GET
-    /cache/vault_context). Fall back to that rather than dropping the context
-    for the turn.
-    """
-    result = {}
-    for key, path in _LIFE_OS_FILES.items():
-        try:
-            text = path.read_text(encoding="utf-8").strip()
-            if text:
-                result[key] = text
-                _vault_context_cache[key] = text
-        except FileNotFoundError:
-            pass
-        except Exception as exc:
-            if key in _vault_context_cache:
-                log.info("vault_context: failed to read %s (%s), using cached copy", path, exc)
-                result[key] = _vault_context_cache[key]
-            else:
-                log.warning("vault_context: failed to read %s: %s", path, exc)
-    return result
+from hooks.user_context import render_user_context
 
 
 def _handle_user_prompt_submit(hook_input: dict) -> dict | None:
@@ -180,7 +140,7 @@ def _handle_user_prompt_submit(hook_input: dict) -> dict | None:
     ctx = run_session(prompt=prompt, session_id=session_id, cwd=cwd)
     elapsed_ms = (time.monotonic() - t0) * 1000
 
-    ctx["vault_context"] = _load_vault_context()
+    ctx["user_context"] = render_user_context(set(ctx.get("keywords") or []))
     system_prompt = _format_system_prompt(ctx)
 
     # One-shot node output for this UPS turn (e.g. LogTaskEventsNode's

@@ -25,39 +25,13 @@ from dispatcher import (
     _CONTEXT_NUDGE_STEP,
     _handle_user_prompt_submit,
     _handle_session_end,
-    _load_vault_context,
 )
 import dispatcher as _dispatcher
 
-
-# ── _load_vault_context — EDEADLK fallback to the persisted cache ─────────────
-
-from unittest.mock import MagicMock
-
-
-def _fake_file(exc: Exception) -> MagicMock:
-    m = MagicMock()
-    m.read_text.side_effect = exc
-    return m
-
-
-def test_load_vault_context_falls_back_to_cache_on_read_error(monkeypatch):
-    # read raises EDEADLK (iCloud lock on a dataless file); the cache already
-    # holds a good copy from a previous successful read. Use a plain dict so
-    # the test never touches the real persisted cache file.
-    monkeypatch.setattr(_dispatcher, "_LIFE_OS_FILES",
-                        {"dev_personality": _fake_file(OSError(11, "Resource deadlock avoided"))})
-    monkeypatch.setattr(_dispatcher, "_vault_context_cache", {"dev_personality": "cached identity"})
-
-    assert _load_vault_context() == {"dev_personality": "cached identity"}
-
-
-def test_load_vault_context_drops_key_when_no_cache(monkeypatch):
-    monkeypatch.setattr(_dispatcher, "_LIFE_OS_FILES",
-                        {"dev_personality": _fake_file(OSError(11, "Resource deadlock avoided"))})
-    monkeypatch.setattr(_dispatcher, "_vault_context_cache", {})
-
-    assert _load_vault_context() == {}
+# The user-context ontology render (always_on persona/financial + tag-scored
+# domain nodes) and its EDEADLK cache fallback are covered in
+# tests/test_user_context.py — _format_system_prompt only consumes the string
+# it produces, via ctx["user_context"].
 
 
 # ── _get_claude_session_id ────────────────────────────────────────────────────
@@ -132,25 +106,20 @@ def test_includes_tool_hints():
     assert "tasks__create" in result
 
 
-def test_includes_dev_personality():
+def test_includes_user_context_block_verbatim():
+    # _format_system_prompt appends the pre-rendered user-context string as-is;
+    # render_user_context (tested in test_user_context.py) owns the headings.
     result = _format_system_prompt(_base_ctx(
-        vault_context={"dev_personality": "compounding reward"},
+        user_context="## Dev personality\ncompounding reward",
     ))
     assert "## Dev personality" in result
     assert "compounding reward" in result
 
 
-def test_omits_dev_personality_block_when_absent():
-    result = _format_system_prompt(_base_ctx(vault_context={}))
-    assert "## Dev personality" not in result
-
-
-def test_work_context_no_longer_rendered():
-    # work.md was replaced by dev_personality.md (task:9bbd67dd) — even if a
-    # stale "work" key is still present in vault_context, it must not render.
-    result = _format_system_prompt(_base_ctx(vault_context={"work": "terse responses"}))
-    assert "## Work context" not in result
-    assert "terse responses" not in result
+def test_omits_user_context_block_when_absent():
+    assert "## Dev personality" not in _format_system_prompt(_base_ctx())
+    assert _format_system_prompt(_base_ctx(user_context="")) == ""
+    assert _format_system_prompt(_base_ctx(user_context="   ")) == ""
 
 
 # Execution contract, task decisions/memories/history, relevant code, and
@@ -171,7 +140,7 @@ def test_never_renders_active_task_block():
         session_id="sess01", prompt_id="ppp1",
         memories=[{"name": "m", "domain": "d", "body": "b"}],
         tool_hints=[{"tool_name": "t", "skill": "s", "count": 1}],
-        vault_context={"dev_personality": "x"},
+        user_context="## Dev personality\nx",
     ))
     assert "## Active task" not in result
 
