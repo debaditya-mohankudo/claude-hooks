@@ -109,7 +109,7 @@ def _score_nodes(graph: dict, prompt_tokens: set[str]) -> str:
     lines = ["## Relevant context"]
     for _, node in hits:
         label = node.get("label") or node.get("id", "?")
-        lines.append(f"- **{label}**: {node.get('definition', '').strip()}")
+        lines.append(f"- **{label}**: {_node_text(node)}")
     return "\n".join(lines).strip()
 
 
