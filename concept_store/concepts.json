@@ -117,13 +117,15 @@
       "confidence": 0.95,
       "contracts": [
         "_format_system_prompt(ctx) -> str — the additionalSystemPrompt body for a UserPromptSubmit turn; \"\\n\".join(lines).strip(), so an empty string when ctx carries nothing renderable",
-        "All sections are markdown-formatted, emitted in a fixed order: '## Turn state', the user-context block (its own '## Dev personality' / '## Financial profile' / '## Relevant context' headings), '## Injected memories', '## Suggested tools'"
+        "All sections are markdown-formatted, emitted in a fixed order: '## Turn state', the user-context block (its own '## Dev personality' / '## Financial profile' / '## Relevant context' headings), '## Injected memories', '## Suggested tools', '## Suggested tool groups'"
       ],
       "created_at": "2026-06-29T09:47:25.284960+00:00",
-      "description": "Assembles the UserPromptSubmit additionalSystemPrompt from the SessionState-derived ctx dict into markdown sections. Rewritten task:173e6846 (2026-09-01) after the long STALE period (task:c2e36050): the pre-task:882d67fa pull-based task-context pipeline this entry used to describe (LoadRelatedTasksNode, task_body, execution_contract, activate_task.py, mid_task_decisions, '## Repo memories', new-project note) is entirely gone, and so is the task:996cc8f0 '## Active task' push block (removed task:8be768df in the prompt, cache removed task:173e6846). What remains is four small sections: turn identifiers, the rendered user-context ontology (hooks/user_context.py — replaced the single dev_personality.md read), scored memories, and scored tool hints.",
+      "description": "Assembles the UserPromptSubmit additionalSystemPrompt from the SessionState-derived ctx dict into markdown sections. Rewritten task:173e6846 (2026-09-01) after the long STALE period (task:c2e36050): the pre-task:882d67fa pull-based task-context pipeline this entry used to describe (LoadRelatedTasksNode, task_body, execution_contract, activate_task.py, mid_task_decisions, '## Repo memories', new-project note) is entirely gone, and so is the task:996cc8f0 '## Active task' push block (removed task:8be768df in the prompt, cache removed task:173e6846). What remains is five small sections: turn identifiers, the rendered user-context ontology (hooks/user_context.py), scored memories, scored tool hints, and (task:750242a5) tool groups lifted from those hints via ontology/mcp-tools-domain.json (langchain_learning/tool_groups.py).",
       "evidence": [
         "hooks/dispatcher.py:_format_system_prompt",
-        "hooks/user_context.py:render_user_context"
+        "hooks/user_context.py:render_user_context",
+        "langchain_learning/tool_groups.py:route_groups",
+        "tests/test_tool_groups.py"
       ],
       "invariants": [
         "Each section is emitted only when its data is non-empty; a ctx with no session_id/prompt_id, empty user_context, no memories and no tool_hints yields \"\"",
@@ -132,36 +134,14 @@
         "'## Injected memories' renders each memory as '### {name} [{domain}]' followed by its stripped body; there is no token-budget trimming here (_enforce_context_budget was removed) — memories render exactly as the retriever scored/returned them",
         "'## Suggested tools' renders each hint as '- `{tool}` (skill={skill}, used={count}x)'",
         "No active-task section in any form: _format_system_prompt has no active_task branch and the handler no longer populates ctx['active_task'] (push cache removed task:173e6846). task-framework owns the active task; it is read via tasks__context, never pushed here",
-        "The one-shot node-output append is NOT done by this function — _handle_user_prompt_submit appends ctx['pending_hook_output'].hookSpecificOutput.additionalContext after calling _format_system_prompt, gated on hookEventName == 'UserPromptSubmit'. run_session() surfaces-and-clears the checkpoint copy so any such payload renders exactly once and cannot leak into the next PostToolUse response"
+        "The one-shot node-output append is NOT done by this function — _handle_user_prompt_submit appends ctx['pending_hook_output'].hookSpecificOutput.additionalContext after calling _format_system_prompt, gated on hookEventName == 'UserPromptSubmit'. run_session() surfaces-and-clears the checkpoint copy so any such payload renders exactly once and cannot leak into the next PostToolUse response",
+        "'## Suggested tool groups' is derived from ctx['tool_hints'] by tool_groups.route_groups/format_groups (task:750242a5): emitted only when hints are non-empty and at least one hint resolves to an unambiguous group; ambiguous (code_rag lives in two servers) or unknown hints are skipped. It never alters '## Suggested tools' output.",
+        "Group routing fails open: a missing/unreadable graph, or valid JSON of the wrong shape, yields no section and never raises out of _format_system_prompt. load_graph caches only successful loads, keyed on file mtime — a failed load is retried and graph edits apply without a server restart."
       ],
-      "last_validated": "2026-09-01T00:00:00.000000+00:00",
+      "last_validated": "2026-09-21T03:07:16.041913+00:00",
       "module": "hooks/dispatcher.py",
-      "name": "dispatcher-system-prompt-assembly"
-    },
-    "user-context-ontology-render": {
-      "confidence": 0.9,
-      "contracts": [
-        "render_user_context(prompt_tokens: set[str] | None) -> str — the ambient block for a UserPromptSubmit turn: always_on nodes rendered verbatim under per-type headings, then a '## Relevant context' list of non-always_on nodes whose tags share >= _MIN_TAG_HITS (2) tokens with prompt_tokens. \"\" when nothing applies.",
-        "Source of truth is LIFE_OS/user-context-ontology.json in the vault (meta / relation_types / nodes / edges). Node fields consumed: type, label, definition, render (optional verbatim text), always_on (bool), tags (space-separated keywords).",
-        "_SECTION_HEADINGS maps node.type -> heading for always_on nodes ('persona' -> 'Dev personality', 'financial' -> 'Financial profile'); an unmapped type falls back to the node's label."
-      ],
-      "created_at": "2026-09-09T00:00:00.000000+00:00",
-      "description": "Builds the ambient identity/working-style block for every UserPromptSubmit turn from a hand-maintained typed ontology in the user's vault, replacing dispatcher's old _load_vault_context() which read the single LIFE_OS/dev_personality.md verbatim. dispatcher._handle_user_prompt_submit calls render_user_context(set(ctx['keywords'])) after run_session() and stashes it at ctx['user_context']; _format_system_prompt appends it verbatim above '## Injected memories'. Two tiers: always_on nodes (persona, financial profile) every turn; the rest (work domains) only when the prompt's tokens hit their tags.",
-      "evidence": [
-        "hooks/user_context.py:render_user_context",
-        "hooks/user_context.py:_load_graph",
-        "hooks/user_context.py:_score_nodes",
-        "hooks/dispatcher.py:_handle_user_prompt_submit",
-        "tests/test_user_context.py"
-      ],
-      "invariants": [
-        "A read/parse failure of the ontology JSON falls back to the last good copy in the persistent 'user_context' cache (key 'json'), then to dev_personality.md verbatim (its '# Dev personality' H1 demoted to H2), then to \"\" — the turn is never blocked and persona context is never silently dropped.",
-        "Scored nodes match on raw tag-token count (>= _MIN_TAG_HITS), not a Jaccard ratio: the curated tag lists are long enough that a ratio threshold would never be reached. always_on nodes are never eligible for the scored block.",
-        "render_user_context owns all headings; _format_system_prompt treats its return value as an opaque pre-stripped string."
-      ],
-      "last_validated": "2026-09-09T00:00:00.000000+00:00",
-      "module": "hooks/user_context.py",
-      "name": "user-context-ontology-render"
+      "name": "dispatcher-system-prompt-assembly",
+      "related": []
     },
     "gates-commit-traceability": {
       "confidence": 0.96,
@@ -549,6 +529,33 @@
       "module": "hooks/session_state.py",
       "name": "session-state-latest-checkpoint-lookup"
     },
+    "tool-groups-routing": {
+      "confidence": 0.9,
+      "contracts": [
+        "route_groups(hints, graph=None, top_groups=3) -> list[dict] ranks groups by hit count, then best hint position; each route carries group label, category, matched tools, the group's tools string, and overlap alternatives",
+        "format_groups(routes) -> list[str] prompt lines, [] when there are no routes",
+        "group_of resolves 'grp__tool' by group name and bare names (wyckoff-analyzer) by the group's listed tools including 'prefix_*' wildcards"
+      ],
+      "created_at": "2026-09-21T03:09:05.205414+00:00",
+      "description": "Lifts ScoreToolsNode's flat tool hints to tool groups using ontology/mcp-tools-domain.json, rendered as '## Suggested tool groups' by dispatcher._format_system_prompt (task:750242a5). Pure render-time post-process: scoring is unchanged.",
+      "evidence": [
+        "langchain_learning/tool_groups.py:route_groups",
+        "langchain_learning/tool_groups.py:load_graph",
+        "langchain_learning/tool_groups.py:group_of",
+        "tests/test_tool_groups.py",
+        "hooks/dispatcher.py:_format_system_prompt"
+      ],
+      "invariants": [
+        "Ambiguous group names (code_rag exists in two servers) and unknown tools resolve to no group and are skipped, never guessed",
+        "Fails open: a missing/unreadable graph, or valid JSON of the wrong shape, returns [] and never raises out of route_groups",
+        "load_graph caches only successful loads keyed on (path, mtime_ns); a failed load is retried and graph edits apply without a server restart",
+        "often_follows edges in the graph are deliberately unused here (~1 week of PTU logs, skewed to Bash/Safari)"
+      ],
+      "last_validated": "2026-09-21T03:09:05.205462+00:00",
+      "module": "langchain_learning/tool_groups.py",
+      "name": "tool-groups-routing",
+      "related": []
+    },
     "toon-encoding-shared-module": {
       "confidence": 0.9,
       "contracts": [
@@ -570,12 +577,37 @@
       "last_validated": "2026-08-01T17:52:06.216210+00:00",
       "module": "src/toon.py",
       "name": "toon-encoding-shared-module"
+    },
+    "user-context-ontology-render": {
+      "confidence": 0.9,
+      "contracts": [
+        "render_user_context(prompt_tokens: set[str] | None) -> str — the ambient block for a UserPromptSubmit turn: always_on nodes rendered verbatim under per-type headings, then a '## Relevant context' list of non-always_on nodes whose tags share >= _MIN_TAG_HITS (2) tokens with prompt_tokens. \"\" when nothing applies.",
+        "Source of truth is LIFE_OS/user-context-ontology.json in the vault (meta / relation_types / nodes / edges). Node fields consumed: type, label, definition, render (optional verbatim text), always_on (bool), tags (space-separated keywords).",
+        "_SECTION_HEADINGS maps node.type -> heading for always_on nodes ('persona' -> 'Dev personality', 'financial' -> 'Financial profile'); an unmapped type falls back to the node's label."
+      ],
+      "created_at": "2026-09-09T00:00:00.000000+00:00",
+      "description": "Builds the ambient identity/working-style block for every UserPromptSubmit turn from a hand-maintained typed ontology in the user's vault, replacing dispatcher's old _load_vault_context() which read the single LIFE_OS/dev_personality.md verbatim. dispatcher._handle_user_prompt_submit calls render_user_context(set(ctx['keywords'])) after run_session() and stashes it at ctx['user_context']; _format_system_prompt appends it verbatim above '## Injected memories'. Two tiers: always_on nodes (persona, financial profile) every turn; the rest (work domains) only when the prompt's tokens hit their tags.",
+      "evidence": [
+        "hooks/user_context.py:render_user_context",
+        "hooks/user_context.py:_load_graph",
+        "hooks/user_context.py:_score_nodes",
+        "hooks/dispatcher.py:_handle_user_prompt_submit",
+        "tests/test_user_context.py"
+      ],
+      "invariants": [
+        "A read/parse failure of the ontology JSON falls back to the last good copy in the persistent 'user_context' cache (key 'json'), then to dev_personality.md verbatim (its '# Dev personality' H1 demoted to H2), then to \"\" — the turn is never blocked and persona context is never silently dropped.",
+        "Scored nodes match on raw tag-token count (>= _MIN_TAG_HITS), not a Jaccard ratio: the curated tag lists are long enough that a ratio threshold would never be reached. always_on nodes are never eligible for the scored block.",
+        "render_user_context owns all headings; _format_system_prompt treats its return value as an opaque pre-stripped string."
+      ],
+      "last_validated": "2026-09-09T00:00:00.000000+00:00",
+      "module": "hooks/user_context.py",
+      "name": "user-context-ontology-render"
     }
   },
   "meta": {
     "commit": "5f62c6b5150a20fe7198d7bd6c155c4b3c0d3101",
     "extracted_at": "2026-07-23T05:42:23Z",
     "note": "incremental upsert (task:a2fd402d)",
-    "updated_at": "2026-09-03T06:43:01.773785+00:00"
+    "updated_at": "2026-09-21T03:09:05.205547+00:00"
   }
 }
