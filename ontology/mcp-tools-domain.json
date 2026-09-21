@@ -2,9 +2,27 @@
   "meta": {
     "title": "MCP tool ontology - servers, tool groups, broad categories",
     "as_of": "2026-09-21",
-    "frame": "Broad-category routing map of every MCP server/connector available to Claude Code on this machine. Nodes: category (what a tool is for), server, tool_group (a server's tool namespace, with its tools listed). Relations: provides, in_category, overlaps_with (interchangeable/duplicate tool groups - the routing ambiguity), feeds (category-level workflow). Not an ontology/ financial graph: it does not use taxonomy.json.",
+    "frame": "Broad-category routing map of every MCP server/connector available to Claude Code on this machine. Nodes: category (what a tool is for), server, tool_group (a server's tool namespace, with its tools listed). Relations: provides, in_category, overlaps_with (interchangeable/duplicate tool groups - the routing ambiguity), feeds (category-level workflow). Not an ontology/ financial graph: it does not use taxonomy.json. bounded_contexts: one entry per MCP server (the server:<name> node), stating what it owns and where its boundary is - the single source for server descriptions.",
     "source": "tool names from the session's tool list; tool_group.tools is abridged, not exhaustive. Regenerate via live tools/list introspection for exact schemas.",
     "often_follows_source": "~/.claude/claude_hooks.sqlite hook_logs `PTU enter` lines; regenerate with scripts/mine_tool_sequences.py"
+  },
+  "bounded_contexts": {
+    "claude-code": "Claude Code's own built-in tools, not an MCP server: shell and file editing, web search/fetch, subagent orchestration, and tool/skill discovery. Owns the act of working in the current workspace; it has no domain data of its own and every other context is reached through it.",
+    "claude-hooks": "This repo's local server: the memory store (MEMORY.sqlite, tool hints), code and diff RAG indexes, a scratch key-value store, a reasoning aid, and the hook/session observability tools (logs, checkpoints, server memory). Owns what the agent remembers and what happened in past sessions; it does not own tasks.",
+    "taskfw": "The task-framework server: task lifecycle (create, groom, implement, finish, introspect), decisions and commits per task, task-scoped memory, and the concept store of architectural facts. Owns why work was done and what each module promises; claude-hooks depends on it, never the reverse.",
+    "local-mac": "The user's own Mac reached through one Swift binary: Obsidian vault and its RAG, Apple Notes/Calendar/Reminders/Contacts/Mail/iMessage, Safari, system state and devices (power, sound, VPN, music, podcasts, time), a code RAG, local-model delegation and gold-regime market data. Owns local personal data and device control; hosted equivalents live in the claude_ai_* connectors.",
+    "wyckoff-analyzer": "Indian equity analysis: Wyckoff accumulation/spring/SOS detection, support and resistance, sector relative strength, momentum portfolio rebalance and exit checks, plus the data-refresh steps (delivery, F&O, short volume, run state) that feed them. Owns market-signal computation; it does not fetch pages itself, so scraped data arrives via ui_automation.",
+    "astrology": "Vedic astrology queries against the user's chart: planets and lagna, dasha and pratyantar timelines, divisional charts, yogas, gochar transits and panchang. Owns chart and timing computation; it interprets nothing outside astrology.",
+    "sysml-mcp": "SysML v2 modelling: parse and validate model text or files, symbol/definition/reference/hierarchy queries, complexity metrics and diagram preview. Owns the structural model under models/*.sysml; it renders diagrams but does not decide what the model should say.",
+    "claude-in-chrome": "Chrome driven through the browser extension: tabs, navigation, page reads, form input, page JavaScript, console/network inspection and GIF recording. Owns DOM-level browser automation in Chrome; Safari lives in local-mac and pixel-level control in computer-use.",
+    "computer-use": "Foreground, pixel-level desktop control: screenshots, clicks, typing, scrolling, dragging, opening apps and the clipboard, gated by per-app access. Owns anything with no DOM or accessibility handle; it blocks input to browsers, which is why browser work goes to Safari or Chrome instead.",
+    "cmux-cua": "Background, accessibility-tree driven app control that does not steal focus or move the cursor: launch apps, read window state, click/type by element index, record sessions. Owns unattended native-app automation; the foreground alternative is computer-use.",
+    "claude_ai_Claude_Docs": "Hosted living documents that people share, comment on and edit: create, read, update, delete, query, batch edit, export. Owns collaborative documents in the claude.ai account; the local vault is a separate store for the user's own notes.",
+    "claude_ai_Google_Drive": "Google Drive files: search, read, download, create, update, copy, trash, share, metadata, permissions and recent files. Owns hosted files and their sharing; nothing here is a note or a document in the Claude Docs sense.",
+    "claude_ai_Notion": "Notion workspace pages, reached through an authenticated connector. Only the authenticate/complete_authentication tools are listed here, so its boundary is 'Notion content once signed in'; local Obsidian notes are the alternative.",
+    "claude_ai_Slack": "Slack workspace messaging, reached through an authenticated connector. Only the authenticate/complete_authentication tools are listed here, so its boundary is 'Slack channels and threads once signed in'.",
+    "claude_ai_Gmail": "Gmail mail, reached through an authenticated connector. Only the authenticate/complete_authentication tools are listed here; Apple Mail in local-mac is the local alternative and the two overlap.",
+    "claude_ai_Google_Calendar": "Google Calendar events, reached through an authenticated connector. Only the authenticate/complete_authentication tools are listed here; Apple Calendar in local-mac is the local alternative and the two overlap."
   },
   "relation_types": {
     "provides": "server exposes the tool group",
@@ -85,92 +103,77 @@
     {
       "id": "server:astrology",
       "label": "astrology",
-      "kind": "server",
-      "definition": "MCP server / connector astrology"
+      "kind": "server"
     },
     {
       "id": "server:claude-hooks",
       "label": "claude-hooks",
-      "kind": "server",
-      "definition": "MCP server / connector claude-hooks"
+      "kind": "server"
     },
     {
       "id": "server:claude-in-chrome",
       "label": "claude-in-chrome",
-      "kind": "server",
-      "definition": "MCP server / connector claude-in-chrome"
+      "kind": "server"
     },
     {
       "id": "server:claude_ai_Claude_Docs",
       "label": "claude_ai_Claude_Docs",
-      "kind": "server",
-      "definition": "MCP server / connector claude_ai_Claude_Docs"
+      "kind": "server"
     },
     {
       "id": "server:claude_ai_Gmail",
       "label": "claude_ai_Gmail",
-      "kind": "server",
-      "definition": "MCP server / connector claude_ai_Gmail"
+      "kind": "server"
     },
     {
       "id": "server:claude_ai_Google_Calendar",
       "label": "claude_ai_Google_Calendar",
-      "kind": "server",
-      "definition": "MCP server / connector claude_ai_Google_Calendar"
+      "kind": "server"
     },
     {
       "id": "server:claude_ai_Google_Drive",
       "label": "claude_ai_Google_Drive",
-      "kind": "server",
-      "definition": "MCP server / connector claude_ai_Google_Drive"
+      "kind": "server"
     },
     {
       "id": "server:claude_ai_Notion",
       "label": "claude_ai_Notion",
-      "kind": "server",
-      "definition": "MCP server / connector claude_ai_Notion"
+      "kind": "server"
     },
     {
       "id": "server:claude_ai_Slack",
       "label": "claude_ai_Slack",
-      "kind": "server",
-      "definition": "MCP server / connector claude_ai_Slack"
+      "kind": "server"
     },
     {
       "id": "server:cmux-cua",
       "label": "cmux-cua",
-      "kind": "server",
-      "definition": "MCP server / connector cmux-cua"
+      "kind": "server"
     },
     {
       "id": "server:computer-use",
       "label": "computer-use",
-      "kind": "server",
-      "definition": "MCP server / connector computer-use"
+      "kind": "server"
     },
     {
       "id": "server:local-mac",
       "label": "local-mac",
-      "kind": "server",
-      "definition": "MCP server / connector local-mac"
+      "kind": "server"
     },
     {
       "id": "server:sysml-mcp",
       "label": "sysml-mcp",
-      "kind": "server",
-      "definition": "MCP server / connector sysml-mcp"
+      "kind": "server"
     },
     {
       "id": "server:taskfw",
       "label": "taskfw",
-      "kind": "server",
-      "definition": "MCP server / connector taskfw"
+      "kind": "server"
     },
     {
       "id": "server:wyckoff-analyzer",
       "label": "wyckoff-analyzer",
-      "kind": "server",
-      "definition": "MCP server / connector wyckoff-analyzer"
+      "kind": "server"
     },
     {
       "id": "group:wyckoff-analyzer:wyckoff-analyzer",
@@ -857,8 +860,7 @@
     {
       "id": "server:claude-code",
       "label": "claude-code",
-      "kind": "server",
-      "definition": "Claude Code built-in tools"
+      "kind": "server"
     },
     {
       "id": "scope:all_tool_calls",

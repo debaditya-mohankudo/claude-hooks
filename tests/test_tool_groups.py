@@ -170,3 +170,25 @@ def test_no_curated_keyword_is_silently_dropped_by_tokenise():
     lost = {n["id"]: [k for k in n["keywords"] if tokenise(k) != {k}]
             for n in load_graph()["nodes"] if n["kind"] == "tool_group"}
     assert {g: k for g, k in lost.items() if k} == {}
+
+
+# --- bounded_contexts (task:3fea9bfe): one description per MCP server, single source ---
+
+def test_bounded_contexts_match_servers_exactly():
+    g = load_graph()
+    servers = {n["id"].split(":", 1)[1] for n in g["nodes"] if n["kind"] == "server"}
+    assert servers == set(g["bounded_contexts"])
+    assert [k for k, v in g["bounded_contexts"].items() if len(v) < 40] == []
+
+
+def test_every_tool_group_belongs_to_a_bounded_context():
+    g = load_graph()
+    orphans = [n["id"] for n in g["nodes"] if n["kind"] == "tool_group"
+               and n["id"].split(":")[1] not in g["bounded_contexts"]]
+    assert orphans == []
+
+
+def test_server_nodes_carry_no_second_copy_of_the_description():
+    # Placeholder "MCP server / connector X" definitions were removed; the map is the source.
+    g = load_graph()
+    assert [n["id"] for n in g["nodes"] if n["kind"] == "server" and "definition" in n] == []

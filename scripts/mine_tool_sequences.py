@@ -40,8 +40,9 @@ def seed(g):
     """Add built-in tool groups and hook-event nodes (idempotent, by id)."""
     have = {n["id"] for n in g["nodes"]}
     add = lambda n: n["id"] in have or (g["nodes"].append(n), have.add(n["id"]))
-    add({"id": "server:claude-code", "label": "claude-code", "kind": "server",
-         "definition": "Claude Code built-in tools"})
+    # No `definition` here: server descriptions live in the graph's top-level
+    # `bounded_contexts` map, the single source (task:3fea9bfe).
+    add({"id": "server:claude-code", "label": "claude-code", "kind": "server"})
     add({"id": "scope:all_tool_calls", "label": "All tool calls", "kind": "scope",
          "definition": "every tool invocation, built-in and MCP"})
     for grp, tools in BUILTIN.items():
