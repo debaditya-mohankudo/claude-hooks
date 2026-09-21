@@ -487,6 +487,34 @@
       "module": "hooks/server_memory.py",
       "name": "server-memory-tool-recording"
     },
+    "server-memory-window-and-snapshot": {
+      "confidence": 0.8,
+      "contracts": [
+        "_insert copies 'prompt' and 'tool' rows (session, ts, type, content only; no args/result) into routing_snapshot before the eviction DELETE, INSERT OR IGNORE on UNIQUE(claude_session_id, ts, type, content)",
+        "Snapshot failure never raises out of _insert (fail open, logged)",
+        "server_memory.sqlite is auto_vacuum=INCREMENTAL; a NONE-mode file is migrated by one VACUUM in _connect, and each eviction is followed by PRAGMA incremental_vacuum so file size tracks live rows"
+      ],
+      "created_at": "2026-09-21T04:13:44.338330+00:00",
+      "description": "ServerMemory is the single write path (_insert) for the capped event window in ~/.claude/server_memory.sqlite. Prompt and tool rows are also copied into the append-only ~/.claude/routing_snapshot.sqlite before the eviction DELETE.",
+      "evidence": [
+        "hooks/server_memory.py:ServerMemory._snapshot",
+        "hooks/server_memory.py:ServerMemory._insert",
+        "tests/test_server_memory.py:test_snapshot_keeps_turns_the_window_evicts",
+        "tests/test_server_memory.py:test_snapshot_survives_reset_without_duplicates_or_loss",
+        "tests/test_server_memory.py:test_eviction_returns_pages_to_the_file",
+        "hooks/server_memory.py:ServerMemory.load",
+        "tests/test_server_memory.py:test_load_backfills_rows_missing_from_the_snapshot"
+      ],
+      "invariants": [
+        "The snapshot never keys on server_memory.id (no AUTOINCREMENT; reset() restarts it)",
+        "test-/pytest-/api-test- sessions are never snapshotted; tests redirect _SNAPSHOT_DB via the autouse conftest fixture",
+        "ServerMemory.load() (run at server lifespan startup) calls backfill_snapshot(), which is idempotent and fail-open"
+      ],
+      "last_validated": "2026-09-21T04:26:12.088254+00:00",
+      "module": "hooks/server_memory.py",
+      "name": "server-memory-window-and-snapshot",
+      "related": []
+    },
     "session-graph-test-production-routing": {
       "confidence": 0.9,
       "contracts": [
@@ -613,6 +641,6 @@
     "commit": "5f62c6b5150a20fe7198d7bd6c155c4b3c0d3101",
     "extracted_at": "2026-07-23T05:42:23Z",
     "note": "incremental upsert (task:a2fd402d)",
-    "updated_at": "2026-09-21T03:28:52.030182+00:00"
+    "updated_at": "2026-09-21T04:26:12.088356+00:00"
   }
 }
