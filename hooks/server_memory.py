@@ -43,6 +43,10 @@ class ServerMemory:
 
     _DB = Path.home() / ".claude" / "server_memory.sqlite"
     _MAX_ENTRIES = 1000          # rolling window — newest N events kept
+    # Append-only copy of prompt/tool rows, written before the window can evict
+    # them (task:894f0a65). Separate file so the capped store stays capped.
+    _SNAPSHOT_DB = Path.home() / ".claude" / "routing_snapshot.sqlite"
+    _SNAPSHOT_TYPES = ("prompt", "tool")
     _cache: list[dict] = []      # in-memory session: chronological event dicts
 
     # ── storage ──────────────────────────────────────────────────────────────
@@ -82,6 +86,59 @@ class ServerMemory:
         return conn
 
     @classmethod
+    def _snapshot_connect(cls) -> sqlite3.Connection:
+        conn = sqlite3.connect(str(cls._SNAPSHOT_DB), timeout=1)
+        # No id, no eviction, no updates: the UNIQUE key is what makes a re-copy a no-op.
+        # server_memory's own id is not usable as a key — it has no AUTOINCREMENT and
+        # reset() restarts it at 1. args/result are deliberately not copied.
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS routing_snapshot (
+                   claude_session_id TEXT,
+                   ts                REAL,
+                   type              TEXT,   -- 'prompt' | 'tool'
+                   content           TEXT,   -- prompt text / tool short-name
+                   UNIQUE (claude_session_id, ts, type, content)
+               )"""
+        )
+        return conn
+
+    @classmethod
+    def _snapshot(cls, rows: list[tuple]) -> int:
+        """INSERT OR IGNORE (session, ts, type, content) rows; never raises. Returns rows added."""
+        rows = [r for r in rows if r[2] in cls._SNAPSHOT_TYPES]
+        if not rows:
+            return 0
+        try:
+            conn = cls._snapshot_connect()
+            try:
+                before = conn.total_changes
+                conn.executemany(
+                    "INSERT OR IGNORE INTO routing_snapshot VALUES (?, ?, ?, ?)", rows)
+                conn.commit()
+                return conn.total_changes - before
+            finally:
+                conn.close()
+        except Exception as exc:  # fail open: the hook path must not notice
+            _log.warning("[server_memory] snapshot failed: %s", exc)
+            return 0
+
+    @classmethod
+    def backfill_snapshot(cls) -> int:
+        """One-off / idempotent: copy whatever the live window still holds."""
+        try:
+            conn = cls._connect()
+            try:
+                rows = conn.execute(
+                    "SELECT claude_session_id, ts, type, content FROM server_memory "
+                    "WHERE type IN ('prompt','tool')").fetchall()
+            finally:
+                conn.close()
+        except Exception as exc:
+            _log.warning("[server_memory] backfill read failed: %s", exc)
+            return 0
+        return cls._snapshot([tuple(r) for r in rows if not (r[0] or "").startswith(_TEST_PREFIXES)])
+
+    @classmethod
     def load(cls) -> None:
         """Hydrate the in-memory session from SQLite — call at server startup/reload."""
         try:
@@ -114,6 +171,8 @@ class ServerMemory:
             "args": args,
             "result": result,
         }
+        # Copy before the eviction DELETE below can drop the row.
+        cls._snapshot([(ev["claude_session_id"], ev["ts"], type, content)])
         # Write-through to SQLite (durable), then mirror into the in-memory session.
         try:
             conn = cls._connect()

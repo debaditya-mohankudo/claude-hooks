@@ -269,3 +269,15 @@ def query_test_logs(logger: str = "", search: str | list[str] = "", level: str =
     with _active_connect() as conn:
         conn.row_factory = sqlite3.Row
         return [dict(r) for r in conn.execute(sql, params).fetchall()]
+
+
+@pytest.fixture(autouse=True)
+def _isolate_routing_snapshot(tmp_path, monkeypatch):
+    """ServerMemory._insert copies prompt/tool rows into ~/.claude/routing_snapshot.sqlite
+    (task:894f0a65). Any test that records events must never reach the real one: it is
+    append-only, so test rows could not be removed afterwards without a manual delete."""
+    try:
+        import hooks.server_memory as sm
+    except Exception:
+        return
+    monkeypatch.setattr(sm.ServerMemory, "_SNAPSHOT_DB", tmp_path / "routing_snapshot.sqlite")

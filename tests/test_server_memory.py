@@ -291,3 +291,52 @@ def test_mcp_wrapper_shows_result_snippet_alongside_tool():
     with patch("src.tools.hooks.urllib.request.urlopen", return_value=cm):
         out = h.handle_server_memory(n_events=10)
     assert "vault__read → ok: 3 notes" in out
+
+
+# ── routing snapshot (task:894f0a65) ──────────────────────────────────────────
+
+@pytest.fixture
+def _snap(tmp_path, monkeypatch):
+    monkeypatch.setattr(sm.ServerMemory, "_SNAPSHOT_DB", tmp_path / "snap.sqlite")
+    return tmp_path / "snap.sqlite"
+
+
+def _snap_rows(path):
+    import sqlite3
+    c = sqlite3.connect(path)
+    try:
+        return c.execute("SELECT claude_session_id, type, content FROM routing_snapshot ORDER BY ts").fetchall()
+    finally:
+        c.close()
+
+
+def test_snapshot_keeps_turns_the_window_evicts(_snap, monkeypatch):
+    monkeypatch.setattr(sm.ServerMemory, "_MAX_ENTRIES", 3)
+    sm.record_prompt("s1", "first")
+    sm.record_tool("s1", "tasks__create")
+    for i in range(5):
+        sm.record_task("s1", f"t{i}", "x")
+    assert [e["content"] for e in sm.get_server_memory(50)["events"]].count("first") == 0
+    assert ("s1", "prompt", "first") in _snap_rows(_snap)
+    assert ("s1", "tool", "tasks__create") in _snap_rows(_snap)
+
+
+def test_snapshot_survives_reset_without_duplicates_or_loss(_snap):
+    sm.record_prompt("s1", "a")
+    sm.ServerMemory.reset()
+    sm.record_prompt("s1", "b")
+    assert [r[2] for r in _snap_rows(_snap)] == ["a", "b"]
+    assert sm.ServerMemory.backfill_snapshot() == 0  # "b" is already copied
+    assert [r[2] for r in _snap_rows(_snap)] == ["a", "b"]
+
+
+def test_snapshot_skips_test_sessions_and_other_types(_snap):
+    sm.record_prompt("test-abc", "secret")
+    sm.record_task("s1", "t1", "title")
+    assert not _snap.exists() or _snap_rows(_snap) == []
+
+
+def test_unwritable_snapshot_does_not_break_the_hook_path(tmp_path, monkeypatch):
+    monkeypatch.setattr(sm.ServerMemory, "_SNAPSHOT_DB", tmp_path / "no" / "such" / "dir" / "s.sqlite")
+    sm.record_prompt("s1", "still recorded")
+    assert sm.get_server_memory()["events"][-1]["content"] == "still recorded"

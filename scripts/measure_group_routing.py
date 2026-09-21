@@ -35,6 +35,8 @@ from langchain_learning.retrievers import KeywordOverlapScorer
 from langchain_learning.tool_groups import _index, group_of, load_graph, match_groups
 
 SERVER_MEMORY_DB = Path.home() / ".claude" / "server_memory.sqlite"
+# Append-only copy (task:894f0a65); the live window above is a capped rolling one.
+SNAPSHOT_DB = Path.home() / ".claude" / "routing_snapshot.sqlite"
 
 
 def turns(rows: list[tuple]) -> list[tuple[str, str, list[str]]]:
@@ -128,20 +130,23 @@ def report(res: dict, window: tuple[float, float] | None) -> str:
         "-- disagreements --"]
     lines += [f"  [{tag}] {p!r} -> {tools}" for p, tools, tag in res["examples"]] or ["  none"]
     lines += ["caveats: DB keywords/counts were learned from these same prompts (replay favours DB);",
-              "         small rolling window; sample changes on every run."]
+              "         sample grows over time; compare runs by the printed window, not by run."]
     return "\n".join(lines)
 
 
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--top-groups", type=int, default=3)
+    ap.add_argument("--source", choices=("snapshot", "live"), default="snapshot",
+                    help="snapshot: append-only routing_snapshot.sqlite (default); live: capped server_memory window")
     args = ap.parse_args()
     graph = load_graph()
-    if not graph or not SERVER_MEMORY_DB.exists() or not config.tool_hints_db.exists():
-        print("missing graph, server_memory.sqlite or tool_hints.sqlite", file=sys.stderr)
+    db, table = (SNAPSHOT_DB, "routing_snapshot") if args.source == "snapshot" else (SERVER_MEMORY_DB, "server_memory")
+    if not graph or not db.exists() or not config.tool_hints_db.exists():
+        print(f"missing graph, {db.name} or tool_hints.sqlite", file=sys.stderr)
         return 1
-    conn = sqlite3.connect(f"file:{SERVER_MEMORY_DB}?mode=ro", uri=True)
-    rows = conn.execute("SELECT claude_session_id, ts, type, content FROM server_memory "
+    conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    rows = conn.execute(f"SELECT claude_session_id, ts, type, content FROM {table} "
                         "WHERE type IN ('prompt','tool')").fetchall()
     conn.close()
     hconn = sqlite3.connect(f"file:{config.tool_hints_db}?mode=ro", uri=True)
