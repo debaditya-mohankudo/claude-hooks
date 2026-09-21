@@ -177,308 +177,682 @@
       "label": "wyckoff-analyzer/wyckoff-analyzer",
       "kind": "tool_group",
       "category": "market_analysis",
-      "tools": "db_init_state, update_run, update_delivery, update_fno, update_short_volume, analyze_accumulation, check_spring_or_sos, get_support_resistance, plot_sr_chart, sector_relative_strength, signal_weight_table, next_step, classify_announcements, momentum_* (universe, rebalance, portfolio_rebalance, check_exits, archive_update)"
+      "tools": "db_init_state, update_run, update_delivery, update_fno, update_short_volume, analyze_accumulation, check_spring_or_sos, get_support_resistance, plot_sr_chart, sector_relative_strength, signal_weight_table, next_step, classify_announcements, momentum_* (universe, rebalance, portfolio_rebalance, check_exits, archive_update)",
+      "keywords": [
+        "wyckoff",
+        "accumulation",
+        "spring",
+        "momentum",
+        "delivery",
+        "fno",
+        "stock",
+        "stocks",
+        "support",
+        "resistance",
+        "sector",
+        "rebalance",
+        "nse"
+      ]
     },
     {
       "id": "group:local-mac:market",
       "label": "local-mac/market",
       "kind": "tool_group",
       "category": "market_analysis",
-      "tools": "gold_regime_history, gold_regime_projection"
+      "tools": "gold_regime_history, gold_regime_projection",
+      "keywords": [
+        "gold",
+        "regime",
+        "projection"
+      ]
     },
     {
       "id": "group:local-mac:vault",
       "label": "local-mac/vault",
       "kind": "tool_group",
       "category": "memory_knowledge",
-      "tools": "Obsidian vault: read, write, append, list, tags, links, backlinks, outline, section/filename/folder search, tasks, daily_read, stats"
+      "tools": "Obsidian vault: read, write, append, list, tags, links, backlinks, outline, section/filename/folder search, tasks, daily_read, stats",
+      "keywords": [
+        "vault",
+        "obsidian",
+        "note",
+        "notes",
+        "backlinks",
+        "outline",
+        "daily",
+        "markdown"
+      ]
     },
     {
       "id": "group:local-mac:vault_rag",
       "label": "local-mac/vault_rag",
       "kind": "tool_group",
       "category": "memory_knowledge",
-      "tools": "query_vault, smart_search, fts_vault, index_vault/file/status, section maintenance"
+      "tools": "query_vault, smart_search, fts_vault, index_vault/file/status, section maintenance",
+      "keywords": [
+        "vault",
+        "semantic",
+        "embedding",
+        "embeddings",
+        "index",
+        "fts",
+        "obsidian"
+      ]
     },
     {
       "id": "group:local-mac:notes",
       "label": "local-mac/notes",
       "kind": "tool_group",
       "category": "memory_knowledge",
-      "tools": "Apple Notes: add, read, list, delete, folders"
+      "tools": "Apple Notes: add, read, list, delete, folders",
+      "keywords": [
+        "apple",
+        "notes",
+        "note",
+        "folder"
+      ]
     },
     {
       "id": "group:local-mac:code_rag",
       "label": "local-mac/code_rag",
       "kind": "tool_group",
       "category": "memory_knowledge",
-      "tools": "index_files, query, smart_search"
+      "tools": "index_files, query, smart_search",
+      "keywords": [
+        "code",
+        "rag",
+        "embedding",
+        "embeddings",
+        "semantic",
+        "index",
+        "source"
+      ]
     },
     {
       "id": "group:claude-hooks:code_rag",
       "label": "claude-hooks/code_rag",
       "kind": "tool_group",
       "category": "memory_knowledge",
-      "tools": "index_files, query, smart_search"
+      "tools": "index_files, query, smart_search",
+      "keywords": [
+        "code",
+        "rag",
+        "embedding",
+        "embeddings",
+        "semantic",
+        "index",
+        "source"
+      ]
     },
     {
       "id": "group:claude-hooks:diff_rag",
       "label": "claude-hooks/diff_rag",
       "kind": "tool_group",
       "category": "memory_knowledge",
-      "tools": "index_commits, query, smart_search"
+      "tools": "index_commits, query, smart_search",
+      "keywords": [
+        "diff",
+        "commit",
+        "commits",
+        "history",
+        "rag",
+        "embedding"
+      ]
     },
     {
       "id": "group:claude-hooks:memory",
       "label": "claude-hooks/memory",
       "kind": "tool_group",
       "category": "memory_knowledge",
-      "tools": "MEMORY.sqlite: add, add_batch, get, list, search, delete, read_compact, tool_hints"
+      "tools": "MEMORY.sqlite: add, add_batch, get, list, search, delete, read_compact, tool_hints",
+      "keywords": [
+        "memory",
+        "memories",
+        "remember",
+        "recall",
+        "forget",
+        "feedback",
+        "sqlite"
+      ]
     },
     {
       "id": "group:claude-hooks:scratch",
       "label": "claude-hooks/scratch",
       "kind": "tool_group",
       "category": "memory_knowledge",
-      "tools": "get, set, list, delete, clear"
+      "tools": "get, set, list, delete, clear",
+      "keywords": [
+        "scratch",
+        "scratchpad",
+        "temporary",
+        "stash"
+      ]
     },
     {
       "id": "group:claude-hooks:think",
       "label": "claude-hooks/think",
       "kind": "tool_group",
       "category": "memory_knowledge",
-      "tools": "think"
+      "tools": "think",
+      "keywords": [
+        "think",
+        "reason",
+        "reasoning",
+        "deliberate"
+      ]
     },
     {
       "id": "group:claude-hooks:hooks",
       "label": "claude-hooks/hooks",
       "kind": "tool_group",
       "category": "hooks_observability",
-      "tools": "checkpoint_query, read_logs_sqlite, server_memory, session_id"
+      "tools": "checkpoint_query, read_logs_sqlite, server_memory, session_id",
+      "keywords": [
+        "hook",
+        "hooks",
+        "logs",
+        "log",
+        "checkpoint",
+        "session",
+        "server",
+        "event",
+        "events"
+      ]
     },
     {
       "id": "group:taskfw:tasks",
       "label": "taskfw/tasks",
       "kind": "tool_group",
       "category": "task_management",
-      "tools": "create, get, list, search, update, finish, phase, set_active, active, check_item, link/unlink/edges, add_commit/decision/introspection, context, logs, format_commit_message, grooming_accuracy, log_skill_invocation"
+      "tools": "create, get, list, search, update, finish, phase, set_active, active, check_item, link/unlink/edges, add_commit/decision/introspection, context, logs, format_commit_message, grooming_accuracy, log_skill_invocation",
+      "keywords": [
+        "task",
+        "tasks",
+        "groom",
+        "grooming",
+        "implement",
+        "introspection",
+        "finish",
+        "epic",
+        "checklist",
+        "decision",
+        "taskfw"
+      ]
     },
     {
       "id": "group:taskfw:task_memory",
       "label": "taskfw/task_memory",
       "kind": "tool_group",
       "category": "memory_knowledge",
-      "tools": "record, recall, get, link, supersede, forget"
+      "tools": "record, recall, get, link, supersede, forget",
+      "keywords": [
+        "lesson",
+        "lessons",
+        "recall",
+        "supersede",
+        "learned",
+        "retrospective"
+      ]
     },
     {
       "id": "group:taskfw:concept",
       "label": "taskfw/concept",
       "kind": "tool_group",
       "category": "task_management",
-      "tools": "list, get, search, upsert, delete, modules, uncovered"
+      "tools": "list, get, search, upsert, delete, modules, uncovered",
+      "keywords": [
+        "concept",
+        "concepts",
+        "invariant",
+        "invariants",
+        "contract",
+        "module",
+        "modules",
+        "architecture"
+      ]
     },
     {
       "id": "group:local-mac:calendar",
       "label": "local-mac/calendar",
       "kind": "tool_group",
       "category": "personal_comms",
-      "tools": "add_event, delete_event, list_events, get_events_by_date, get_upcoming_events, get_noise_summary"
+      "tools": "add_event, delete_event, list_events, get_events_by_date, get_upcoming_events, get_noise_summary",
+      "keywords": [
+        "calendar",
+        "event",
+        "events",
+        "meeting",
+        "schedule",
+        "agenda",
+        "upcoming"
+      ]
     },
     {
       "id": "group:local-mac:reminders",
       "label": "local-mac/reminders",
       "kind": "tool_group",
       "category": "personal_comms",
-      "tools": "create, list, complete, delete"
+      "tools": "create, list, complete, delete",
+      "keywords": [
+        "reminder",
+        "reminders",
+        "remind",
+        "todo",
+        "due"
+      ]
     },
     {
       "id": "group:local-mac:contacts",
       "label": "local-mac/contacts",
       "kind": "tool_group",
       "category": "personal_comms",
-      "tools": "search"
+      "tools": "search",
+      "keywords": [
+        "contact",
+        "contacts",
+        "phone",
+        "number",
+        "address"
+      ]
     },
     {
       "id": "group:local-mac:mail",
       "label": "local-mac/mail",
       "kind": "tool_group",
       "category": "personal_comms",
-      "tools": "search, read, get, compose, move, delete, list_mailboxes, list_drafts, add_local_mailbox"
+      "tools": "search, read, get, compose, move, delete, list_mailboxes, list_drafts, add_local_mailbox",
+      "keywords": [
+        "mail",
+        "email",
+        "emails",
+        "inbox",
+        "draft",
+        "drafts",
+        "mailbox",
+        "compose"
+      ]
     },
     {
       "id": "group:local-mac:imessage",
       "label": "local-mac/imessage",
       "kind": "tool_group",
       "category": "personal_comms",
-      "tools": "read, send"
+      "tools": "read, send",
+      "keywords": [
+        "imessage",
+        "message",
+        "messages",
+        "text",
+        "sms",
+        "chat"
+      ]
     },
     {
       "id": "group:claude_ai_Gmail:claude_ai_Gmail",
       "label": "claude_ai_Gmail/claude_ai_Gmail",
       "kind": "tool_group",
       "category": "personal_comms",
-      "tools": "authenticate, complete_authentication (connector, auth-gated)"
+      "tools": "authenticate, complete_authentication (connector, auth-gated)",
+      "keywords": [
+        "gmail",
+        "email",
+        "inbox"
+      ]
     },
     {
       "id": "group:claude_ai_Google_Calendar:claude_ai_Google_Calendar",
       "label": "claude_ai_Google_Calendar/claude_ai_Google_Calendar",
       "kind": "tool_group",
       "category": "personal_comms",
-      "tools": "authenticate, complete_authentication (connector, auth-gated)"
+      "tools": "authenticate, complete_authentication (connector, auth-gated)",
+      "keywords": [
+        "google",
+        "calendar",
+        "gcal",
+        "meeting"
+      ]
     },
     {
       "id": "group:claude_ai_Slack:claude_ai_Slack",
       "label": "claude_ai_Slack/claude_ai_Slack",
       "kind": "tool_group",
       "category": "personal_comms",
-      "tools": "authenticate, complete_authentication (connector, auth-gated)"
+      "tools": "authenticate, complete_authentication (connector, auth-gated)",
+      "keywords": [
+        "slack",
+        "channel",
+        "thread",
+        "workspace"
+      ]
     },
     {
       "id": "group:claude_ai_Claude_Docs:claude_ai_Claude_Docs",
       "label": "claude_ai_Claude_Docs/claude_ai_Claude_Docs",
       "kind": "tool_group",
       "category": "docs_collab",
-      "tools": "create, read, update, delete, query, batch, export, guide"
+      "tools": "create, read, update, delete, query, batch, export, guide",
+      "keywords": [
+        "doc",
+        "docs",
+        "document",
+        "documents",
+        "memo",
+        "spec",
+        "runbook",
+        "comment"
+      ]
     },
     {
       "id": "group:claude_ai_Google_Drive:claude_ai_Google_Drive",
       "label": "claude_ai_Google_Drive/claude_ai_Google_Drive",
       "kind": "tool_group",
       "category": "docs_collab",
-      "tools": "search_files, read/download/create/update/copy/trash/share, metadata, permissions, list_recent_files"
+      "tools": "search_files, read/download/create/update/copy/trash/share, metadata, permissions, list_recent_files",
+      "keywords": [
+        "drive",
+        "google",
+        "spreadsheet",
+        "share",
+        "sharing",
+        "file",
+        "folder"
+      ]
     },
     {
       "id": "group:claude_ai_Notion:claude_ai_Notion",
       "label": "claude_ai_Notion/claude_ai_Notion",
       "kind": "tool_group",
       "category": "docs_collab",
-      "tools": "authenticate, complete_authentication (connector, auth-gated)"
+      "tools": "authenticate, complete_authentication (connector, auth-gated)",
+      "keywords": [
+        "notion",
+        "page",
+        "database",
+        "wiki"
+      ]
     },
     {
       "id": "group:local-mac:safari",
       "label": "local-mac/safari",
       "kind": "tool_group",
       "category": "ui_automation",
-      "tools": "open, navigate, read, js, list_tabs, close_tab, screenshot, back/forward/reload, current_url/title"
+      "tools": "open, navigate, read, js, list_tabs, close_tab, screenshot, back/forward/reload, current_url/title",
+      "keywords": [
+        "safari",
+        "browser",
+        "tab",
+        "tabs",
+        "webpage",
+        "url",
+        "website"
+      ]
     },
     {
       "id": "group:computer-use:computer-use",
       "label": "computer-use/computer-use",
       "kind": "tool_group",
       "category": "ui_automation",
-      "tools": "screenshot, click variants, type, key, scroll, drag, zoom, open_application, request_access, clipboard"
+      "tools": "screenshot, click variants, type, key, scroll, drag, zoom, open_application, request_access, clipboard",
+      "keywords": [
+        "screenshot",
+        "click",
+        "desktop",
+        "screen",
+        "mouse",
+        "keyboard",
+        "cursor"
+      ]
     },
     {
       "id": "group:cmux-cua:cmux-cua",
       "label": "cmux-cua/cmux-cua",
       "kind": "tool_group",
       "category": "ui_automation",
-      "tools": "background AX-tree driven app control: launch_app, get_window_state, click, type_text, press_key, sessions, recording"
+      "tools": "background AX-tree driven app control: launch_app, get_window_state, click, type_text, press_key, sessions, recording",
+      "keywords": [
+        "background",
+        "accessibility",
+        "window",
+        "app",
+        "automation",
+        "cua",
+        "cmux"
+      ]
     },
     {
       "id": "group:claude-in-chrome:claude-in-chrome",
       "label": "claude-in-chrome/claude-in-chrome",
       "kind": "tool_group",
       "category": "ui_automation",
-      "tools": "tabs, navigate, read_page, computer, form_input, javascript_tool, console/network reads, gif_creator"
+      "tools": "tabs, navigate, read_page, computer, form_input, javascript_tool, console/network reads, gif_creator",
+      "keywords": [
+        "chrome",
+        "browser",
+        "page",
+        "console",
+        "network",
+        "form",
+        "gif",
+        "scrape"
+      ]
     },
     {
       "id": "group:local-mac:system",
       "label": "local-mac/system",
       "kind": "tool_group",
       "category": "system_control",
-      "tools": "battery/cpu/memory status, process_list/kill, clipboard, notify, sleep_*, spotlight_search, icloud_list"
+      "tools": "battery/cpu/memory status, process_list/kill, clipboard, notify, sleep_*, spotlight_search, icloud_list",
+      "keywords": [
+        "battery",
+        "cpu",
+        "memory",
+        "process",
+        "clipboard",
+        "notify",
+        "notification",
+        "sleep",
+        "spotlight",
+        "icloud",
+        "disk"
+      ]
     },
     {
       "id": "group:local-mac:sound",
       "label": "local-mac/sound",
       "kind": "tool_group",
       "category": "system_control",
-      "tools": "volume, mute, output devices"
+      "tools": "volume, mute, output devices",
+      "keywords": [
+        "volume",
+        "mute",
+        "speaker",
+        "speakers",
+        "audio",
+        "output",
+        "headphones"
+      ]
     },
     {
       "id": "group:local-mac:vpn",
       "label": "local-mac/vpn",
       "kind": "tool_group",
       "category": "system_control",
-      "tools": "connect, disconnect, pause, status"
+      "tools": "connect, disconnect, pause, status",
+      "keywords": [
+        "vpn",
+        "tunnel",
+        "connect",
+        "disconnect"
+      ]
     },
     {
       "id": "group:local-mac:music",
       "label": "local-mac/music",
       "kind": "tool_group",
       "category": "system_control",
-      "tools": "play, pause, next, playlists, search_play, volume"
+      "tools": "play, pause, next, playlists, search_play, volume",
+      "keywords": [
+        "music",
+        "song",
+        "songs",
+        "playlist",
+        "playlists",
+        "track",
+        "play",
+        "album"
+      ]
     },
     {
       "id": "group:local-mac:podcasts",
       "label": "local-mac/podcasts",
       "kind": "tool_group",
       "category": "system_control",
-      "tools": "list, episodes, recent, in_progress"
+      "tools": "list, episodes, recent, in_progress",
+      "keywords": [
+        "podcast",
+        "podcasts",
+        "episode",
+        "episodes"
+      ]
     },
     {
       "id": "group:local-mac:time",
       "label": "local-mac/time",
       "kind": "tool_group",
       "category": "system_control",
-      "tools": "now, wait, alarm, play_sound"
+      "tools": "now, wait, alarm, play_sound",
+      "keywords": [
+        "alarm",
+        "timer",
+        "wait",
+        "clock",
+        "hour",
+        "hours",
+        "minutes"
+      ]
     },
     {
       "id": "group:local-mac:connector",
       "label": "local-mac/connector",
       "kind": "tool_group",
       "category": "system_control",
-      "tools": "execute_action, list_actions, health"
+      "tools": "execute_action, list_actions, health",
+      "keywords": [
+        "connector",
+        "action",
+        "actions",
+        "integration"
+      ]
     },
     {
       "id": "group:local-mac:ollama_agent",
       "label": "local-mac/ollama_agent",
       "kind": "tool_group",
       "category": "local_llm",
-      "tools": "chat, run"
+      "tools": "chat, run",
+      "keywords": [
+        "ollama",
+        "local",
+        "llm",
+        "model",
+        "offline"
+      ]
     },
     {
       "id": "group:sysml-mcp:sysml-mcp",
       "label": "sysml-mcp/sysml-mcp",
       "kind": "tool_group",
       "category": "modeling",
-      "tools": "parse, validate, validateFile, getDiagnostics, getSymbols, getDefinition, getReferences, getHierarchy, getComplexity, getModelSummary, preview, visualize*"
+      "tools": "parse, validate, validateFile, getDiagnostics, getSymbols, getDefinition, getReferences, getHierarchy, getComplexity, getModelSummary, preview, visualize*",
+      "keywords": [
+        "sysml",
+        "model",
+        "models",
+        "diagram",
+        "diagrams",
+        "mermaid",
+        "mbse",
+        "validate",
+        "parse"
+      ]
     },
     {
       "id": "group:astrology:aq",
       "label": "astrology/aq",
       "kind": "tool_group",
       "category": "astrology",
-      "tools": "planets, yogas, dasha_timeline, current_dasha, pd_timeline, navamsha, bhava_chalit, predict_events(_batch), strength_summary, ..."
+      "tools": "planets, yogas, dasha_timeline, current_dasha, pd_timeline, navamsha, bhava_chalit, predict_events(_batch), strength_summary, ...",
+      "keywords": [
+        "astrology",
+        "dasha",
+        "yoga",
+        "yogas",
+        "navamsha",
+        "nakshatra",
+        "horoscope",
+        "chart",
+        "predict",
+        "prediction"
+      ]
     },
     {
       "id": "group:astrology:astrology",
       "label": "astrology/astrology",
       "kind": "tool_group",
       "category": "astrology",
-      "tools": "d9, d10, d12, mahadasha, tarabala"
+      "tools": "d9, d10, d12, mahadasha, tarabala",
+      "keywords": [
+        "astrology",
+        "divisional",
+        "mahadasha",
+        "tarabala",
+        "navamsa"
+      ]
     },
     {
       "id": "group:astrology:gochar",
       "label": "astrology/gochar",
       "kind": "tool_group",
       "category": "astrology",
-      "tools": "summary, house, dasha_tally"
+      "tools": "summary, house, dasha_tally",
+      "keywords": [
+        "gochar",
+        "transit",
+        "transits",
+        "saturn",
+        "jupiter",
+        "sade"
+      ]
     },
     {
       "id": "group:astrology:panchang",
       "label": "astrology/panchang",
       "kind": "tool_group",
       "category": "astrology",
-      "tools": "today, date, rahukaal"
+      "tools": "today, date, rahukaal",
+      "keywords": [
+        "panchang",
+        "tithi",
+        "rahukaal",
+        "rahu",
+        "muhurta",
+        "auspicious"
+      ]
     },
     {
       "id": "group:astrology:planets",
       "label": "astrology/planets",
       "kind": "tool_group",
       "category": "astrology",
-      "tools": "today, date, lagna"
+      "tools": "today, date, lagna",
+      "keywords": [
+        "planet",
+        "planets",
+        "lagna",
+        "ascendant",
+        "ephemeris",
+        "position"
+      ]
     },
     {
       "id": "server:claude-code",
@@ -497,7 +871,20 @@
       "label": "claude-code/core_editing",
       "kind": "tool_group",
       "category": "builtin_core_editing",
-      "tools": "Bash, Read, Edit, Write, NotebookEdit"
+      "tools": "Bash, Read, Edit, Write, NotebookEdit",
+      "keywords": [
+        "edit",
+        "write",
+        "read",
+        "file",
+        "files",
+        "bash",
+        "shell",
+        "command",
+        "script",
+        "code",
+        "run"
+      ]
     },
     {
       "id": "builtin_core_editing",
@@ -510,7 +897,18 @@
       "label": "claude-code/web_research",
       "kind": "tool_group",
       "category": "builtin_web_research",
-      "tools": "WebSearch, WebFetch"
+      "tools": "WebSearch, WebFetch",
+      "keywords": [
+        "web",
+        "search",
+        "google",
+        "fetch",
+        "docs",
+        "documentation",
+        "website",
+        "internet",
+        "lookup"
+      ]
     },
     {
       "id": "builtin_web_research",
@@ -523,7 +921,18 @@
       "label": "claude-code/orchestration",
       "kind": "tool_group",
       "category": "builtin_orchestration",
-      "tools": "Agent, SendMessage, ListAgents, TaskStop, SubagentHandback, ScheduleWakeup, Monitor"
+      "tools": "Agent, SendMessage, ListAgents, TaskStop, SubagentHandback, ScheduleWakeup, Monitor",
+      "keywords": [
+        "agent",
+        "agents",
+        "subagent",
+        "subagents",
+        "background",
+        "schedule",
+        "monitor",
+        "parallel",
+        "delegate"
+      ]
     },
     {
       "id": "builtin_orchestration",
@@ -536,7 +945,16 @@
       "label": "claude-code/meta",
       "kind": "tool_group",
       "category": "builtin_meta",
-      "tools": "ToolSearch, Skill, AskUserQuestion, Artifact"
+      "tools": "ToolSearch, Skill, AskUserQuestion, Artifact",
+      "keywords": [
+        "skill",
+        "skills",
+        "tool",
+        "tools",
+        "artifact",
+        "question",
+        "discover"
+      ]
     },
     {
       "id": "builtin_meta",

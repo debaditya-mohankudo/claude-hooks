@@ -534,24 +534,29 @@
       "contracts": [
         "route_groups(hints, graph=None, top_groups=3) -> list[dict] ranks groups by hit count, then best hint position; each route carries group label, category, matched tools, the group's tools string, and overlap alternatives",
         "format_groups(routes) -> list[str] prompt lines, [] when there are no routes",
-        "group_of resolves 'grp__tool' by group name and bare names (wyckoff-analyzer) by the group's listed tools including 'prefix_*' wildcards"
+        "group_of resolves 'grp__tool' by group name and bare names (wyckoff-analyzer) by the group's listed tools including 'prefix_*' wildcards",
+        "match_groups(prompt_keywords, graph=None) -> {group id: matched keywords}: exact-token match against each group's tokenised curated keywords; a group without keywords is unmatched, a bad graph returns {}"
       ],
       "created_at": "2026-09-21T03:09:05.205414+00:00",
-      "description": "Lifts ScoreToolsNode's flat tool hints to tool groups using ontology/mcp-tools-domain.json, rendered as '## Suggested tool groups' by dispatcher._format_system_prompt (task:750242a5). Pure render-time post-process: scoring is unchanged.",
+      "description": "Lifts ScoreToolsNode's flat tool hints to tool groups using ontology/mcp-tools-domain.json, rendered as '## Suggested tool groups' by dispatcher._format_system_prompt (task:750242a5). Pure render-time post-process: scoring is unchanged. Groups also carry curated `keywords`, read only by match_groups for scripts/measure_group_routing.py; they do not feed routing (task:21353636).",
       "evidence": [
         "langchain_learning/tool_groups.py:route_groups",
         "langchain_learning/tool_groups.py:load_graph",
         "langchain_learning/tool_groups.py:group_of",
         "tests/test_tool_groups.py",
-        "hooks/dispatcher.py:_format_system_prompt"
+        "hooks/dispatcher.py:_format_system_prompt",
+        "langchain_learning/tool_groups.py:match_groups",
+        "scripts/measure_group_routing.py"
       ],
       "invariants": [
         "Ambiguous group names (code_rag exists in two servers) and unknown tools resolve to no group and are skipped, never guessed",
         "Fails open: a missing/unreadable graph, or valid JSON of the wrong shape, returns [] and never raises out of route_groups",
         "load_graph caches only successful loads keyed on (path, mtime_ns); a failed load is retried and graph edits apply without a server restart",
-        "often_follows edges in the graph are deliberately unused here (~1 week of PTU logs, skewed to Bash/Safari)"
+        "often_follows edges in the graph are deliberately unused here (~1 week of PTU logs, skewed to Bash/Safari)",
+        "DB hints are still the only source of '## Suggested tool groups': measurement (task:21353636) found graph keywords hit 47% vs the DB's 59%, and no prompt where the graph matched but the DB had no hints, so match_groups is not called from the dispatcher",
+        "Curated group keywords must survive tokenise() (3+ letters a-z, not a stopword); `time` and `now` did not and scored zero silently, so tests pin it"
       ],
-      "last_validated": "2026-09-21T03:09:05.205462+00:00",
+      "last_validated": "2026-09-21T03:28:52.029866+00:00",
       "module": "langchain_learning/tool_groups.py",
       "name": "tool-groups-routing",
       "related": []
@@ -608,6 +613,6 @@
     "commit": "5f62c6b5150a20fe7198d7bd6c155c4b3c0d3101",
     "extracted_at": "2026-07-23T05:42:23Z",
     "note": "incremental upsert (task:a2fd402d)",
-    "updated_at": "2026-09-21T03:09:05.205547+00:00"
+    "updated_at": "2026-09-21T03:28:52.030182+00:00"
   }
 }

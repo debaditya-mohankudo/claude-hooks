@@ -70,6 +70,43 @@ def group_of(tool_name: str, groups: dict, by_name: dict) -> str | None:
     return None
 
 
+def group_keywords(node: dict) -> set[str]:
+    """A group's curated keywords as prompt-comparable tokens.
+
+    Run through the same tokenise() the prompt side uses, so `code_rag` or `d10`
+    style spellings split/normalise into tokens that can actually match instead of
+    silently scoring zero (task:21353636 risk 18b43bd9). A group with no `keywords`
+    yields an empty set -- unmatched, not an error.
+    """
+    from langchain_learning.nodes._text_utils import tokenise
+    raw = node.get("keywords") or []
+    return tokenise(" ".join(raw) if isinstance(raw, list) else str(raw))
+
+
+def match_groups(prompt_keywords: set[str], graph: dict | None = None) -> dict[str, list[str]]:
+    """Group id -> the prompt keywords that matched its curated keywords (exact token).
+
+    Exact-token, not the DB scorer's substring test: substring on curated words would
+    let `get` match `target`. Fail-soft like the rest of this module -- a missing or
+    malformed graph yields {}.
+    """
+    graph = graph if graph is not None else load_graph()
+    if not graph or not prompt_keywords:
+        return {}
+    try:
+        out = {}
+        for n in graph["nodes"]:
+            if n["kind"] != "tool_group":
+                continue
+            hit = sorted(prompt_keywords & group_keywords(n))
+            if hit:
+                out[n["id"]] = hit
+        return out
+    except (KeyError, TypeError, AttributeError) as exc:
+        _log.warning("[tool_groups] malformed graph: %r", exc)
+        return {}
+
+
 def route_groups(hints: list[dict], graph: dict | None = None, top_groups: int = 3) -> list[dict]:
     """Rank the groups the hinted tools fall in. `hints` is ScoreToolsNode output
     (already best-first); groups rank by hit count, then by best hint position."""

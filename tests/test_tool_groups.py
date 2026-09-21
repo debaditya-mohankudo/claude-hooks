@@ -128,3 +128,45 @@ def test_routing_outcome_is_logged(caplog):
     msgs = [r.getMessage() for r in caplog.records if "[tool_groups]" in r.getMessage()]
     assert any("routed 2 hint(s) to 1 group(s): local-mac/vault(2)" in m for m in msgs)
     assert any("no group for 1 hint(s)" in m for m in msgs)
+
+
+# --- graph-side keywords (task:21353636): measured, deliberately not wired into routing ---
+
+def test_group_keywords_normalise_to_prompt_tokens():
+    node = {"keywords": ["code_rag", "wyckoff-analyzer", "d10", "Vault"]}
+    # tokenise() yields only [a-z]{3,}: separators split, digits-only fragments drop.
+    assert tg.group_keywords(node) == {"code", "rag", "wyckoff", "analyzer", "vault"}
+
+
+def test_group_without_keywords_is_unmatched_not_an_error():
+    graph = {"nodes": [_g("local-mac", "vault", "memory_knowledge")], "edges": []}
+    assert tg.group_keywords(graph["nodes"][0]) == set()
+    assert tg.match_groups({"vault"}, graph) == {}
+
+
+def test_match_groups_is_exact_token_not_substring():
+    node = _g("local-mac", "vault", "memory_knowledge")
+    node["keywords"] = ["tar"]
+    graph = {"nodes": [node], "edges": []}
+    assert tg.match_groups({"target"}, graph) == {}
+    assert tg.match_groups({"tar"}, graph) == {"group:local-mac:vault": ["tar"]}
+
+
+def test_match_groups_fails_soft_on_malformed_graph():
+    assert tg.match_groups({"vault"}, {"nodes": [{"kind": "tool_group"}]}) == {}
+    assert tg.match_groups({"vault"}, {}) == {}
+
+
+def test_every_real_group_carries_keywords():
+    graph = load_graph()
+    bare = [n["id"] for n in graph["nodes"] if n["kind"] == "tool_group" and not tg.group_keywords(n)]
+    assert bare == []
+
+
+def test_no_curated_keyword_is_silently_dropped_by_tokenise():
+    # `time` and `now` were stopwords: a group keyworded only by them scored zero forever,
+    # with no error anywhere (task:21353636).
+    from langchain_learning.nodes._text_utils import tokenise
+    lost = {n["id"]: [k for k in n["keywords"] if tokenise(k) != {k}]
+            for n in load_graph()["nodes"] if n["kind"] == "tool_group"}
+    assert {g: k for g, k in lost.items() if k} == {}
