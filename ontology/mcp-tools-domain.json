@@ -11,8 +11,9 @@
     "in_category": "tool group serves this broad purpose",
     "overlaps_with": "two tool groups can do the same job - choose by constraint",
     "feeds": "output of source category is typically input to target category",
-    "often_follows": "mined from PostToolUse `PTU enter` log lines: target is called next (MCP calls only) after source within one session (count; p = share of the source's successors)",
-    "member_of": "tool belongs to the tool group"
+    "often_follows": "mined from PostToolUse `PTU enter` log lines: target is called next after source within one session (count; p = share of the source's successors)",
+    "member_of": "tool belongs to the tool group",
+    "intercepts": "hook event runs on every call in the target scope, before (PreToolUse) or after (PostToolUse) it"
   },
   "nodes": [
     {
@@ -480,6 +481,172 @@
       "tools": "today, date, lagna"
     },
     {
+      "id": "server:claude-code",
+      "label": "claude-code",
+      "kind": "server",
+      "definition": "Claude Code built-in tools"
+    },
+    {
+      "id": "scope:all_tool_calls",
+      "label": "All tool calls",
+      "kind": "scope",
+      "definition": "every tool invocation, built-in and MCP"
+    },
+    {
+      "id": "group:claude-code:core_editing",
+      "label": "claude-code/core_editing",
+      "kind": "tool_group",
+      "category": "builtin_core_editing",
+      "tools": "Bash, Read, Edit, Write, NotebookEdit"
+    },
+    {
+      "id": "builtin_core_editing",
+      "label": "Builtin Core Editing",
+      "kind": "category",
+      "definition": "shell and file tools built into Claude Code"
+    },
+    {
+      "id": "group:claude-code:web_research",
+      "label": "claude-code/web_research",
+      "kind": "tool_group",
+      "category": "builtin_web_research",
+      "tools": "WebSearch, WebFetch"
+    },
+    {
+      "id": "builtin_web_research",
+      "label": "Builtin Web Research",
+      "kind": "category",
+      "definition": "web search and fetch"
+    },
+    {
+      "id": "group:claude-code:orchestration",
+      "label": "claude-code/orchestration",
+      "kind": "tool_group",
+      "category": "builtin_orchestration",
+      "tools": "Agent, SendMessage, ListAgents, TaskStop, SubagentHandback, ScheduleWakeup, Monitor"
+    },
+    {
+      "id": "builtin_orchestration",
+      "label": "Builtin Orchestration",
+      "kind": "category",
+      "definition": "subagents, messaging, scheduling, background tasks"
+    },
+    {
+      "id": "group:claude-code:meta",
+      "label": "claude-code/meta",
+      "kind": "tool_group",
+      "category": "builtin_meta",
+      "tools": "ToolSearch, Skill, AskUserQuestion, Artifact"
+    },
+    {
+      "id": "builtin_meta",
+      "label": "Builtin Meta",
+      "kind": "category",
+      "definition": "tool discovery, skills, user questions, artifacts"
+    },
+    {
+      "id": "hook:UserPromptSubmit",
+      "label": "UserPromptSubmit",
+      "kind": "hook_event",
+      "definition": "injects ranked memories, suggested tools and task history into the prompt before the model sees it"
+    },
+    {
+      "id": "hook:PreToolUse",
+      "label": "PreToolUse",
+      "kind": "hook_event",
+      "definition": "gate_check: allow or deny a tool call (e.g. commit needs a task:<id> ref)"
+    },
+    {
+      "id": "hook:PostToolUse",
+      "label": "PostToolUse",
+      "kind": "hook_event",
+      "definition": "log_tool_usage: records each call (latency, keywords) - the source of the often_follows edges"
+    },
+    {
+      "id": "hook:Stop",
+      "label": "Stop",
+      "kind": "hook_event",
+      "definition": "end-of-turn handler: session summary, drift nudges"
+    },
+    {
+      "id": "tool:claude-code__Agent",
+      "label": "Agent",
+      "kind": "tool",
+      "group": "group:claude-code:orchestration"
+    },
+    {
+      "id": "tool:claude-code__Artifact",
+      "label": "Artifact",
+      "kind": "tool",
+      "group": "group:claude-code:meta"
+    },
+    {
+      "id": "tool:claude-code__AskUserQuestion",
+      "label": "AskUserQuestion",
+      "kind": "tool",
+      "group": "group:claude-code:meta"
+    },
+    {
+      "id": "tool:claude-code__Bash",
+      "label": "Bash",
+      "kind": "tool",
+      "group": "group:claude-code:core_editing"
+    },
+    {
+      "id": "tool:claude-code__Edit",
+      "label": "Edit",
+      "kind": "tool",
+      "group": "group:claude-code:core_editing"
+    },
+    {
+      "id": "tool:claude-code__Read",
+      "label": "Read",
+      "kind": "tool",
+      "group": "group:claude-code:core_editing"
+    },
+    {
+      "id": "tool:claude-code__ScheduleWakeup",
+      "label": "ScheduleWakeup",
+      "kind": "tool",
+      "group": "group:claude-code:orchestration"
+    },
+    {
+      "id": "tool:claude-code__Skill",
+      "label": "Skill",
+      "kind": "tool",
+      "group": "group:claude-code:meta"
+    },
+    {
+      "id": "tool:claude-code__SubagentHandback",
+      "label": "SubagentHandback",
+      "kind": "tool",
+      "group": "group:claude-code:orchestration"
+    },
+    {
+      "id": "tool:claude-code__ToolSearch",
+      "label": "ToolSearch",
+      "kind": "tool",
+      "group": "group:claude-code:meta"
+    },
+    {
+      "id": "tool:claude-code__WebFetch",
+      "label": "WebFetch",
+      "kind": "tool",
+      "group": "group:claude-code:web_research"
+    },
+    {
+      "id": "tool:claude-code__WebSearch",
+      "label": "WebSearch",
+      "kind": "tool",
+      "group": "group:claude-code:web_research"
+    },
+    {
+      "id": "tool:claude-code__Write",
+      "label": "Write",
+      "kind": "tool",
+      "group": "group:claude-code:core_editing"
+    },
+    {
       "id": "tool:claude-hooks__hooks__server_memory",
       "label": "server_memory",
       "kind": "tool",
@@ -494,6 +661,12 @@
     {
       "id": "tool:claude-hooks__memory__add_batch",
       "label": "add_batch",
+      "kind": "tool",
+      "group": "group:claude-hooks:memory"
+    },
+    {
+      "id": "tool:claude-hooks__memory__get",
+      "label": "get",
       "kind": "tool",
       "group": "group:claude-hooks:memory"
     },
@@ -540,8 +713,20 @@
       "group": "group:local-mac:safari"
     },
     {
+      "id": "tool:local-mac__system__foundation_models_query",
+      "label": "foundation_models_query",
+      "kind": "tool",
+      "group": "group:local-mac:system"
+    },
+    {
       "id": "tool:local-mac__vault__filename_search",
       "label": "filename_search",
+      "kind": "tool",
+      "group": "group:local-mac:vault"
+    },
+    {
+      "id": "tool:local-mac__vault__list",
+      "label": "list",
       "kind": "tool",
       "group": "group:local-mac:vault"
     },
@@ -650,6 +835,12 @@
     {
       "id": "tool:taskfw__tasks__get",
       "label": "get",
+      "kind": "tool",
+      "group": "group:taskfw:tasks"
+    },
+    {
+      "id": "tool:taskfw__tasks__link",
+      "label": "link",
       "kind": "tool",
       "group": "group:taskfw:tasks"
     },
@@ -1270,116 +1461,430 @@
       "note": "memory recall grooms tasks"
     },
     {
+      "from": "server:claude-code",
+      "to": "group:claude-code:core_editing",
+      "relation": "provides"
+    },
+    {
+      "from": "group:claude-code:core_editing",
+      "to": "builtin_core_editing",
+      "relation": "in_category"
+    },
+    {
+      "from": "server:claude-code",
+      "to": "group:claude-code:web_research",
+      "relation": "provides"
+    },
+    {
+      "from": "group:claude-code:web_research",
+      "to": "builtin_web_research",
+      "relation": "in_category"
+    },
+    {
+      "from": "server:claude-code",
+      "to": "group:claude-code:orchestration",
+      "relation": "provides"
+    },
+    {
+      "from": "group:claude-code:orchestration",
+      "to": "builtin_orchestration",
+      "relation": "in_category"
+    },
+    {
+      "from": "server:claude-code",
+      "to": "group:claude-code:meta",
+      "relation": "provides"
+    },
+    {
+      "from": "group:claude-code:meta",
+      "to": "builtin_meta",
+      "relation": "in_category"
+    },
+    {
+      "from": "hook:UserPromptSubmit",
+      "to": "memory_knowledge",
+      "relation": "feeds"
+    },
+    {
+      "from": "hook:PreToolUse",
+      "to": "scope:all_tool_calls",
+      "relation": "intercepts"
+    },
+    {
+      "from": "hook:PostToolUse",
+      "to": "scope:all_tool_calls",
+      "relation": "intercepts"
+    },
+    {
+      "from": "hook:Stop",
+      "to": "hooks_observability",
+      "relation": "feeds"
+    },
+    {
+      "from": "group:claude-code:core_editing",
+      "to": "group:claude-code:meta",
+      "relation": "often_follows",
+      "count": 189,
+      "p": 0.47
+    },
+    {
       "from": "group:taskfw:tasks",
+      "to": "group:claude-code:core_editing",
+      "relation": "often_follows",
+      "count": 111,
+      "p": 0.7
+    },
+    {
+      "from": "group:claude-code:web_research",
+      "to": "group:claude-code:core_editing",
+      "relation": "often_follows",
+      "count": 106,
+      "p": 0.76
+    },
+    {
+      "from": "group:claude-code:meta",
+      "to": "group:taskfw:tasks",
+      "relation": "often_follows",
+      "count": 88,
+      "p": 0.32
+    },
+    {
+      "from": "group:claude-code:core_editing",
+      "to": "group:claude-code:web_research",
+      "relation": "often_follows",
+      "count": 68,
+      "p": 0.17
+    },
+    {
+      "from": "group:claude-code:core_editing",
+      "to": "group:taskfw:tasks",
+      "relation": "often_follows",
+      "count": 62,
+      "p": 0.15
+    },
+    {
+      "from": "group:claude-code:meta",
+      "to": "group:claude-code:web_research",
+      "relation": "often_follows",
+      "count": 53,
+      "p": 0.19
+    },
+    {
+      "from": "group:claude-code:meta",
+      "to": "group:claude-code:core_editing",
+      "relation": "often_follows",
+      "count": 52,
+      "p": 0.19
+    },
+    {
+      "from": "group:claude-hooks:memory",
+      "to": "group:claude-code:core_editing",
+      "relation": "often_follows",
+      "count": 36,
+      "p": 0.72
+    },
+    {
+      "from": "group:claude-code:meta",
+      "to": "group:wyckoff-analyzer:wyckoff-analyzer",
+      "relation": "often_follows",
+      "count": 31,
+      "p": 0.11
+    },
+    {
+      "from": "group:claude-code:core_editing",
       "to": "group:claude-hooks:memory",
       "relation": "often_follows",
-      "count": 19,
-      "p": 0.41
+      "count": 29,
+      "p": 0.07
     },
     {
       "from": "group:wyckoff-analyzer:wyckoff-analyzer",
-      "to": "group:taskfw:tasks",
+      "to": "group:claude-code:core_editing",
       "relation": "often_follows",
-      "count": 18,
-      "p": 0.69
+      "count": 29,
+      "p": 0.62
+    },
+    {
+      "from": "group:taskfw:tasks",
+      "to": "group:claude-code:meta",
+      "relation": "often_follows",
+      "count": 28,
+      "p": 0.18
+    },
+    {
+      "from": "group:claude-code:meta",
+      "to": "group:claude-hooks:memory",
+      "relation": "often_follows",
+      "count": 25,
+      "p": 0.09
+    },
+    {
+      "from": "group:local-mac:safari",
+      "to": "group:claude-code:core_editing",
+      "relation": "often_follows",
+      "count": 21,
+      "p": 0.84
+    },
+    {
+      "from": "group:claude-code:orchestration",
+      "to": "group:claude-code:core_editing",
+      "relation": "often_follows",
+      "count": 19,
+      "p": 0.61
+    },
+    {
+      "from": "group:claude-code:core_editing",
+      "to": "group:claude-code:orchestration",
+      "relation": "often_follows",
+      "count": 16,
+      "p": 0.04
+    },
+    {
+      "from": "group:claude-code:core_editing",
+      "to": "group:wyckoff-analyzer:wyckoff-analyzer",
+      "relation": "often_follows",
+      "count": 15,
+      "p": 0.04
+    },
+    {
+      "from": "group:claude-code:web_research",
+      "to": "group:claude-code:meta",
+      "relation": "often_follows",
+      "count": 14,
+      "p": 0.1
+    },
+    {
+      "from": "group:wyckoff-analyzer:wyckoff-analyzer",
+      "to": "group:claude-code:meta",
+      "relation": "often_follows",
+      "count": 12,
+      "p": 0.26
+    },
+    {
+      "from": "group:claude-code:core_editing",
+      "to": "group:local-mac:safari",
+      "relation": "often_follows",
+      "count": 11,
+      "p": 0.03
     },
     {
       "from": "group:taskfw:task_memory",
       "to": "group:taskfw:tasks",
       "relation": "often_follows",
-      "count": 12,
-      "p": 0.92
+      "count": 10,
+      "p": 0.77
+    },
+    {
+      "from": "group:claude-hooks:memory",
+      "to": "group:claude-code:web_research",
+      "relation": "often_follows",
+      "count": 10,
+      "p": 0.2
+    },
+    {
+      "from": "group:claude-code:core_editing",
+      "to": "group:local-mac:vault",
+      "relation": "often_follows",
+      "count": 8,
+      "p": 0.02
+    },
+    {
+      "from": "group:claude-code:meta",
+      "to": "group:claude-code:orchestration",
+      "relation": "often_follows",
+      "count": 8,
+      "p": 0.03
+    },
+    {
+      "from": "group:claude-code:meta",
+      "to": "group:local-mac:safari",
+      "relation": "often_follows",
+      "count": 8,
+      "p": 0.03
     },
     {
       "from": "group:taskfw:tasks",
       "to": "group:taskfw:task_memory",
       "relation": "often_follows",
-      "count": 11,
-      "p": 0.24
-    },
-    {
-      "from": "group:claude-hooks:memory",
-      "to": "group:taskfw:tasks",
-      "relation": "often_follows",
-      "count": 11,
-      "p": 0.52
-    },
-    {
-      "from": "group:claude-hooks:hooks",
-      "to": "group:taskfw:tasks",
-      "relation": "often_follows",
       "count": 8,
-      "p": 1.0
+      "p": 0.05
+    },
+    {
+      "from": "group:local-mac:vault",
+      "to": "group:claude-code:core_editing",
+      "relation": "often_follows",
+      "count": 7,
+      "p": 0.5
     },
     {
       "from": "group:taskfw:tasks",
       "to": "group:taskfw:concept",
       "relation": "often_follows",
-      "count": 8,
-      "p": 0.17
+      "count": 7,
+      "p": 0.04
+    },
+    {
+      "from": "group:claude-code:meta",
+      "to": "group:claude-hooks:hooks",
+      "relation": "often_follows",
+      "count": 6,
+      "p": 0.02
+    },
+    {
+      "from": "group:claude-code:orchestration",
+      "to": "group:claude-code:meta",
+      "relation": "often_follows",
+      "count": 6,
+      "p": 0.19
     },
     {
       "from": "group:taskfw:concept",
       "to": "group:taskfw:tasks",
       "relation": "often_follows",
-      "count": 7,
-      "p": 0.7
+      "count": 6,
+      "p": 0.6
+    },
+    {
+      "from": "group:claude-code:web_research",
+      "to": "group:local-mac:safari",
+      "relation": "often_follows",
+      "count": 6,
+      "p": 0.04
+    },
+    {
+      "from": "group:claude-hooks:hooks",
+      "to": "group:claude-code:core_editing",
+      "relation": "often_follows",
+      "count": 5,
+      "p": 0.62
+    },
+    {
+      "from": "group:claude-code:meta",
+      "to": "group:local-mac:vault",
+      "relation": "often_follows",
+      "count": 5,
+      "p": 0.02
+    },
+    {
+      "from": "group:claude-code:web_research",
+      "to": "group:claude-hooks:memory",
+      "relation": "often_follows",
+      "count": 4,
+      "p": 0.03
+    },
+    {
+      "from": "group:claude-code:web_research",
+      "to": "group:claude-code:orchestration",
+      "relation": "often_follows",
+      "count": 4,
+      "p": 0.03
+    },
+    {
+      "from": "group:local-mac:vault",
+      "to": "group:claude-code:meta",
+      "relation": "often_follows",
+      "count": 3,
+      "p": 0.21
+    },
+    {
+      "from": "group:claude-hooks:memory",
+      "to": "group:claude-code:meta",
+      "relation": "often_follows",
+      "count": 3,
+      "p": 0.06
+    },
+    {
+      "from": "group:claude-hooks:hooks",
+      "to": "group:taskfw:tasks",
+      "relation": "often_follows",
+      "count": 3,
+      "p": 0.38
+    },
+    {
+      "from": "group:claude-code:orchestration",
+      "to": "group:claude-code:web_research",
+      "relation": "often_follows",
+      "count": 3,
+      "p": 0.1
     },
     {
       "from": "group:wyckoff-analyzer:wyckoff-analyzer",
-      "to": "group:claude-hooks:memory",
-      "relation": "often_follows",
-      "count": 5,
-      "p": 0.19
-    },
-    {
-      "from": "group:claude-hooks:memory",
-      "to": "group:wyckoff-analyzer:wyckoff-analyzer",
-      "relation": "often_follows",
-      "count": 4,
-      "p": 0.19
-    },
-    {
-      "from": "group:taskfw:tasks",
-      "to": "group:local-mac:safari",
-      "relation": "often_follows",
-      "count": 4,
-      "p": 0.09
-    },
-    {
-      "from": "group:local-mac:safari",
-      "to": "group:taskfw:tasks",
-      "relation": "often_follows",
-      "count": 4,
-      "p": 0.4
-    },
-    {
-      "from": "group:local-mac:safari",
-      "to": "group:wyckoff-analyzer:wyckoff-analyzer",
+      "to": "group:claude-code:web_research",
       "relation": "often_follows",
       "count": 3,
-      "p": 0.3
+      "p": 0.06
     },
     {
-      "from": "group:local-mac:safari",
-      "to": "group:claude-hooks:memory",
+      "from": "group:local-mac:vault",
+      "to": "group:claude-code:orchestration",
       "relation": "often_follows",
       "count": 3,
-      "p": 0.3
+      "p": 0.21
     },
     {
-      "from": "group:claude-hooks:memory",
-      "to": "group:local-mac:safari",
-      "relation": "often_follows",
-      "count": 3,
-      "p": 0.14
+      "from": "tool:claude-code__Agent",
+      "to": "group:claude-code:orchestration",
+      "relation": "member_of"
     },
     {
-      "from": "group:local-mac:system",
-      "to": "group:taskfw:tasks",
-      "relation": "often_follows",
-      "count": 3,
-      "p": 1.0
+      "from": "tool:claude-code__Artifact",
+      "to": "group:claude-code:meta",
+      "relation": "member_of"
+    },
+    {
+      "from": "tool:claude-code__AskUserQuestion",
+      "to": "group:claude-code:meta",
+      "relation": "member_of"
+    },
+    {
+      "from": "tool:claude-code__Bash",
+      "to": "group:claude-code:core_editing",
+      "relation": "member_of"
+    },
+    {
+      "from": "tool:claude-code__Edit",
+      "to": "group:claude-code:core_editing",
+      "relation": "member_of"
+    },
+    {
+      "from": "tool:claude-code__Read",
+      "to": "group:claude-code:core_editing",
+      "relation": "member_of"
+    },
+    {
+      "from": "tool:claude-code__ScheduleWakeup",
+      "to": "group:claude-code:orchestration",
+      "relation": "member_of"
+    },
+    {
+      "from": "tool:claude-code__Skill",
+      "to": "group:claude-code:meta",
+      "relation": "member_of"
+    },
+    {
+      "from": "tool:claude-code__SubagentHandback",
+      "to": "group:claude-code:orchestration",
+      "relation": "member_of"
+    },
+    {
+      "from": "tool:claude-code__ToolSearch",
+      "to": "group:claude-code:meta",
+      "relation": "member_of"
+    },
+    {
+      "from": "tool:claude-code__WebFetch",
+      "to": "group:claude-code:web_research",
+      "relation": "member_of"
+    },
+    {
+      "from": "tool:claude-code__WebSearch",
+      "to": "group:claude-code:web_research",
+      "relation": "member_of"
+    },
+    {
+      "from": "tool:claude-code__Write",
+      "to": "group:claude-code:core_editing",
+      "relation": "member_of"
     },
     {
       "from": "tool:claude-hooks__hooks__server_memory",
@@ -1393,6 +1898,11 @@
     },
     {
       "from": "tool:claude-hooks__memory__add_batch",
+      "to": "group:claude-hooks:memory",
+      "relation": "member_of"
+    },
+    {
+      "from": "tool:claude-hooks__memory__get",
       "to": "group:claude-hooks:memory",
       "relation": "member_of"
     },
@@ -1432,7 +1942,17 @@
       "relation": "member_of"
     },
     {
+      "from": "tool:local-mac__system__foundation_models_query",
+      "to": "group:local-mac:system",
+      "relation": "member_of"
+    },
+    {
       "from": "tool:local-mac__vault__filename_search",
+      "to": "group:local-mac:vault",
+      "relation": "member_of"
+    },
+    {
+      "from": "tool:local-mac__vault__list",
       "to": "group:local-mac:vault",
       "relation": "member_of"
     },
@@ -1527,6 +2047,11 @@
       "relation": "member_of"
     },
     {
+      "from": "tool:taskfw__tasks__link",
+      "to": "group:taskfw:tasks",
+      "relation": "member_of"
+    },
+    {
       "from": "tool:taskfw__tasks__list",
       "to": "group:taskfw:tasks",
       "relation": "member_of"
@@ -1582,18 +2107,165 @@
       "relation": "member_of"
     },
     {
+      "from": "tool:claude-code__Bash",
+      "to": "tool:claude-code__ToolSearch",
+      "relation": "often_follows",
+      "count": 133,
+      "p": 0.24
+    },
+    {
+      "from": "tool:claude-code__Edit",
+      "to": "tool:claude-code__Bash",
+      "relation": "often_follows",
+      "count": 121,
+      "p": 0.85
+    },
+    {
+      "from": "tool:claude-code__Bash",
+      "to": "tool:claude-code__Read",
+      "relation": "often_follows",
+      "count": 105,
+      "p": 0.19
+    },
+    {
+      "from": "tool:claude-code__WebSearch",
+      "to": "tool:claude-code__Bash",
+      "relation": "often_follows",
+      "count": 72,
+      "p": 0.45
+    },
+    {
+      "from": "tool:claude-code__Bash",
+      "to": "tool:claude-code__Edit",
+      "relation": "often_follows",
+      "count": 67,
+      "p": 0.12
+    },
+    {
+      "from": "tool:claude-code__Read",
+      "to": "tool:claude-code__Edit",
+      "relation": "often_follows",
+      "count": 61,
+      "p": 0.43
+    },
+    {
+      "from": "tool:claude-code__Bash",
+      "to": "tool:claude-code__WebSearch",
+      "relation": "often_follows",
+      "count": 53,
+      "p": 0.1
+    },
+    {
+      "from": "tool:claude-code__WebSearch",
+      "to": "tool:claude-code__WebFetch",
+      "relation": "often_follows",
+      "count": 50,
+      "p": 0.31
+    },
+    {
+      "from": "tool:claude-code__Read",
+      "to": "tool:claude-code__Bash",
+      "relation": "often_follows",
+      "count": 45,
+      "p": 0.31
+    },
+    {
+      "from": "tool:claude-code__ToolSearch",
+      "to": "tool:claude-code__WebSearch",
+      "relation": "often_follows",
+      "count": 45,
+      "p": 0.18
+    },
+    {
+      "from": "tool:claude-code__WebFetch",
+      "to": "tool:claude-code__WebSearch",
+      "relation": "often_follows",
+      "count": 37,
+      "p": 0.55
+    },
+    {
+      "from": "tool:claude-code__ToolSearch",
+      "to": "tool:claude-code__Bash",
+      "relation": "often_follows",
+      "count": 33,
+      "p": 0.13
+    },
+    {
+      "from": "tool:taskfw__tasks__list",
+      "to": "tool:claude-code__Bash",
+      "relation": "often_follows",
+      "count": 32,
+      "p": 0.91
+    },
+    {
+      "from": "tool:claude-code__Write",
+      "to": "tool:claude-code__Bash",
+      "relation": "often_follows",
+      "count": 24,
+      "p": 0.71
+    },
+    {
+      "from": "tool:claude-code__Read",
+      "to": "tool:claude-code__ToolSearch",
+      "relation": "often_follows",
+      "count": 24,
+      "p": 0.17
+    },
+    {
+      "from": "tool:claude-code__ToolSearch",
+      "to": "tool:taskfw__tasks__list",
+      "relation": "often_follows",
+      "count": 24,
+      "p": 0.1
+    },
+    {
       "from": "tool:wyckoff-analyzer__db_init_state",
       "to": "tool:wyckoff-analyzer__update_run",
       "relation": "often_follows",
-      "count": 23,
-      "p": 0.96
+      "count": 22,
+      "p": 0.92
+    },
+    {
+      "from": "tool:claude-code__Bash",
+      "to": "tool:claude-code__Write",
+      "relation": "often_follows",
+      "count": 21,
+      "p": 0.04
+    },
+    {
+      "from": "tool:claude-code__ToolSearch",
+      "to": "tool:wyckoff-analyzer__db_init_state",
+      "relation": "often_follows",
+      "count": 20,
+      "p": 0.08
+    },
+    {
+      "from": "tool:claude-code__ToolSearch",
+      "to": "tool:taskfw__tasks__active",
+      "relation": "often_follows",
+      "count": 18,
+      "p": 0.07
+    },
+    {
+      "from": "tool:claude-code__WebFetch",
+      "to": "tool:claude-code__Bash",
+      "relation": "often_follows",
+      "count": 17,
+      "p": 0.25
     },
     {
       "from": "tool:taskfw__tasks__log_skill_invocation",
       "to": "tool:taskfw__tasks__context",
       "relation": "often_follows",
       "count": 16,
-      "p": 0.24
+      "p": 0.21
+    },
+    {
+      "from": "tool:wyckoff-analyzer__update_run",
+      "to": "tool:claude-code__Bash",
+      "relation": "often_follows",
+      "count": 15,
+      "p": 0.52
     },
     {
       "from": "tool:local-mac__safari__open",
@@ -1603,32 +2275,109 @@
       "p": 0.54
     },
     {
+      "from": "tool:claude-code__Bash",
+      "to": "tool:taskfw__tasks__add_commit",
+      "relation": "often_follows",
+      "count": 14,
+      "p": 0.03
+    },
+    {
+      "from": "tool:taskfw__tasks__log_skill_invocation",
+      "to": "tool:claude-code__Bash",
+      "relation": "often_follows",
+      "count": 13,
+      "p": 0.17
+    },
+    {
+      "from": "tool:claude-code__ScheduleWakeup",
+      "to": "tool:claude-code__Bash",
+      "relation": "often_follows",
+      "count": 13,
+      "p": 0.87
+    },
+    {
+      "from": "tool:claude-code__Bash",
+      "to": "tool:claude-code__Skill",
+      "relation": "often_follows",
+      "count": 12,
+      "p": 0.02
+    },
+    {
+      "from": "tool:claude-code__Bash",
+      "to": "tool:claude-code__ScheduleWakeup",
+      "relation": "often_follows",
+      "count": 12,
+      "p": 0.02
+    },
+    {
+      "from": "tool:claude-code__Bash",
+      "to": "tool:claude-hooks__memory__add",
+      "relation": "often_follows",
+      "count": 11,
+      "p": 0.02
+    },
+    {
+      "from": "tool:claude-hooks__memory__add",
+      "to": "tool:claude-code__Bash",
+      "relation": "often_follows",
+      "count": 11,
+      "p": 0.65
+    },
+    {
       "from": "tool:local-mac__safari__open",
       "to": "tool:local-mac__safari__read",
       "relation": "often_follows",
-      "count": 13,
-      "p": 0.46
-    },
-    {
-      "from": "tool:wyckoff-analyzer__update_run",
-      "to": "tool:wyckoff-analyzer__sector_relative_strength",
-      "relation": "often_follows",
-      "count": 12,
-      "p": 0.48
+      "count": 11,
+      "p": 0.39
     },
     {
       "from": "tool:local-mac__safari__read",
       "to": "tool:local-mac__safari__js",
       "relation": "often_follows",
       "count": 11,
-      "p": 0.34
+      "p": 0.32
+    },
+    {
+      "from": "tool:claude-code__ToolSearch",
+      "to": "tool:taskfw__tasks__log_skill_invocation",
+      "relation": "often_follows",
+      "count": 11,
+      "p": 0.04
+    },
+    {
+      "from": "tool:taskfw__tasks__check_item",
+      "to": "tool:claude-code__Bash",
+      "relation": "often_follows",
+      "count": 11,
+      "p": 0.52
+    },
+    {
+      "from": "tool:claude-code__Skill",
+      "to": "tool:claude-code__ToolSearch",
+      "relation": "often_follows",
+      "count": 10,
+      "p": 0.33
+    },
+    {
+      "from": "tool:claude-code__Bash",
+      "to": "tool:taskfw__tasks__log_skill_invocation",
+      "relation": "often_follows",
+      "count": 10,
+      "p": 0.02
     },
     {
       "from": "tool:taskfw__tasks__log_skill_invocation",
       "to": "tool:taskfw__tasks__add_introspection",
       "relation": "often_follows",
       "count": 10,
-      "p": 0.15
+      "p": 0.13
+    },
+    {
+      "from": "tool:claude-hooks__memory__search",
+      "to": "tool:claude-code__Bash",
+      "relation": "often_follows",
+      "count": 10,
+      "p": 0.56
     },
     {
       "from": "tool:local-mac__safari__navigate",
@@ -1638,158 +2387,312 @@
       "p": 0.83
     },
     {
+      "from": "tool:claude-code__Edit",
+      "to": "tool:claude-code__Read",
+      "relation": "often_follows",
+      "count": 10,
+      "p": 0.07
+    },
+    {
       "from": "tool:taskfw__tasks__active",
       "to": "tool:taskfw__tasks__list",
       "relation": "often_follows",
       "count": 10,
-      "p": 0.45
+      "p": 0.42
     },
     {
-      "from": "tool:local-mac__safari__read",
-      "to": "tool:local-mac__safari__navigate",
+      "from": "tool:claude-code__ToolSearch",
+      "to": "tool:taskfw__tasks__create",
       "relation": "often_follows",
-      "count": 9,
-      "p": 0.28
+      "count": 10,
+      "p": 0.04
     },
     {
-      "from": "tool:taskfw__tasks__context",
+      "from": "tool:taskfw__tasks__create",
+      "to": "tool:claude-code__Bash",
+      "relation": "often_follows",
+      "count": 10,
+      "p": 0.4
+    },
+    {
+      "from": "tool:claude-code__Skill",
       "to": "tool:taskfw__tasks__log_skill_invocation",
       "relation": "often_follows",
-      "count": 9,
-      "p": 0.5
+      "count": 10,
+      "p": 0.33
     },
     {
-      "from": "tool:taskfw__tasks__log_skill_invocation",
-      "to": "tool:taskfw__tasks__update",
+      "from": "tool:claude-code__Bash",
+      "to": "tool:taskfw__tasks__check_item",
+      "relation": "often_follows",
+      "count": 10,
+      "p": 0.02
+    },
+    {
+      "from": "tool:claude-code__Bash",
+      "to": "tool:claude-hooks__memory__search",
       "relation": "often_follows",
       "count": 9,
-      "p": 0.13
+      "p": 0.02
+    },
+    {
+      "from": "tool:claude-code__ToolSearch",
+      "to": "tool:claude-hooks__memory__add_batch",
+      "relation": "often_follows",
+      "count": 9,
+      "p": 0.04
+    },
+    {
+      "from": "tool:claude-code__WebSearch",
+      "to": "tool:claude-code__ToolSearch",
+      "relation": "often_follows",
+      "count": 9,
+      "p": 0.06
+    },
+    {
+      "from": "tool:claude-code__Bash",
+      "to": "tool:claude-code__AskUserQuestion",
+      "relation": "often_follows",
+      "count": 9,
+      "p": 0.02
+    },
+    {
+      "from": "tool:taskfw__tasks__add_commit",
+      "to": "tool:claude-code__Bash",
+      "relation": "often_follows",
+      "count": 8,
+      "p": 0.47
     },
     {
       "from": "tool:taskfw__tasks__add_introspection",
       "to": "tool:taskfw__tasks__log_skill_invocation",
       "relation": "often_follows",
       "count": 8,
-      "p": 0.53
+      "p": 0.5
     },
     {
-      "from": "tool:claude-hooks__hooks__server_memory",
-      "to": "tool:taskfw__tasks__logs",
+      "from": "tool:claude-code__ToolSearch",
+      "to": "tool:claude-hooks__memory__add",
       "relation": "often_follows",
       "count": 8,
-      "p": 1.0
+      "p": 0.03
+    },
+    {
+      "from": "tool:claude-code__Bash",
+      "to": "tool:claude-code__WebFetch",
+      "relation": "often_follows",
+      "count": 8,
+      "p": 0.01
+    },
+    {
+      "from": "tool:claude-code__ToolSearch",
+      "to": "tool:local-mac__safari__open",
+      "relation": "often_follows",
+      "count": 8,
+      "p": 0.03
+    },
+    {
+      "from": "tool:local-mac__safari__read",
+      "to": "tool:local-mac__safari__navigate",
+      "relation": "often_follows",
+      "count": 8,
+      "p": 0.24
+    },
+    {
+      "from": "tool:claude-code__Skill",
+      "to": "tool:claude-code__Bash",
+      "relation": "often_follows",
+      "count": 8,
+      "p": 0.27
+    },
+    {
+      "from": "tool:wyckoff-analyzer__sector_relative_strength",
+      "to": "tool:claude-code__ToolSearch",
+      "relation": "often_follows",
+      "count": 8,
+      "p": 0.4
+    },
+    {
+      "from": "tool:taskfw__tasks__log_skill_invocation",
+      "to": "tool:taskfw__tasks__update",
+      "relation": "often_follows",
+      "count": 8,
+      "p": 0.1
     },
     {
       "from": "tool:local-mac__safari__js",
       "to": "tool:local-mac__safari__read",
       "relation": "often_follows",
       "count": 8,
-      "p": 0.3
+      "p": 0.29
     },
     {
       "from": "tool:taskfw__tasks__update",
       "to": "tool:taskfw__tasks__log_skill_invocation",
       "relation": "often_follows",
       "count": 7,
-      "p": 0.58
-    },
-    {
-      "from": "tool:taskfw__tasks__add_commit",
-      "to": "tool:taskfw__tasks__log_skill_invocation",
-      "relation": "often_follows",
-      "count": 7,
       "p": 0.54
     },
     {
-      "from": "tool:taskfw__tasks__create",
-      "to": "tool:taskfw__tasks__check_item",
+      "from": "tool:wyckoff-analyzer__sector_relative_strength",
+      "to": "tool:claude-code__Bash",
       "relation": "often_follows",
       "count": 7,
-      "p": 0.29
+      "p": 0.35
     },
     {
-      "from": "tool:local-mac__safari__js",
-      "to": "tool:local-mac__safari__close_tab",
+      "from": "tool:claude-code__ToolSearch",
+      "to": "tool:claude-code__WebFetch",
       "relation": "often_follows",
       "count": 7,
-      "p": 0.26
+      "p": 0.03
     },
     {
-      "from": "tool:taskfw__tasks__format_commit_message",
-      "to": "tool:taskfw__tasks__add_commit",
+      "from": "tool:taskfw__tasks__context",
+      "to": "tool:taskfw__tasks__log_skill_invocation",
+      "relation": "often_follows",
+      "count": 7,
+      "p": 0.39
+    },
+    {
+      "from": "tool:claude-code__Bash",
+      "to": "tool:taskfw__tasks__create",
+      "relation": "often_follows",
+      "count": 7,
+      "p": 0.01
+    },
+    {
+      "from": "tool:taskfw__tasks__context",
+      "to": "tool:claude-code__Bash",
       "relation": "often_follows",
       "count": 6,
-      "p": 0.86
+      "p": 0.33
     },
     {
       "from": "tool:claude-hooks__memory__search",
-      "to": "tool:claude-hooks__memory__add",
+      "to": "tool:claude-code__WebSearch",
       "relation": "often_follows",
       "count": 6,
-      "p": 0.4
+      "p": 0.33
     },
     {
-      "from": "tool:local-mac__safari__js",
-      "to": "tool:local-mac__safari__open",
+      "from": "tool:claude-code__Bash",
+      "to": "tool:claude-hooks__memory__add_batch",
       "relation": "often_follows",
       "count": 6,
-      "p": 0.22
+      "p": 0.01
     },
     {
-      "from": "tool:taskfw__tasks__create",
-      "to": "tool:taskfw__tasks__log_skill_invocation",
+      "from": "tool:claude-code__ToolSearch",
+      "to": "tool:claude-hooks__hooks__server_memory",
       "relation": "often_follows",
       "count": 6,
-      "p": 0.25
+      "p": 0.02
+    },
+    {
+      "from": "tool:local-mac__safari__read",
+      "to": "tool:claude-code__Bash",
+      "relation": "often_follows",
+      "count": 6,
+      "p": 0.18
+    },
+    {
+      "from": "tool:claude-code__WebSearch",
+      "to": "tool:claude-code__Edit",
+      "relation": "often_follows",
+      "count": 6,
+      "p": 0.04
     },
     {
       "from": "tool:local-mac__safari__close_tab",
-      "to": "tool:local-mac__safari__open",
+      "to": "tool:claude-code__Bash",
       "relation": "often_follows",
       "count": 6,
-      "p": 0.67
+      "p": 0.6
     },
     {
-      "from": "tool:taskfw__tasks__list",
-      "to": "tool:claude-hooks__memory__add_batch",
+      "from": "tool:taskfw__tasks__active",
+      "to": "tool:claude-code__Bash",
       "relation": "often_follows",
       "count": 5,
-      "p": 0.28
+      "p": 0.21
     },
     {
-      "from": "tool:taskfw__tasks__set_active",
-      "to": "tool:taskfw__tasks__log_skill_invocation",
+      "from": "tool:wyckoff-analyzer__update_run",
+      "to": "tool:wyckoff-analyzer__sector_relative_strength",
       "relation": "often_follows",
       "count": 5,
-      "p": 0.45
+      "p": 0.17
+    },
+    {
+      "from": "tool:claude-hooks__memory__add_batch",
+      "to": "tool:claude-code__Bash",
+      "relation": "often_follows",
+      "count": 5,
+      "p": 0.36
+    },
+    {
+      "from": "tool:claude-hooks__hooks__server_memory",
+      "to": "tool:claude-code__Bash",
+      "relation": "often_follows",
+      "count": 5,
+      "p": 0.62
+    },
+    {
+      "from": "tool:claude-code__ToolSearch",
+      "to": "tool:claude-code__Agent",
+      "relation": "often_follows",
+      "count": 5,
+      "p": 0.02
+    },
+    {
+      "from": "tool:claude-code__Read",
+      "to": "tool:claude-code__WebSearch",
+      "relation": "often_follows",
+      "count": 5,
+      "p": 0.03
+    },
+    {
+      "from": "tool:claude-code__ToolSearch",
+      "to": "tool:claude-hooks__memory__search",
+      "relation": "often_follows",
+      "count": 5,
+      "p": 0.02
+    },
+    {
+      "from": "tool:claude-hooks__memory__add_batch",
+      "to": "tool:claude-code__Read",
+      "relation": "often_follows",
+      "count": 5,
+      "p": 0.36
     },
     {
       "from": "tool:taskfw__tasks__log_skill_invocation",
       "to": "tool:taskfw__tasks__add_decision",
       "relation": "often_follows",
       "count": 5,
-      "p": 0.07
+      "p": 0.06
     },
     {
-      "from": "tool:taskfw__tasks__add_decision",
-      "to": "tool:taskfw__tasks__check_item",
+      "from": "tool:local-mac__safari__js",
+      "to": "tool:claude-code__Bash",
       "relation": "often_follows",
       "count": 5,
-      "p": 0.42
+      "p": 0.18
     },
     {
-      "from": "tool:wyckoff-analyzer__sector_relative_strength",
-      "to": "tool:taskfw__tasks__list",
+      "from": "tool:local-mac__safari__js",
+      "to": "tool:local-mac__safari__close_tab",
       "relation": "often_follows",
       "count": 5,
-      "p": 0.29
+      "p": 0.18
     },
     {
-      "from": "tool:taskfw__tasks__add_decision",
-      "to": "tool:taskfw__tasks__log_skill_invocation",
+      "from": "tool:taskfw__tasks__format_commit_message",
+      "to": "tool:claude-code__Bash",
       "relation": "often_follows",
       "count": 4,
-      "p": 0.33
+      "p": 0.57
     },
     {
       "from": "tool:taskfw__task_memory__link",
@@ -1799,60 +2702,144 @@
       "p": 0.57
     },
     {
-      "from": "tool:taskfw__tasks__log_skill_invocation",
-      "to": "tool:taskfw__tasks__set_active",
+      "from": "tool:claude-code__Bash",
+      "to": "tool:wyckoff-analyzer__update_run",
       "relation": "often_follows",
       "count": 4,
-      "p": 0.06
+      "p": 0.01
     },
     {
-      "from": "tool:taskfw__tasks__log_skill_invocation",
-      "to": "tool:taskfw__tasks__add_commit",
+      "from": "tool:claude-code__WebSearch",
+      "to": "tool:claude-code__Write",
       "relation": "often_follows",
       "count": 4,
-      "p": 0.06
+      "p": 0.03
+    },
+    {
+      "from": "tool:claude-code__Bash",
+      "to": "tool:wyckoff-analyzer__sector_relative_strength",
+      "relation": "often_follows",
+      "count": 4,
+      "p": 0.01
+    },
+    {
+      "from": "tool:claude-code__Bash",
+      "to": "tool:local-mac__safari__read",
+      "relation": "often_follows",
+      "count": 4,
+      "p": 0.01
     },
     {
       "from": "tool:taskfw__tasks__active",
-      "to": "tool:taskfw__tasks__create",
+      "to": "tool:claude-code__ToolSearch",
       "relation": "often_follows",
       "count": 4,
-      "p": 0.18
+      "p": 0.17
     },
     {
-      "from": "tool:taskfw__tasks__check_item",
+      "from": "tool:claude-code__Bash",
+      "to": "tool:taskfw__tasks__finish",
+      "relation": "often_follows",
+      "count": 4,
+      "p": 0.01
+    },
+    {
+      "from": "tool:claude-code__WebFetch",
+      "to": "tool:claude-code__ToolSearch",
+      "relation": "often_follows",
+      "count": 4,
+      "p": 0.06
+    },
+    {
+      "from": "tool:claude-code__AskUserQuestion",
+      "to": "tool:claude-code__Bash",
+      "relation": "often_follows",
+      "count": 4,
+      "p": 0.4
+    },
+    {
+      "from": "tool:taskfw__tasks__set_active",
       "to": "tool:taskfw__tasks__log_skill_invocation",
       "relation": "often_follows",
       "count": 4,
-      "p": 0.25
+      "p": 0.36
     },
     {
-      "from": "tool:local-mac__vault__read",
-      "to": "tool:local-mac__vault__write",
+      "from": "tool:claude-code__WebFetch",
+      "to": "tool:claude-code__Edit",
       "relation": "often_follows",
       "count": 4,
-      "p": 0.67
+      "p": 0.06
     },
     {
-      "from": "tool:taskfw__task_memory__recall",
-      "to": "tool:taskfw__tasks__log_skill_invocation",
+      "from": "tool:taskfw__tasks__create",
+      "to": "tool:taskfw__tasks__check_item",
       "relation": "often_follows",
       "count": 4,
-      "p": 0.67
+      "p": 0.16
+    },
+    {
+      "from": "tool:claude-code__Agent",
+      "to": "tool:claude-code__ToolSearch",
+      "relation": "often_follows",
+      "count": 4,
+      "p": 0.5
+    },
+    {
+      "from": "tool:local-mac__safari__js",
+      "to": "tool:local-mac__safari__open",
+      "relation": "often_follows",
+      "count": 4,
+      "p": 0.14
+    },
+    {
+      "from": "tool:claude-code__Bash",
+      "to": "tool:taskfw__tasks__active",
+      "relation": "often_follows",
+      "count": 3,
+      "p": 0.01
+    },
+    {
+      "from": "tool:claude-code__Bash",
+      "to": "tool:taskfw__tasks__format_commit_message",
+      "relation": "often_follows",
+      "count": 3,
+      "p": 0.01
+    },
+    {
+      "from": "tool:taskfw__tasks__format_commit_message",
+      "to": "tool:claude-code__Write",
+      "relation": "often_follows",
+      "count": 3,
+      "p": 0.43
     },
     {
       "from": "tool:taskfw__tasks__log_skill_invocation",
-      "to": "tool:taskfw__task_memory__record",
+      "to": "tool:claude-code__ToolSearch",
       "relation": "often_follows",
       "count": 3,
       "p": 0.04
     },
     {
-      "from": "tool:local-mac__vault__filename_search",
-      "to": "tool:local-mac__vault__read",
+      "from": "tool:claude-hooks__memory__add",
+      "to": "tool:claude-code__WebSearch",
       "relation": "often_follows",
       "count": 3,
-      "p": 0.6
+      "p": 0.18
+    },
+    {
+      "from": "tool:claude-code__Bash",
+      "to": "tool:taskfw__tasks__logs",
+      "relation": "often_follows",
+      "count": 3,
+      "p": 0.01
+    },
+    {
+      "from": "tool:taskfw__tasks__logs",
+      "to": "tool:claude-code__Bash",
+      "relation": "often_follows",
+      "count": 3,
+      "p": 0.38
     },
     {
       "from": "tool:local-mac__safari__js",
@@ -1869,60 +2856,130 @@
       "p": 0.09
     },
     {
-      "from": "tool:claude-hooks__memory__search",
-      "to": "tool:taskfw__tasks__list",
+      "from": "tool:claude-code__ToolSearch",
+      "to": "tool:wyckoff-analyzer__update_run",
       "relation": "often_follows",
       "count": 3,
-      "p": 0.2
+      "p": 0.01
     },
     {
-      "from": "tool:taskfw__tasks__list",
-      "to": "tool:local-mac__safari__open",
+      "from": "tool:claude-code__ToolSearch",
+      "to": "tool:wyckoff-analyzer__sector_relative_strength",
       "relation": "often_follows",
       "count": 3,
-      "p": 0.17
+      "p": 0.01
     },
     {
-      "from": "tool:taskfw__tasks__list",
-      "to": "tool:taskfw__tasks__create",
+      "from": "tool:claude-code__ToolSearch",
+      "to": "tool:claude-hooks__memory__get",
       "relation": "often_follows",
       "count": 3,
-      "p": 0.17
+      "p": 0.01
+    },
+    {
+      "from": "tool:claude-code__Edit",
+      "to": "tool:claude-code__ToolSearch",
+      "relation": "often_follows",
+      "count": 3,
+      "p": 0.02
     },
     {
       "from": "tool:taskfw__tasks__log_skill_invocation",
-      "to": "tool:taskfw__tasks__create",
+      "to": "tool:taskfw__tasks__set_active",
       "relation": "often_follows",
       "count": 3,
       "p": 0.04
     },
     {
-      "from": "tool:wyckoff-analyzer__update_run",
-      "to": "tool:taskfw__tasks__active",
+      "from": "tool:taskfw__tasks__add_decision",
+      "to": "tool:taskfw__tasks__log_skill_invocation",
+      "relation": "often_follows",
+      "count": 3,
+      "p": 0.25
+    },
+    {
+      "from": "tool:claude-hooks__hooks__server_memory",
+      "to": "tool:taskfw__tasks__logs",
+      "relation": "often_follows",
+      "count": 3,
+      "p": 0.38
+    },
+    {
+      "from": "tool:claude-code__Write",
+      "to": "tool:claude-code__Edit",
+      "relation": "often_follows",
+      "count": 3,
+      "p": 0.09
+    },
+    {
+      "from": "tool:taskfw__tasks__set_active",
+      "to": "tool:claude-code__ToolSearch",
+      "relation": "often_follows",
+      "count": 3,
+      "p": 0.27
+    },
+    {
+      "from": "tool:taskfw__tasks__set_active",
+      "to": "tool:claude-code__Bash",
+      "relation": "often_follows",
+      "count": 3,
+      "p": 0.27
+    },
+    {
+      "from": "tool:claude-code__Bash",
+      "to": "tool:local-mac__safari__open",
+      "relation": "often_follows",
+      "count": 3,
+      "p": 0.01
+    },
+    {
+      "from": "tool:taskfw__tasks__create",
+      "to": "tool:taskfw__tasks__log_skill_invocation",
       "relation": "often_follows",
       "count": 3,
       "p": 0.12
     },
     {
-      "from": "tool:taskfw__tasks__list",
-      "to": "tool:claude-hooks__memory__add",
-      "relation": "often_follows",
-      "count": 3,
-      "p": 0.17
-    },
-    {
-      "from": "tool:taskfw__tasks__check_item",
-      "to": "tool:taskfw__tasks__format_commit_message",
+      "from": "tool:taskfw__tasks__add_introspection",
+      "to": "tool:claude-code__Bash",
       "relation": "often_follows",
       "count": 3,
       "p": 0.19
+    },
+    {
+      "from": "tool:claude-code__AskUserQuestion",
+      "to": "tool:claude-code__ToolSearch",
+      "relation": "often_follows",
+      "count": 3,
+      "p": 0.3
+    },
+    {
+      "from": "tool:claude-code__Bash",
+      "to": "tool:claude-code__Artifact",
+      "relation": "often_follows",
+      "count": 3,
+      "p": 0.01
+    },
+    {
+      "from": "tool:local-mac__vault__read",
+      "to": "tool:local-mac__vault__write",
+      "relation": "often_follows",
+      "count": 3,
+      "p": 0.38
     },
     {
       "from": "tool:local-mac__vault__write",
       "to": "tool:local-mac__vault__read",
       "relation": "often_follows",
       "count": 3,
-      "p": 1.0
+      "p": 0.6
+    },
+    {
+      "from": "tool:taskfw__task_memory__recall",
+      "to": "tool:taskfw__tasks__log_skill_invocation",
+      "relation": "often_follows",
+      "count": 3,
+      "p": 0.5
     },
     {
       "from": "tool:local-mac__safari__read",
@@ -1930,6 +2987,27 @@
       "relation": "often_follows",
       "count": 3,
       "p": 0.09
+    },
+    {
+      "from": "tool:claude-code__WebFetch",
+      "to": "tool:local-mac__safari__open",
+      "relation": "often_follows",
+      "count": 3,
+      "p": 0.04
+    },
+    {
+      "from": "tool:claude-code__ToolSearch",
+      "to": "tool:taskfw__tasks__set_active",
+      "relation": "often_follows",
+      "count": 3,
+      "p": 0.01
+    },
+    {
+      "from": "tool:taskfw__tasks__add_decision",
+      "to": "tool:taskfw__tasks__check_item",
+      "relation": "often_follows",
+      "count": 3,
+      "p": 0.25
     },
     {
       "from": "tool:taskfw__task_memory__record",
@@ -1943,35 +3021,56 @@
       "to": "tool:taskfw__tasks__add_decision",
       "relation": "often_follows",
       "count": 2,
-      "p": 0.15
+      "p": 0.12
+    },
+    {
+      "from": "tool:taskfw__tasks__add_decision",
+      "to": "tool:claude-code__Bash",
+      "relation": "often_follows",
+      "count": 2,
+      "p": 0.17
     },
     {
       "from": "tool:taskfw__tasks__get",
       "to": "tool:taskfw__tasks__log_skill_invocation",
       "relation": "often_follows",
       "count": 2,
-      "p": 1.0
+      "p": 0.67
     },
     {
-      "from": "tool:taskfw__tasks__log_skill_invocation",
-      "to": "tool:taskfw__task_memory__link",
+      "from": "tool:claude-code__Bash",
+      "to": "tool:local-mac__vault__read",
       "relation": "often_follows",
       "count": 2,
-      "p": 0.03
+      "p": 0.0
     },
     {
-      "from": "tool:wyckoff-analyzer__sector_relative_strength",
-      "to": "tool:claude-hooks__memory__search",
+      "from": "tool:taskfw__concept__upsert",
+      "to": "tool:claude-code__Bash",
+      "relation": "often_follows",
+      "count": 2,
+      "p": 0.5
+    },
+    {
+      "from": "tool:claude-code__Agent",
+      "to": "tool:claude-code__ScheduleWakeup",
+      "relation": "often_follows",
+      "count": 2,
+      "p": 0.25
+    },
+    {
+      "from": "tool:claude-hooks__memory__add",
+      "to": "tool:claude-code__Read",
       "relation": "often_follows",
       "count": 2,
       "p": 0.12
     },
     {
-      "from": "tool:taskfw__tasks__logs",
-      "to": "tool:claude-hooks__memory__search",
+      "from": "tool:claude-code__WebSearch",
+      "to": "tool:claude-code__ScheduleWakeup",
       "relation": "often_follows",
       "count": 2,
-      "p": 0.25
+      "p": 0.01
     },
     {
       "from": "tool:local-mac__safari__current_url",
@@ -1981,46 +3080,60 @@
       "p": 0.67
     },
     {
-      "from": "tool:local-mac__safari__read",
-      "to": "tool:wyckoff-analyzer__db_init_state",
+      "from": "tool:wyckoff-analyzer__update_run",
+      "to": "tool:claude-code__Read",
+      "relation": "often_follows",
+      "count": 2,
+      "p": 0.07
+    },
+    {
+      "from": "tool:claude-hooks__memory__search",
+      "to": "tool:claude-code__Read",
+      "relation": "often_follows",
+      "count": 2,
+      "p": 0.11
+    },
+    {
+      "from": "tool:local-mac__safari__open",
+      "to": "tool:claude-code__Bash",
+      "relation": "often_follows",
+      "count": 2,
+      "p": 0.07
+    },
+    {
+      "from": "tool:claude-code__Bash",
+      "to": "tool:wyckoff-analyzer__update_delivery",
+      "relation": "often_follows",
+      "count": 2,
+      "p": 0.0
+    },
+    {
+      "from": "tool:taskfw__tasks__list",
+      "to": "tool:claude-code__ToolSearch",
       "relation": "often_follows",
       "count": 2,
       "p": 0.06
     },
     {
-      "from": "tool:claude-hooks__memory__search",
-      "to": "tool:claude-hooks__memory__add_batch",
+      "from": "tool:claude-code__WebSearch",
+      "to": "tool:claude-code__Read",
       "relation": "often_follows",
       "count": 2,
-      "p": 0.13
+      "p": 0.01
     },
     {
-      "from": "tool:wyckoff-analyzer__sector_relative_strength",
-      "to": "tool:taskfw__tasks__active",
+      "from": "tool:claude-code__Write",
+      "to": "tool:claude-code__Read",
       "relation": "often_follows",
       "count": 2,
-      "p": 0.12
+      "p": 0.06
     },
     {
-      "from": "tool:wyckoff-analyzer__update_run",
-      "to": "tool:taskfw__tasks__list",
+      "from": "tool:claude-code__ToolSearch",
+      "to": "tool:claude-code__Read",
       "relation": "often_follows",
       "count": 2,
-      "p": 0.08
-    },
-    {
-      "from": "tool:taskfw__tasks__set_active",
-      "to": "tool:taskfw__tasks__active",
-      "relation": "often_follows",
-      "count": 2,
-      "p": 0.18
-    },
-    {
-      "from": "tool:taskfw__tasks__create",
-      "to": "tool:taskfw__tasks__finish",
-      "relation": "often_follows",
-      "count": 2,
-      "p": 0.08
+      "p": 0.01
     },
     {
       "from": "tool:taskfw__tasks__log_skill_invocation",
@@ -2037,53 +3150,74 @@
       "p": 1.0
     },
     {
-      "from": "tool:taskfw__tasks__logs",
-      "to": "tool:taskfw__tasks__log_skill_invocation",
+      "from": "tool:claude-code__ToolSearch",
+      "to": "tool:taskfw__tasks__logs",
       "relation": "often_follows",
       "count": 2,
-      "p": 0.25
+      "p": 0.01
     },
     {
-      "from": "tool:taskfw__tasks__check_item",
-      "to": "tool:taskfw__tasks__add_commit",
+      "from": "tool:taskfw__tasks__log_skill_invocation",
+      "to": "tool:claude-code__Skill",
       "relation": "often_follows",
       "count": 2,
-      "p": 0.12
+      "p": 0.03
     },
     {
       "from": "tool:taskfw__tasks__check_item",
       "to": "tool:taskfw__tasks__add_decision",
       "relation": "often_follows",
       "count": 2,
+      "p": 0.1
+    },
+    {
+      "from": "tool:taskfw__tasks__add_commit",
+      "to": "tool:taskfw__tasks__log_skill_invocation",
+      "relation": "often_follows",
+      "count": 2,
       "p": 0.12
     },
     {
-      "from": "tool:claude-hooks__memory__add",
-      "to": "tool:taskfw__tasks__active",
+      "from": "tool:taskfw__tasks__logs",
+      "to": "tool:claude-code__ToolSearch",
       "relation": "often_follows",
       "count": 2,
       "p": 0.25
     },
     {
-      "from": "tool:taskfw__tasks__create",
-      "to": "tool:taskfw__tasks__set_active",
+      "from": "tool:wyckoff-analyzer__update_run",
+      "to": "tool:claude-code__ToolSearch",
+      "relation": "often_follows",
+      "count": 2,
+      "p": 0.07
+    },
+    {
+      "from": "tool:claude-code__ToolSearch",
+      "to": "tool:taskfw__tasks__link",
+      "relation": "often_follows",
+      "count": 2,
+      "p": 0.01
+    },
+    {
+      "from": "tool:taskfw__tasks__update",
+      "to": "tool:claude-code__Bash",
+      "relation": "often_follows",
+      "count": 2,
+      "p": 0.15
+    },
+    {
+      "from": "tool:claude-code__ScheduleWakeup",
+      "to": "tool:claude-code__WebSearch",
+      "relation": "often_follows",
+      "count": 2,
+      "p": 0.13
+    },
+    {
+      "from": "tool:taskfw__tasks__active",
+      "to": "tool:taskfw__tasks__create",
       "relation": "often_follows",
       "count": 2,
       "p": 0.08
-    },
-    {
-      "from": "tool:taskfw__tasks__list",
-      "to": "tool:taskfw__tasks__active",
-      "relation": "often_follows",
-      "count": 2,
-      "p": 0.11
-    },
-    {
-      "from": "tool:claude-hooks__memory__add",
-      "to": "tool:local-mac__safari__open",
-      "relation": "often_follows",
-      "count": 2,
-      "p": 0.25
     },
     {
       "from": "tool:local-mac__safari__navigate",
@@ -2093,18 +3227,11 @@
       "p": 0.17
     },
     {
-      "from": "tool:taskfw__tasks__add_introspection",
-      "to": "tool:taskfw__tasks__create",
+      "from": "tool:claude-code__WebSearch",
+      "to": "tool:local-mac__safari__open",
       "relation": "often_follows",
       "count": 2,
-      "p": 0.13
-    },
-    {
-      "from": "tool:taskfw__tasks__check_item",
-      "to": "tool:taskfw__tasks__finish",
-      "relation": "often_follows",
-      "count": 2,
-      "p": 0.12
+      "p": 0.01
     },
     {
       "from": "tool:taskfw__tasks__finish",
@@ -2118,7 +3245,7 @@
       "to": "tool:wyckoff-analyzer__check_spring_or_sos",
       "relation": "often_follows",
       "count": 2,
-      "p": 0.08
+      "p": 0.07
     },
     {
       "from": "tool:wyckoff-analyzer__check_spring_or_sos",
@@ -2128,18 +3255,18 @@
       "p": 0.67
     },
     {
-      "from": "tool:wyckoff-analyzer__update_run",
-      "to": "tool:wyckoff-analyzer__update_delivery",
+      "from": "tool:claude-code__Edit",
+      "to": "tool:claude-code__Skill",
       "relation": "often_follows",
       "count": 2,
-      "p": 0.08
+      "p": 0.01
     },
     {
-      "from": "tool:taskfw__tasks__context",
-      "to": "tool:taskfw__tasks__check_item",
+      "from": "tool:taskfw__tasks__check_item",
+      "to": "tool:taskfw__tasks__log_skill_invocation",
       "relation": "often_follows",
       "count": 2,
-      "p": 0.11
+      "p": 0.1
     },
     {
       "from": "tool:taskfw__task_memory__recall",
@@ -2163,25 +3290,123 @@
       "p": 0.03
     },
     {
-      "from": "tool:taskfw__tasks__active",
-      "to": "tool:taskfw__tasks__add_introspection",
+      "from": "tool:claude-code__Bash",
+      "to": "tool:claude-code__Agent",
       "relation": "often_follows",
       "count": 2,
-      "p": 0.09
+      "p": 0.0
     },
     {
       "from": "tool:wyckoff-analyzer__sector_relative_strength",
-      "to": "tool:wyckoff-analyzer__signal_weight_table",
+      "to": "tool:claude-code__WebSearch",
+      "relation": "often_follows",
+      "count": 2,
+      "p": 0.1
+    },
+    {
+      "from": "tool:claude-code__WebSearch",
+      "to": "tool:claude-code__SubagentHandback",
+      "relation": "often_follows",
+      "count": 2,
+      "p": 0.01
+    },
+    {
+      "from": "tool:claude-code__SubagentHandback",
+      "to": "tool:claude-code__Bash",
+      "relation": "often_follows",
+      "count": 2,
+      "p": 0.4
+    },
+    {
+      "from": "tool:taskfw__tasks__log_skill_invocation",
+      "to": "tool:taskfw__tasks__create",
+      "relation": "often_follows",
+      "count": 2,
+      "p": 0.03
+    },
+    {
+      "from": "tool:taskfw__tasks__check_item",
+      "to": "tool:taskfw__tasks__format_commit_message",
+      "relation": "often_follows",
+      "count": 2,
+      "p": 0.1
+    },
+    {
+      "from": "tool:claude-code__Read",
+      "to": "tool:claude-code__Write",
+      "relation": "often_follows",
+      "count": 2,
+      "p": 0.01
+    },
+    {
+      "from": "tool:claude-code__ToolSearch",
+      "to": "tool:taskfw__tasks__add_introspection",
+      "relation": "often_follows",
+      "count": 2,
+      "p": 0.01
+    },
+    {
+      "from": "tool:local-mac__vault__list",
+      "to": "tool:claude-code__Bash",
+      "relation": "often_follows",
+      "count": 2,
+      "p": 0.5
+    },
+    {
+      "from": "tool:claude-code__Artifact",
+      "to": "tool:claude-code__Bash",
+      "relation": "often_follows",
+      "count": 2,
+      "p": 0.5
+    },
+    {
+      "from": "tool:claude-code__ToolSearch",
+      "to": "tool:local-mac__vault__list",
+      "relation": "often_follows",
+      "count": 2,
+      "p": 0.01
+    },
+    {
+      "from": "tool:wyckoff-analyzer__signal_weight_table",
+      "to": "tool:claude-code__Bash",
+      "relation": "often_follows",
+      "count": 2,
+      "p": 1.0
+    },
+    {
+      "from": "tool:local-mac__vault__filename_search",
+      "to": "tool:local-mac__vault__read",
+      "relation": "often_follows",
+      "count": 2,
+      "p": 0.4
+    },
+    {
+      "from": "tool:taskfw__tasks__add_commit",
+      "to": "tool:claude-code__Skill",
       "relation": "often_follows",
       "count": 2,
       "p": 0.12
     },
     {
-      "from": "tool:taskfw__tasks__create",
-      "to": "tool:taskfw__tasks__add_commit",
+      "from": "tool:claude-code__Bash",
+      "to": "tool:claude-hooks__hooks__server_memory",
       "relation": "often_follows",
       "count": 2,
-      "p": 0.08
+      "p": 0.0
+    },
+    {
+      "from": "tool:claude-code__WebSearch",
+      "to": "tool:local-mac__system__foundation_models_query",
+      "relation": "often_follows",
+      "count": 2,
+      "p": 0.01
+    },
+    {
+      "from": "tool:local-mac__system__foundation_models_query",
+      "to": "tool:claude-code__Bash",
+      "relation": "often_follows",
+      "count": 2,
+      "p": 0.67
     },
     {
       "from": "tool:taskfw__concept__upsert",
@@ -2191,11 +3416,32 @@
       "p": 0.5
     },
     {
+      "from": "tool:claude-code__Bash",
+      "to": "tool:taskfw__tasks__add_decision",
+      "relation": "often_follows",
+      "count": 2,
+      "p": 0.0
+    },
+    {
       "from": "tool:taskfw__tasks__context",
       "to": "tool:taskfw__tasks__add_commit",
       "relation": "often_follows",
       "count": 2,
       "p": 0.11
+    },
+    {
+      "from": "tool:taskfw__tasks__log_skill_invocation",
+      "to": "tool:taskfw__task_memory__record",
+      "relation": "often_follows",
+      "count": 2,
+      "p": 0.03
+    },
+    {
+      "from": "tool:local-mac__safari__close_tab",
+      "to": "tool:local-mac__safari__open",
+      "relation": "often_follows",
+      "count": 2,
+      "p": 0.2
     }
   ]
 }
