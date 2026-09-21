@@ -166,6 +166,12 @@ class ServerMemory:
         except Exception as exc:
             _log.warning("[server_memory] load failed: %s", exc)
             cls._cache = []
+        # Idempotent (INSERT OR IGNORE): catches rows written while the server was down
+        # or before a snapshot write failed. backfill_snapshot had no caller until
+        # task:894f0a65's introspection found it never ran; never raises.
+        added = cls.backfill_snapshot()
+        if added:
+            _log.info("[server_memory] startup backfill copied %d rows into the snapshot", added)
 
     @classmethod
     def _insert(cls, claude_session_id: str, *, type: str, content: str, ref: str | None = None, args: str | None = None, result: str | None = None) -> None:

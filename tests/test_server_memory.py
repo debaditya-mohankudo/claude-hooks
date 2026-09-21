@@ -376,3 +376,14 @@ def test_eviction_returns_pages_to_the_file(monkeypatch):
         sm.record_tool("s1", "t", result=big)
     assert _pragma("freelist_count") == 0
     assert sm.ServerMemory._DB.stat().st_size < 40 * 20000 // 2
+
+
+def test_load_backfills_rows_missing_from_the_snapshot(_snap, monkeypatch):
+    # A row written while the snapshot was unwritable is copied at the next startup load().
+    good = sm.ServerMemory._SNAPSHOT_DB
+    monkeypatch.setattr(sm.ServerMemory, "_SNAPSHOT_DB", _snap.parent / "no" / "dir" / "s.sqlite")
+    sm.record_prompt("s1", "written while snapshot down")
+    monkeypatch.setattr(sm.ServerMemory, "_SNAPSHOT_DB", good)
+    assert not _snap.exists() or _snap_rows(_snap) == []
+    sm.ServerMemory.load()
+    assert ("s1", "prompt", "written while snapshot down") in _snap_rows(_snap)
