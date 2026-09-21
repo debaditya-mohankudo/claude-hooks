@@ -574,7 +574,9 @@
         "tests/test_tool_groups.py",
         "hooks/dispatcher.py:_format_system_prompt",
         "langchain_learning/tool_groups.py:match_groups",
-        "scripts/measure_group_routing.py"
+        "scripts/measure_group_routing.py",
+        "scripts/measure_follow_holdout.py",
+        "scripts/mine_tool_sequences.py"
       ],
       "invariants": [
         "Ambiguous group names (code_rag exists in two servers) and unknown tools resolve to no group and are skipped, never guessed",
@@ -582,9 +584,11 @@
         "load_graph caches only successful loads keyed on (path, mtime_ns); a failed load is retried and graph edits apply without a server restart",
         "often_follows edges in the graph are deliberately unused here (~1 week of PTU logs, skewed to Bash/Safari)",
         "DB hints are still the only source of '## Suggested tool groups': measurement (task:21353636) found graph keywords hit 47% vs the DB's 59%, and no prompt where the graph matched but the DB had no hints, so match_groups is not called from the dispatcher",
-        "Curated group keywords must survive tokenise() (3+ letters a-z, not a stopword); `time` and `now` did not and scored zero silently, so tests pin it"
+        "Curated group keywords must survive tokenise() (3+ letters a-z, not a stopword); `time` and `now` did not and scored zero silently, so tests pin it",
+        "often_follows stays unused by routing, now on held-out evidence not just a small-sample guess (task:f1fb2187): follow@2 beat a most-used-groups baseline 80-87% vs 69-73% on 1065 PTU transitions, but 71% of MCP targets are taskfw workflow, and outside taskfw it tied the baseline (51% vs 51%, n=53). A follow_groups helper was tried and removed; tombstone in tool_groups.py. Re-measure with scripts/measure_follow_holdout.py at ~200 non-taskfw transitions",
+        "scripts/mine_tool_sequences.py must stay import-safe: main() is guarded by __name__, because an unguarded call regenerated the live graph on import (task:f1fb2187)"
       ],
-      "last_validated": "2026-09-21T03:28:52.029866+00:00",
+      "last_validated": "2026-09-21T05:42:53.504954+00:00",
       "module": "langchain_learning/tool_groups.py",
       "name": "tool-groups-routing",
       "related": []
@@ -641,6 +645,6 @@
     "commit": "5f62c6b5150a20fe7198d7bd6c155c4b3c0d3101",
     "extracted_at": "2026-07-23T05:42:23Z",
     "note": "incremental upsert (task:a2fd402d)",
-    "updated_at": "2026-09-21T04:26:12.088356+00:00"
+    "updated_at": "2026-09-21T05:42:53.505072+00:00"
   }
 }

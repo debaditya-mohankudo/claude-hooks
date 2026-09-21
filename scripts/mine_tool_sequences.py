@@ -139,4 +139,7 @@ def main():
         print(e["count"], e["p"], e["from"][5:], "->", e["to"][5:])
 
 
-main()
+# Guarded (task:f1fb2187): the bare call rewrote the live graph on `import`, which a
+# measurement script importing split() did by accident.
+if __name__ == "__main__":
+    main()

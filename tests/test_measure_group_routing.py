@@ -44,3 +44,17 @@ def test_evaluate_counts_db_and_graph_hits_against_eligible_tools_only():
 def test_prompt_using_no_eligible_tool_is_not_evaluated():
     r = m.evaluate([("s", "hello", ["Bash"])], _graph(), _Scorer([]), {"vault__read"})
     assert (r["prompts"], r["evaluated"], r["db_no_hints"]) == (1, 0, 1)
+
+
+def test_follow_holdout_scores_only_after_the_cutoff_and_excludes_prior_group_from_popularity():
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+    from measure_follow_holdout import evaluate
+    a, b, c = "group:s:a", "group:s:b", "group:s:c"
+    # train (first half): a->b twice, c->b once. test (second half): a->b, a->c
+    trans = [(a, b), (a, b), (c, b), (a, b), (a, c)]
+    r = evaluate(trans, 0.6, k=1)
+    assert (r["train"], r["n"]) == (3, 2)
+    assert r["follow"] == 1 and r["follow_1"] == 1     # a's top successor is b: hits a->b, misses a->c
+    assert r["pop"] == 1                               # pop top-1 excluding prior `a` is b: same hits here

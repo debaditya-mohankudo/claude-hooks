@@ -107,6 +107,13 @@ def match_groups(prompt_keywords: set[str], graph: dict | None = None) -> dict[s
         return {}
 
 
+# follow_groups (often_follows successors of the previous turn's group) was tried and
+# removed, task:f1fb2187. Held-out on the PTU log it beat a most-used-groups baseline by
+# 11-14 pts at top-2, but 71% of MCP targets are taskfw workflow the model already knows;
+# outside taskfw it tied the baseline (51% vs 51%, n=53). Re-measure with
+# scripts/measure_follow_holdout.py once there are ~200 non-taskfw transitions.
+
+
 def route_groups(hints: list[dict], graph: dict | None = None, top_groups: int = 3) -> list[dict]:
     """Rank the groups the hinted tools fall in. `hints` is ScoreToolsNode output
     (already best-first); groups rank by hit count, then by best hint position."""
