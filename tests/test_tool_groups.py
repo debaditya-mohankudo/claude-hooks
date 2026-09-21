@@ -243,3 +243,44 @@ def test_indexes_edges_do_not_change_group_routing():
     # Routing reads only overlaps_with; adding indexes edges must not add alternatives.
     r = route_groups([{"tool_name": "vault_rag__query_vault"}], _real_graph())
     assert [(x["group"], x["alternatives"]) for x in r] == [("local-mac/vault_rag", [])]
+
+
+# --- indexes shown in the prompt line (derived index vs its source) ---
+
+def _graph_with_index():
+    g = _graph()
+    g["nodes"] += [_g("local-mac", "vault_rag", "memory_knowledge", "query_vault"),
+                   {"id": "source:repo_files", "label": "Repository files", "kind": "source"}]
+    g["edges"] += [
+        {"from": "group:local-mac:vault_rag", "to": "group:local-mac:vault", "relation": "indexes"},
+        {"from": "group:local-mac:code_rag", "to": "source:repo_files", "relation": "indexes"},
+    ]
+    return g
+
+
+def test_index_group_line_names_what_it_indexes():
+    [r] = route_groups(_hints("vault_rag__query_vault"), _graph_with_index())
+    assert r["indexes"] == ["local-mac/vault"] and r["indexed_by"] == []
+    assert "; indexes: local-mac/vault" in format_groups([r])[1]
+
+
+def test_source_group_line_names_its_indexes():
+    [r] = route_groups(_hints("vault__read"), _graph_with_index())
+    assert r["indexed_by"] == ["local-mac/vault_rag"]
+    assert "; indexed by: local-mac/vault_rag" in format_groups([r])[1]
+
+
+def test_source_node_target_uses_its_label():
+    g = _graph_with_index()
+    g["nodes"] += [_g("claude-hooks", "diff_rag", "memory_knowledge", "query"),
+                   {"id": "source:git_history", "label": "Git history", "kind": "source"}]
+    g["edges"].append({"from": "group:claude-hooks:diff_rag", "to": "source:git_history", "relation": "indexes"})
+    [r] = route_groups(_hints("diff_rag__query"), g)
+    assert r["indexes"] == ["Git history"]
+    assert "; indexes: Git history" in format_groups([r])[1]
+
+
+def test_group_without_index_edges_prints_no_index_text():
+    [r] = route_groups(_hints("notes__add"), _graph_with_index())
+    line = format_groups([r])[1]
+    assert "indexes" not in line and "indexed by" not in line

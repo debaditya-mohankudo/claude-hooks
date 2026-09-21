@@ -139,12 +139,21 @@ def _route(hints: list[dict], graph: dict, top_groups: int) -> list[dict]:
             hit.setdefault(gid, []).append(h["tool_name"])
             first.setdefault(gid, i)
     ranked = sorted(hit, key=lambda g: (-len(hit[g]), first[g]))[:top_groups]
+    labels = {n["id"]: n.get("label", n["id"]) for n in graph["nodes"] if "id" in n}
+    indexes: dict[str, list[str]] = {}       # index group -> what it indexes
+    indexed_by: dict[str, list[str]] = {}    # source group -> the indexes over it
+    for e in graph["edges"]:
+        if e["relation"] == "indexes":
+            indexes.setdefault(e["from"], []).append(labels.get(e["to"], e["to"]))
+            indexed_by.setdefault(e["to"], []).append(labels.get(e["from"], e["from"]))
     return [{
         "group": groups[g]["label"],
         "category": groups[g].get("category", ""),
         "matched": hit[g],
         "tools": groups[g].get("tools", ""),
         "alternatives": [groups[a]["label"] for a in alts.get(g, []) if a in groups],
+        "indexes": indexes.get(g, []),
+        "indexed_by": indexed_by.get(g, []),
     } for g in ranked]
 
 
@@ -158,6 +167,11 @@ def format_groups(routes: list[dict], max_tools: int = 110) -> list[str]:
         line = f"- `{r['group']}` [{r['category']}] — hit: {', '.join(r['matched'])}; group has: {tools}"
         if r["alternatives"]:
             line += f"; overlaps: {', '.join(r['alternatives'])}"
+        # An index is a rebuildable copy of its source: say which is which, not "pick one".
+        if r.get("indexes"):
+            line += f"; indexes: {', '.join(r['indexes'])}"
+        if r.get("indexed_by"):
+            line += f"; indexed by: {', '.join(r['indexed_by'])}"
         lines.append(line)
     lines.append("")
     return lines
