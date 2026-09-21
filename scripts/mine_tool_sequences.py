@@ -131,7 +131,7 @@ def main():
     g["relation_types"]["member_of"] = "tool belongs to the tool group"
     g["meta"]["often_follows_source"] = "~/.claude/claude_hooks.sqlite hook_logs `PTU enter` lines; regenerate with scripts/mine_tool_sequences.py"
     json.dump(g, open(GRAPH, "w"), indent=2)
-    print("sessions", len(seqs), "mcp calls", sum(map(len, seqs.values())),
+    print("sessions", len(seqs), "calls", sum(map(len, seqs.values())),
           "| group edges", sum(1 for c in gp.values() if c >= a.min_group),
           "| tool edges", len(tedges), "| tool nodes", len(tnodes))
     for e in sorted(tedges, key=lambda e: -e["count"])[:10]:
