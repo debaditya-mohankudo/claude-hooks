@@ -98,3 +98,19 @@ def test_real_graph_routes_a_known_tool():
     [r] = route_groups(_hints("vault__read"), graph)
     assert r["group"] == "local-mac/vault"
     assert r["category"] == "memory_knowledge"
+
+
+def test_malformed_graph_shape_degrades_to_no_routing():
+    # Valid JSON, wrong shape: must not raise (task:750242a5 grooming risk).
+    hints = [{"tool_name": "vault__write"}]
+    assert route_groups(hints, graph={"nodes": [{"id": "group:a:b"}], "edges": []}) == []
+    assert route_groups(hints, graph={"edges": []}) == []
+
+
+def test_failed_load_is_not_cached_and_edits_are_picked_up(tmp_path):
+    p = tmp_path / "g.json"
+    assert load_graph(p) is None
+    p.write_text(json.dumps({"nodes": [], "edges": []}))
+    assert load_graph(p) == {"nodes": [], "edges": []}
+    p.write_text(json.dumps({"nodes": [1], "edges": []}))
+    assert load_graph(p) == {"nodes": [1], "edges": []}

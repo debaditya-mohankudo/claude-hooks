@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import json
 import re
-from functools import lru_cache
 from pathlib import Path
 
 from src.logger import get_logger
@@ -22,10 +21,19 @@ GRAPH_PATH = Path(__file__).resolve().parents[1] / "ontology" / "mcp-tools-domai
 _TOKEN = re.compile(r"[\w-]+\*?")
 
 
-@lru_cache(maxsize=4)
+# (path, mtime_ns) -> graph. Only successful loads are cached, keyed on mtime, so a
+# missing file at first use recovers once it appears and edits are picked up without
+# a server restart (task:750242a5 grooming: lru_cache pinned a failed load as None).
+_cache: dict[tuple[Path, int], dict] = {}
+
+
 def load_graph(path: Path = GRAPH_PATH) -> dict | None:
     try:
-        return json.loads(path.read_text())
+        key = (path, path.stat().st_mtime_ns)
+        if key not in _cache:
+            _cache.clear()
+            _cache[key] = json.loads(path.read_text())
+        return _cache[key]
     except (OSError, ValueError) as exc:
         _log.warning("[tool_groups] graph unavailable: %s", exc)
         return None
@@ -68,6 +76,15 @@ def route_groups(hints: list[dict], graph: dict | None = None, top_groups: int =
     graph = graph if graph is not None else load_graph()
     if not graph or not hints:
         return []
+    try:
+        return _route(hints, graph, top_groups)
+    except (KeyError, TypeError, AttributeError) as exc:
+        # Valid JSON with the wrong shape must degrade to no routing, not break UPS.
+        _log.warning("[tool_groups] malformed graph: %r", exc)
+        return []
+
+
+def _route(hints: list[dict], graph: dict, top_groups: int) -> list[dict]:
     groups, alts, by_name = _index(graph)
     hit: dict[str, list[str]] = {}
     first: dict[str, int] = {}
