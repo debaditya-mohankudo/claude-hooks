@@ -114,3 +114,17 @@ def test_failed_load_is_not_cached_and_edits_are_picked_up(tmp_path):
     assert load_graph(p) == {"nodes": [], "edges": []}
     p.write_text(json.dumps({"nodes": [1], "edges": []}))
     assert load_graph(p) == {"nodes": [1], "edges": []}
+
+
+def test_routing_outcome_is_logged(caplog):
+    import logging
+    caplog.set_level(logging.INFO)
+    tg._log.addHandler(caplog.handler)
+    try:
+        route_groups([{"tool_name": "vault__write"}, {"tool_name": "vault__read"}], graph=_graph())
+        route_groups([{"tool_name": "nonexistent__x"}], graph=_graph())
+    finally:
+        tg._log.removeHandler(caplog.handler)
+    msgs = [r.getMessage() for r in caplog.records if "[tool_groups]" in r.getMessage()]
+    assert any("routed 2 hint(s) to 1 group(s): local-mac/vault(2)" in m for m in msgs)
+    assert any("no group for 1 hint(s)" in m for m in msgs)

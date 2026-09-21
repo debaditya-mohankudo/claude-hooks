@@ -77,11 +77,19 @@ def route_groups(hints: list[dict], graph: dict | None = None, top_groups: int =
     if not graph or not hints:
         return []
     try:
-        return _route(hints, graph, top_groups)
+        routes = _route(hints, graph, top_groups)
     except (KeyError, TypeError, AttributeError) as exc:
         # Valid JSON with the wrong shape must degrade to no routing, not break UPS.
         _log.warning("[tool_groups] malformed graph: %r", exc)
         return []
+    # Success is logged too: without it a working router and a silent one look the
+    # same in hook_logs (task:750242a5).
+    if routes:
+        _log.info("[tool_groups] routed %d hint(s) to %d group(s): %s", len(hints), len(routes),
+                  ", ".join(f"{r['group']}({len(r['matched'])})" for r in routes))
+    else:
+        _log.info("[tool_groups] no group for %d hint(s)", len(hints))
+    return routes
 
 
 def _route(hints: list[dict], graph: dict, top_groups: int) -> list[dict]:
