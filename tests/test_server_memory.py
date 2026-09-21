@@ -340,3 +340,39 @@ def test_unwritable_snapshot_does_not_break_the_hook_path(tmp_path, monkeypatch)
     monkeypatch.setattr(sm.ServerMemory, "_SNAPSHOT_DB", tmp_path / "no" / "such" / "dir" / "s.sqlite")
     sm.record_prompt("s1", "still recorded")
     assert sm.get_server_memory()["events"][-1]["content"] == "still recorded"
+
+
+# ── file size tracks live rows (task:2676d188) ────────────────────────────────
+
+def _pragma(name):
+    import sqlite3
+    c = sqlite3.connect(sm.ServerMemory._DB)
+    try:
+        return c.execute(f"PRAGMA {name}").fetchone()[0]
+    finally:
+        c.close()
+
+
+def test_new_store_uses_incremental_auto_vacuum():
+    sm.record_prompt("s1", "x")
+    assert _pragma("auto_vacuum") == 2
+
+
+def test_existing_none_mode_store_is_migrated_once():
+    import sqlite3
+    c = sqlite3.connect(sm.ServerMemory._DB)
+    c.execute("CREATE TABLE junk (x)")
+    c.commit()
+    c.close()
+    assert _pragma("auto_vacuum") == 0
+    sm.record_prompt("s1", "x")
+    assert _pragma("auto_vacuum") == 2
+
+
+def test_eviction_returns_pages_to_the_file(monkeypatch):
+    monkeypatch.setattr(sm.ServerMemory, "_MAX_ENTRIES", 5)
+    big = "y" * 20000
+    for i in range(40):
+        sm.record_tool("s1", "t", result=big)
+    assert _pragma("freelist_count") == 0
+    assert sm.ServerMemory._DB.stat().st_size < 40 * 20000 // 2

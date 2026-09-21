@@ -54,6 +54,15 @@ class ServerMemory:
     @classmethod
     def _connect(cls) -> sqlite3.Connection:
         conn = sqlite3.connect(str(cls._DB), timeout=5)
+        # auto_vacuum=NONE let this file keep its high-water mark: the per-insert
+        # eviction DELETE only grew the freelist (335 MB for ~100 KB of rows, task:2676d188).
+        # Setting it on a file that already has pages takes effect only via VACUUM.
+        try:
+            if conn.execute("PRAGMA auto_vacuum").fetchone()[0] != 2:
+                conn.execute("PRAGMA auto_vacuum=INCREMENTAL")
+                conn.execute("VACUUM")
+        except Exception as exc:  # fail open: a locked file just retries next connect
+            _log.warning("[server_memory] auto_vacuum migration skipped: %s", exc)
         # Migrate the (ephemeral, capped) store if it predates the type/content schema.
         cols = {r[1] for r in conn.execute("PRAGMA table_info(server_memory)")}
         if cols and "type" not in cols:
@@ -189,6 +198,7 @@ class ServerMemory:
                     (cls._MAX_ENTRIES,),
                 )
                 conn.commit()
+                conn.execute("PRAGMA incremental_vacuum").fetchall()  # hand the evicted rows' pages back; frees one page per row stepped
             finally:
                 conn.close()
         except Exception as exc:
