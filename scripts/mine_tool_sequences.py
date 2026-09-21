@@ -1,6 +1,6 @@
 """Mine consecutive MCP tool-call pairs from the claude-hooks PostToolUse log
 (~/.claude/claude_hooks.sqlite, hook_logs rows `PTU enter: session=<id> tool=<name>`)
-and merge them into ontology/mcp-tools-domain.json as `often_follows` edges.
+and merge them into ~/.claude/mcp-tools-domain.json as `often_follows` edges.
 
 Covers built-in tools (grouped under server claude-code) as well as MCP tools, and
 seeds the four hook-event nodes (UserPromptSubmit/PreToolUse/PostToolUse/Stop).
@@ -9,7 +9,7 @@ Usage: python3 scripts/mine_tool_sequences.py [--min-tool 2] [--min-group 3]
 """
 import argparse, collections, json, os, re, sqlite3
 
-GRAPH = os.path.join(os.path.dirname(__file__), "..", "ontology", "mcp-tools-domain.json")
+GRAPH = os.path.expanduser("~/.claude/mcp-tools-domain.json")
 HOOKS_DB = os.path.expanduser("~/.claude/claude_hooks.sqlite")
 PTU = re.compile(r"PTU enter: session=(\S+) tool=(\S+) ")
 

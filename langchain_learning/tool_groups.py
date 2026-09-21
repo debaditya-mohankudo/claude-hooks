@@ -1,4 +1,4 @@
-"""Group-level tool routing over ontology/mcp-tools-domain.json.
+"""Group-level tool routing over ~/.claude/mcp-tools-domain.json.
 
 ScoreToolsNode returns a flat top-N of individual tools. This lifts those hits
 to their tool group: which groups the hits fall in, each group's category, its
@@ -17,7 +17,7 @@ from src.logger import get_logger
 
 _log = get_logger(__name__)
 
-GRAPH_PATH = Path(__file__).resolve().parents[1] / "ontology" / "mcp-tools-domain.json"
+GRAPH_PATH = Path.home() / ".claude" / "mcp-tools-domain.json"  # personal: names what the user works on, so not in the public repo
 _TOKEN = re.compile(r"[\w-]+\*?")
 
 

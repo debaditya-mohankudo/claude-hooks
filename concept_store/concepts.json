@@ -120,7 +120,7 @@
         "All sections are markdown-formatted, emitted in a fixed order: '## Turn state', the user-context block (its own '## Dev personality' / '## Financial profile' / '## Relevant context' headings), '## Injected memories', '## Suggested tools', '## Suggested tool groups'"
       ],
       "created_at": "2026-06-29T09:47:25.284960+00:00",
-      "description": "Assembles the UserPromptSubmit additionalSystemPrompt from the SessionState-derived ctx dict into markdown sections. Rewritten task:173e6846 (2026-09-01) after the long STALE period (task:c2e36050): the pre-task:882d67fa pull-based task-context pipeline this entry used to describe (LoadRelatedTasksNode, task_body, execution_contract, activate_task.py, mid_task_decisions, '## Repo memories', new-project note) is entirely gone, and so is the task:996cc8f0 '## Active task' push block (removed task:8be768df in the prompt, cache removed task:173e6846). What remains is five small sections: turn identifiers, the rendered user-context ontology (hooks/user_context.py), scored memories, scored tool hints, and (task:750242a5) tool groups lifted from those hints via ontology/mcp-tools-domain.json (langchain_learning/tool_groups.py).",
+      "description": "Assembles the UserPromptSubmit additionalSystemPrompt from the SessionState-derived ctx dict into markdown sections. Rewritten task:173e6846 (2026-09-01) after the long STALE period (task:c2e36050): the pre-task:882d67fa pull-based task-context pipeline this entry used to describe (LoadRelatedTasksNode, task_body, execution_contract, activate_task.py, mid_task_decisions, '## Repo memories', new-project note) is entirely gone, and so is the task:996cc8f0 '## Active task' push block (removed task:8be768df in the prompt, cache removed task:173e6846). What remains is five small sections: turn identifiers, the rendered user-context ontology (hooks/user_context.py), scored memories, scored tool hints, and (task:750242a5) tool groups lifted from those hints via ~/.claude/mcp-tools-domain.json (langchain_learning/tool_groups.py).",
       "evidence": [
         "hooks/dispatcher.py:_format_system_prompt",
         "hooks/user_context.py:render_user_context",
@@ -566,7 +566,7 @@
         "match_groups(prompt_keywords, graph=None) -> {group id: matched keywords}: exact-token match against each group's tokenised curated keywords; a group without keywords is unmatched, a bad graph returns {}"
       ],
       "created_at": "2026-09-21T03:09:05.205414+00:00",
-      "description": "Lifts ScoreToolsNode's flat tool hints to tool groups using ontology/mcp-tools-domain.json, rendered as '## Suggested tool groups' by dispatcher._format_system_prompt (task:750242a5). Pure render-time post-process: scoring is unchanged. Groups also carry curated `keywords`, read only by match_groups for scripts/measure_group_routing.py; they do not feed routing (task:21353636).",
+      "description": "Lifts ScoreToolsNode's flat tool hints to tool groups using ~/.claude/mcp-tools-domain.json, rendered as '## Suggested tool groups' by dispatcher._format_system_prompt (task:750242a5). Pure render-time post-process: scoring is unchanged. Groups also carry curated `keywords`, read only by match_groups for scripts/measure_group_routing.py; they do not feed routing (task:21353636).",
       "evidence": [
         "langchain_learning/tool_groups.py:route_groups",
         "langchain_learning/tool_groups.py:load_graph",

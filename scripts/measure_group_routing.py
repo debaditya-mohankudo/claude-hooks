@@ -7,7 +7,7 @@ size are printed with the result), compare two sources of "suggested groups":
   db    KeywordOverlapScorer hints from ~/.claude/tool_hints.sqlite lifted to groups
         (what '## Suggested tool groups' shows today), top 3 by hint count
   graph exact-token match of the prompt against curated `keywords` on the
-        tool_group nodes of ontology/mcp-tools-domain.json, top 3 by matched-keyword count
+        tool_group nodes of ~/.claude/mcp-tools-domain.json, top 3 by matched-keyword count
 
 against the tools the model actually used in that turn (task:21353636 decision:
 any MCP tool used between this prompt and the next one in the same Claude session,

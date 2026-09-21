@@ -1,8 +1,19 @@
-"""Group-level tool routing over ontology/mcp-tools-domain.json (task:750242a5)."""
+"""Group-level tool routing over ~/.claude/mcp-tools-domain.json (task:750242a5)."""
 import json
+
+import pytest
 
 from langchain_learning import tool_groups as tg
 from langchain_learning.tool_groups import format_groups, group_of, load_graph, route_groups
+
+
+def _real_graph():
+    # The real map is personal (~/.claude, not in the public repo); checks on it run only
+    # where it exists. Structural behaviour is covered by the in-test _graph() fixtures.
+    g = load_graph()
+    if g is None:
+        pytest.skip("~/.claude/mcp-tools-domain.json not present")
+    return g
 
 
 def _g(server, name, category, tools=""):
@@ -94,7 +105,7 @@ def test_format_groups_renders_section_and_truncates_tools():
 
 
 def test_real_graph_routes_a_known_tool():
-    graph = json.loads(tg.GRAPH_PATH.read_text())
+    graph = _real_graph()
     [r] = route_groups(_hints("vault__read"), graph)
     assert r["group"] == "local-mac/vault"
     assert r["category"] == "memory_knowledge"
@@ -158,7 +169,7 @@ def test_match_groups_fails_soft_on_malformed_graph():
 
 
 def test_every_real_group_carries_keywords():
-    graph = load_graph()
+    graph = _real_graph()
     bare = [n["id"] for n in graph["nodes"] if n["kind"] == "tool_group" and not tg.group_keywords(n)]
     assert bare == []
 
@@ -168,21 +179,21 @@ def test_no_curated_keyword_is_silently_dropped_by_tokenise():
     # with no error anywhere (task:21353636).
     from langchain_learning.nodes._text_utils import tokenise
     lost = {n["id"]: [k for k in n["keywords"] if tokenise(k) != {k}]
-            for n in load_graph()["nodes"] if n["kind"] == "tool_group"}
+            for n in _real_graph()["nodes"] if n["kind"] == "tool_group"}
     assert {g: k for g, k in lost.items() if k} == {}
 
 
 # --- bounded_contexts (task:3fea9bfe): one description per MCP server, single source ---
 
 def test_bounded_contexts_match_servers_exactly():
-    g = load_graph()
+    g = _real_graph()
     servers = {n["id"].split(":", 1)[1] for n in g["nodes"] if n["kind"] == "server"}
     assert servers == set(g["bounded_contexts"])
     assert [k for k, v in g["bounded_contexts"].items() if len(v) < 40] == []
 
 
 def test_every_tool_group_belongs_to_a_bounded_context():
-    g = load_graph()
+    g = _real_graph()
     orphans = [n["id"] for n in g["nodes"] if n["kind"] == "tool_group"
                and n["id"].split(":")[1] not in g["bounded_contexts"]]
     assert orphans == []
@@ -190,5 +201,45 @@ def test_every_tool_group_belongs_to_a_bounded_context():
 
 def test_server_nodes_carry_no_second_copy_of_the_description():
     # Placeholder "MCP server / connector X" definitions were removed; the map is the source.
-    g = load_graph()
+    g = _real_graph()
     assert [n["id"] for n in g["nodes"] if n["kind"] == "server" and "definition" in n] == []
+
+
+# --- indexes (derived index -> its source): a rebuildable cache must name what it caches ---
+
+def _index_groups(g):
+    return [n["id"] for n in g["nodes"] if n["kind"] == "tool_group" and n["id"].endswith("_rag")]
+
+
+def test_every_rag_group_indexes_exactly_one_existing_source():
+    g = _real_graph()
+    ids = {n["id"] for n in g["nodes"]}
+    edges = [e for e in g["edges"] if e["relation"] == "indexes"]
+    for gid in _index_groups(g):
+        targets = [e["to"] for e in edges if e["from"] == gid]
+        assert len(targets) == 1, f"{gid} indexes {targets}"
+        assert targets[0] in ids, f"{gid} indexes missing node {targets[0]}"
+
+
+def test_indexes_edges_only_leave_rag_groups():
+    g = _real_graph()
+    stray = [e["from"] for e in g["edges"] if e["relation"] == "indexes"
+             and e["from"] not in _index_groups(g)]
+    assert stray == []
+
+
+def test_vault_rag_indexes_the_vault_group():
+    g = _real_graph()
+    assert {"from": "group:local-mac:vault_rag", "to": "group:local-mac:vault"}.items() <= next(
+        e for e in g["edges"] if e["relation"] == "indexes" and e["from"] == "group:local-mac:vault_rag").items()
+
+
+def test_every_edge_relation_is_declared_in_relation_types():
+    g = _real_graph()
+    assert {e["relation"] for e in g["edges"]} - set(g["relation_types"]) == set()
+
+
+def test_indexes_edges_do_not_change_group_routing():
+    # Routing reads only overlaps_with; adding indexes edges must not add alternatives.
+    r = route_groups([{"tool_name": "vault_rag__query_vault"}], _real_graph())
+    assert [(x["group"], x["alternatives"]) for x in r] == [("local-mac/vault_rag", [])]

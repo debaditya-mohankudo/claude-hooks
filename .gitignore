@@ -24,3 +24,6 @@ tests/test_logs.db
 file:testlogs*
 tests/replay_baseline.json
 .coverage
+
+# Personal MCP map lives in ~/.claude/mcp-tools-domain.json, not in this public repo
+ontology/mcp-tools-domain.json
