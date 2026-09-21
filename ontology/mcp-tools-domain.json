@@ -1,0 +1,2201 @@
+{
+  "meta": {
+    "title": "MCP tool ontology - servers, tool groups, broad categories",
+    "as_of": "2026-09-21",
+    "frame": "Broad-category routing map of every MCP server/connector available to Claude Code on this machine. Nodes: category (what a tool is for), server, tool_group (a server's tool namespace, with its tools listed). Relations: provides, in_category, overlaps_with (interchangeable/duplicate tool groups - the routing ambiguity), feeds (category-level workflow). Not an ontology/ financial graph: it does not use taxonomy.json.",
+    "source": "tool names from the session's tool list; tool_group.tools is abridged, not exhaustive. Regenerate via live tools/list introspection for exact schemas.",
+    "often_follows_source": "~/.claude/claude_hooks.sqlite hook_logs `PTU enter` lines; regenerate with scripts/mine_tool_sequences.py"
+  },
+  "relation_types": {
+    "provides": "server exposes the tool group",
+    "in_category": "tool group serves this broad purpose",
+    "overlaps_with": "two tool groups can do the same job - choose by constraint",
+    "feeds": "output of source category is typically input to target category",
+    "often_follows": "mined from PostToolUse `PTU enter` log lines: target is called next (MCP calls only) after source within one session (count; p = share of the source's successors)",
+    "member_of": "tool belongs to the tool group"
+  },
+  "nodes": [
+    {
+      "id": "market_analysis",
+      "label": "Market Analysis",
+      "kind": "category",
+      "definition": "stock/market data, Wyckoff and momentum analysis, price/regime signals"
+    },
+    {
+      "id": "memory_knowledge",
+      "label": "Memory Knowledge",
+      "kind": "category",
+      "definition": "persistent memory, notes, vault, RAG/code search, scratch and reasoning aids"
+    },
+    {
+      "id": "task_management",
+      "label": "Task Management",
+      "kind": "category",
+      "definition": "task lifecycle, decisions, concept store, task memory"
+    },
+    {
+      "id": "hooks_observability",
+      "label": "Hooks Observability",
+      "kind": "category",
+      "definition": "session/hook logs, checkpoints, server memory"
+    },
+    {
+      "id": "personal_comms",
+      "label": "Personal Comms",
+      "kind": "category",
+      "definition": "mail, messages, contacts, chat and calendar/reminders"
+    },
+    {
+      "id": "docs_collab",
+      "label": "Docs Collab",
+      "kind": "category",
+      "definition": "documents, drive storage, workspace pages (Docs, Drive, Notion, Slack)"
+    },
+    {
+      "id": "ui_automation",
+      "label": "Ui Automation",
+      "kind": "category",
+      "definition": "driving browsers and native apps (Safari, Chrome, computer-use, cmux-cua)"
+    },
+    {
+      "id": "system_control",
+      "label": "System Control",
+      "kind": "category",
+      "definition": "OS state and devices: process, power, sound, VPN, music, podcasts, clipboard, time"
+    },
+    {
+      "id": "modeling",
+      "label": "Modeling",
+      "kind": "category",
+      "definition": "SysML v2 parsing, validation and visualisation"
+    },
+    {
+      "id": "astrology",
+      "label": "Astrology",
+      "kind": "category",
+      "definition": "chart, dasha, gochar, panchang and prediction queries"
+    },
+    {
+      "id": "local_llm",
+      "label": "Local Llm",
+      "kind": "category",
+      "definition": "delegating to local models (Ollama, Foundation Models)"
+    },
+    {
+      "id": "server:astrology",
+      "label": "astrology",
+      "kind": "server",
+      "definition": "MCP server / connector astrology"
+    },
+    {
+      "id": "server:claude-hooks",
+      "label": "claude-hooks",
+      "kind": "server",
+      "definition": "MCP server / connector claude-hooks"
+    },
+    {
+      "id": "server:claude-in-chrome",
+      "label": "claude-in-chrome",
+      "kind": "server",
+      "definition": "MCP server / connector claude-in-chrome"
+    },
+    {
+      "id": "server:claude_ai_Claude_Docs",
+      "label": "claude_ai_Claude_Docs",
+      "kind": "server",
+      "definition": "MCP server / connector claude_ai_Claude_Docs"
+    },
+    {
+      "id": "server:claude_ai_Gmail",
+      "label": "claude_ai_Gmail",
+      "kind": "server",
+      "definition": "MCP server / connector claude_ai_Gmail"
+    },
+    {
+      "id": "server:claude_ai_Google_Calendar",
+      "label": "claude_ai_Google_Calendar",
+      "kind": "server",
+      "definition": "MCP server / connector claude_ai_Google_Calendar"
+    },
+    {
+      "id": "server:claude_ai_Google_Drive",
+      "label": "claude_ai_Google_Drive",
+      "kind": "server",
+      "definition": "MCP server / connector claude_ai_Google_Drive"
+    },
+    {
+      "id": "server:claude_ai_Notion",
+      "label": "claude_ai_Notion",
+      "kind": "server",
+      "definition": "MCP server / connector claude_ai_Notion"
+    },
+    {
+      "id": "server:claude_ai_Slack",
+      "label": "claude_ai_Slack",
+      "kind": "server",
+      "definition": "MCP server / connector claude_ai_Slack"
+    },
+    {
+      "id": "server:cmux-cua",
+      "label": "cmux-cua",
+      "kind": "server",
+      "definition": "MCP server / connector cmux-cua"
+    },
+    {
+      "id": "server:computer-use",
+      "label": "computer-use",
+      "kind": "server",
+      "definition": "MCP server / connector computer-use"
+    },
+    {
+      "id": "server:local-mac",
+      "label": "local-mac",
+      "kind": "server",
+      "definition": "MCP server / connector local-mac"
+    },
+    {
+      "id": "server:sysml-mcp",
+      "label": "sysml-mcp",
+      "kind": "server",
+      "definition": "MCP server / connector sysml-mcp"
+    },
+    {
+      "id": "server:taskfw",
+      "label": "taskfw",
+      "kind": "server",
+      "definition": "MCP server / connector taskfw"
+    },
+    {
+      "id": "server:wyckoff-analyzer",
+      "label": "wyckoff-analyzer",
+      "kind": "server",
+      "definition": "MCP server / connector wyckoff-analyzer"
+    },
+    {
+      "id": "group:wyckoff-analyzer:wyckoff-analyzer",
+      "label": "wyckoff-analyzer/wyckoff-analyzer",
+      "kind": "tool_group",
+      "category": "market_analysis",
+      "tools": "db_init_state, update_run, update_delivery, update_fno, update_short_volume, analyze_accumulation, check_spring_or_sos, get_support_resistance, plot_sr_chart, sector_relative_strength, signal_weight_table, next_step, classify_announcements, momentum_* (universe, rebalance, portfolio_rebalance, check_exits, archive_update)"
+    },
+    {
+      "id": "group:local-mac:market",
+      "label": "local-mac/market",
+      "kind": "tool_group",
+      "category": "market_analysis",
+      "tools": "gold_regime_history, gold_regime_projection"
+    },
+    {
+      "id": "group:local-mac:vault",
+      "label": "local-mac/vault",
+      "kind": "tool_group",
+      "category": "memory_knowledge",
+      "tools": "Obsidian vault: read, write, append, list, tags, links, backlinks, outline, section/filename/folder search, tasks, daily_read, stats"
+    },
+    {
+      "id": "group:local-mac:vault_rag",
+      "label": "local-mac/vault_rag",
+      "kind": "tool_group",
+      "category": "memory_knowledge",
+      "tools": "query_vault, smart_search, fts_vault, index_vault/file/status, section maintenance"
+    },
+    {
+      "id": "group:local-mac:notes",
+      "label": "local-mac/notes",
+      "kind": "tool_group",
+      "category": "memory_knowledge",
+      "tools": "Apple Notes: add, read, list, delete, folders"
+    },
+    {
+      "id": "group:local-mac:code_rag",
+      "label": "local-mac/code_rag",
+      "kind": "tool_group",
+      "category": "memory_knowledge",
+      "tools": "index_files, query, smart_search"
+    },
+    {
+      "id": "group:claude-hooks:code_rag",
+      "label": "claude-hooks/code_rag",
+      "kind": "tool_group",
+      "category": "memory_knowledge",
+      "tools": "index_files, query, smart_search"
+    },
+    {
+      "id": "group:claude-hooks:diff_rag",
+      "label": "claude-hooks/diff_rag",
+      "kind": "tool_group",
+      "category": "memory_knowledge",
+      "tools": "index_commits, query, smart_search"
+    },
+    {
+      "id": "group:claude-hooks:memory",
+      "label": "claude-hooks/memory",
+      "kind": "tool_group",
+      "category": "memory_knowledge",
+      "tools": "MEMORY.sqlite: add, add_batch, get, list, search, delete, read_compact, tool_hints"
+    },
+    {
+      "id": "group:claude-hooks:scratch",
+      "label": "claude-hooks/scratch",
+      "kind": "tool_group",
+      "category": "memory_knowledge",
+      "tools": "get, set, list, delete, clear"
+    },
+    {
+      "id": "group:claude-hooks:think",
+      "label": "claude-hooks/think",
+      "kind": "tool_group",
+      "category": "memory_knowledge",
+      "tools": "think"
+    },
+    {
+      "id": "group:claude-hooks:hooks",
+      "label": "claude-hooks/hooks",
+      "kind": "tool_group",
+      "category": "hooks_observability",
+      "tools": "checkpoint_query, read_logs_sqlite, server_memory, session_id"
+    },
+    {
+      "id": "group:taskfw:tasks",
+      "label": "taskfw/tasks",
+      "kind": "tool_group",
+      "category": "task_management",
+      "tools": "create, get, list, search, update, finish, phase, set_active, active, check_item, link/unlink/edges, add_commit/decision/introspection, context, logs, format_commit_message, grooming_accuracy, log_skill_invocation"
+    },
+    {
+      "id": "group:taskfw:task_memory",
+      "label": "taskfw/task_memory",
+      "kind": "tool_group",
+      "category": "memory_knowledge",
+      "tools": "record, recall, get, link, supersede, forget"
+    },
+    {
+      "id": "group:taskfw:concept",
+      "label": "taskfw/concept",
+      "kind": "tool_group",
+      "category": "task_management",
+      "tools": "list, get, search, upsert, delete, modules, uncovered"
+    },
+    {
+      "id": "group:local-mac:calendar",
+      "label": "local-mac/calendar",
+      "kind": "tool_group",
+      "category": "personal_comms",
+      "tools": "add_event, delete_event, list_events, get_events_by_date, get_upcoming_events, get_noise_summary"
+    },
+    {
+      "id": "group:local-mac:reminders",
+      "label": "local-mac/reminders",
+      "kind": "tool_group",
+      "category": "personal_comms",
+      "tools": "create, list, complete, delete"
+    },
+    {
+      "id": "group:local-mac:contacts",
+      "label": "local-mac/contacts",
+      "kind": "tool_group",
+      "category": "personal_comms",
+      "tools": "search"
+    },
+    {
+      "id": "group:local-mac:mail",
+      "label": "local-mac/mail",
+      "kind": "tool_group",
+      "category": "personal_comms",
+      "tools": "search, read, get, compose, move, delete, list_mailboxes, list_drafts, add_local_mailbox"
+    },
+    {
+      "id": "group:local-mac:imessage",
+      "label": "local-mac/imessage",
+      "kind": "tool_group",
+      "category": "personal_comms",
+      "tools": "read, send"
+    },
+    {
+      "id": "group:claude_ai_Gmail:claude_ai_Gmail",
+      "label": "claude_ai_Gmail/claude_ai_Gmail",
+      "kind": "tool_group",
+      "category": "personal_comms",
+      "tools": "authenticate, complete_authentication (connector, auth-gated)"
+    },
+    {
+      "id": "group:claude_ai_Google_Calendar:claude_ai_Google_Calendar",
+      "label": "claude_ai_Google_Calendar/claude_ai_Google_Calendar",
+      "kind": "tool_group",
+      "category": "personal_comms",
+      "tools": "authenticate, complete_authentication (connector, auth-gated)"
+    },
+    {
+      "id": "group:claude_ai_Slack:claude_ai_Slack",
+      "label": "claude_ai_Slack/claude_ai_Slack",
+      "kind": "tool_group",
+      "category": "personal_comms",
+      "tools": "authenticate, complete_authentication (connector, auth-gated)"
+    },
+    {
+      "id": "group:claude_ai_Claude_Docs:claude_ai_Claude_Docs",
+      "label": "claude_ai_Claude_Docs/claude_ai_Claude_Docs",
+      "kind": "tool_group",
+      "category": "docs_collab",
+      "tools": "create, read, update, delete, query, batch, export, guide"
+    },
+    {
+      "id": "group:claude_ai_Google_Drive:claude_ai_Google_Drive",
+      "label": "claude_ai_Google_Drive/claude_ai_Google_Drive",
+      "kind": "tool_group",
+      "category": "docs_collab",
+      "tools": "search_files, read/download/create/update/copy/trash/share, metadata, permissions, list_recent_files"
+    },
+    {
+      "id": "group:claude_ai_Notion:claude_ai_Notion",
+      "label": "claude_ai_Notion/claude_ai_Notion",
+      "kind": "tool_group",
+      "category": "docs_collab",
+      "tools": "authenticate, complete_authentication (connector, auth-gated)"
+    },
+    {
+      "id": "group:local-mac:safari",
+      "label": "local-mac/safari",
+      "kind": "tool_group",
+      "category": "ui_automation",
+      "tools": "open, navigate, read, js, list_tabs, close_tab, screenshot, back/forward/reload, current_url/title"
+    },
+    {
+      "id": "group:computer-use:computer-use",
+      "label": "computer-use/computer-use",
+      "kind": "tool_group",
+      "category": "ui_automation",
+      "tools": "screenshot, click variants, type, key, scroll, drag, zoom, open_application, request_access, clipboard"
+    },
+    {
+      "id": "group:cmux-cua:cmux-cua",
+      "label": "cmux-cua/cmux-cua",
+      "kind": "tool_group",
+      "category": "ui_automation",
+      "tools": "background AX-tree driven app control: launch_app, get_window_state, click, type_text, press_key, sessions, recording"
+    },
+    {
+      "id": "group:claude-in-chrome:claude-in-chrome",
+      "label": "claude-in-chrome/claude-in-chrome",
+      "kind": "tool_group",
+      "category": "ui_automation",
+      "tools": "tabs, navigate, read_page, computer, form_input, javascript_tool, console/network reads, gif_creator"
+    },
+    {
+      "id": "group:local-mac:system",
+      "label": "local-mac/system",
+      "kind": "tool_group",
+      "category": "system_control",
+      "tools": "battery/cpu/memory status, process_list/kill, clipboard, notify, sleep_*, spotlight_search, icloud_list"
+    },
+    {
+      "id": "group:local-mac:sound",
+      "label": "local-mac/sound",
+      "kind": "tool_group",
+      "category": "system_control",
+      "tools": "volume, mute, output devices"
+    },
+    {
+      "id": "group:local-mac:vpn",
+      "label": "local-mac/vpn",
+      "kind": "tool_group",
+      "category": "system_control",
+      "tools": "connect, disconnect, pause, status"
+    },
+    {
+      "id": "group:local-mac:music",
+      "label": "local-mac/music",
+      "kind": "tool_group",
+      "category": "system_control",
+      "tools": "play, pause, next, playlists, search_play, volume"
+    },
+    {
+      "id": "group:local-mac:podcasts",
+      "label": "local-mac/podcasts",
+      "kind": "tool_group",
+      "category": "system_control",
+      "tools": "list, episodes, recent, in_progress"
+    },
+    {
+      "id": "group:local-mac:time",
+      "label": "local-mac/time",
+      "kind": "tool_group",
+      "category": "system_control",
+      "tools": "now, wait, alarm, play_sound"
+    },
+    {
+      "id": "group:local-mac:connector",
+      "label": "local-mac/connector",
+      "kind": "tool_group",
+      "category": "system_control",
+      "tools": "execute_action, list_actions, health"
+    },
+    {
+      "id": "group:local-mac:ollama_agent",
+      "label": "local-mac/ollama_agent",
+      "kind": "tool_group",
+      "category": "local_llm",
+      "tools": "chat, run"
+    },
+    {
+      "id": "group:sysml-mcp:sysml-mcp",
+      "label": "sysml-mcp/sysml-mcp",
+      "kind": "tool_group",
+      "category": "modeling",
+      "tools": "parse, validate, validateFile, getDiagnostics, getSymbols, getDefinition, getReferences, getHierarchy, getComplexity, getModelSummary, preview, visualize*"
+    },
+    {
+      "id": "group:astrology:aq",
+      "label": "astrology/aq",
+      "kind": "tool_group",
+      "category": "astrology",
+      "tools": "planets, yogas, dasha_timeline, current_dasha, pd_timeline, navamsha, bhava_chalit, predict_events(_batch), strength_summary, ..."
+    },
+    {
+      "id": "group:astrology:astrology",
+      "label": "astrology/astrology",
+      "kind": "tool_group",
+      "category": "astrology",
+      "tools": "d9, d10, d12, mahadasha, tarabala"
+    },
+    {
+      "id": "group:astrology:gochar",
+      "label": "astrology/gochar",
+      "kind": "tool_group",
+      "category": "astrology",
+      "tools": "summary, house, dasha_tally"
+    },
+    {
+      "id": "group:astrology:panchang",
+      "label": "astrology/panchang",
+      "kind": "tool_group",
+      "category": "astrology",
+      "tools": "today, date, rahukaal"
+    },
+    {
+      "id": "group:astrology:planets",
+      "label": "astrology/planets",
+      "kind": "tool_group",
+      "category": "astrology",
+      "tools": "today, date, lagna"
+    },
+    {
+      "id": "tool:claude-hooks__hooks__server_memory",
+      "label": "server_memory",
+      "kind": "tool",
+      "group": "group:claude-hooks:hooks"
+    },
+    {
+      "id": "tool:claude-hooks__memory__add",
+      "label": "add",
+      "kind": "tool",
+      "group": "group:claude-hooks:memory"
+    },
+    {
+      "id": "tool:claude-hooks__memory__add_batch",
+      "label": "add_batch",
+      "kind": "tool",
+      "group": "group:claude-hooks:memory"
+    },
+    {
+      "id": "tool:claude-hooks__memory__search",
+      "label": "search",
+      "kind": "tool",
+      "group": "group:claude-hooks:memory"
+    },
+    {
+      "id": "tool:local-mac__safari__close_tab",
+      "label": "close_tab",
+      "kind": "tool",
+      "group": "group:local-mac:safari"
+    },
+    {
+      "id": "tool:local-mac__safari__current_url",
+      "label": "current_url",
+      "kind": "tool",
+      "group": "group:local-mac:safari"
+    },
+    {
+      "id": "tool:local-mac__safari__js",
+      "label": "js",
+      "kind": "tool",
+      "group": "group:local-mac:safari"
+    },
+    {
+      "id": "tool:local-mac__safari__navigate",
+      "label": "navigate",
+      "kind": "tool",
+      "group": "group:local-mac:safari"
+    },
+    {
+      "id": "tool:local-mac__safari__open",
+      "label": "open",
+      "kind": "tool",
+      "group": "group:local-mac:safari"
+    },
+    {
+      "id": "tool:local-mac__safari__read",
+      "label": "read",
+      "kind": "tool",
+      "group": "group:local-mac:safari"
+    },
+    {
+      "id": "tool:local-mac__vault__filename_search",
+      "label": "filename_search",
+      "kind": "tool",
+      "group": "group:local-mac:vault"
+    },
+    {
+      "id": "tool:local-mac__vault__read",
+      "label": "read",
+      "kind": "tool",
+      "group": "group:local-mac:vault"
+    },
+    {
+      "id": "tool:local-mac__vault__write",
+      "label": "write",
+      "kind": "tool",
+      "group": "group:local-mac:vault"
+    },
+    {
+      "id": "tool:taskfw__concept__search",
+      "label": "search",
+      "kind": "tool",
+      "group": "group:taskfw:concept"
+    },
+    {
+      "id": "tool:taskfw__concept__uncovered",
+      "label": "uncovered",
+      "kind": "tool",
+      "group": "group:taskfw:concept"
+    },
+    {
+      "id": "tool:taskfw__concept__upsert",
+      "label": "upsert",
+      "kind": "tool",
+      "group": "group:taskfw:concept"
+    },
+    {
+      "id": "tool:taskfw__task_memory__link",
+      "label": "link",
+      "kind": "tool",
+      "group": "group:taskfw:task_memory"
+    },
+    {
+      "id": "tool:taskfw__task_memory__recall",
+      "label": "recall",
+      "kind": "tool",
+      "group": "group:taskfw:task_memory"
+    },
+    {
+      "id": "tool:taskfw__task_memory__record",
+      "label": "record",
+      "kind": "tool",
+      "group": "group:taskfw:task_memory"
+    },
+    {
+      "id": "tool:taskfw__tasks__active",
+      "label": "active",
+      "kind": "tool",
+      "group": "group:taskfw:tasks"
+    },
+    {
+      "id": "tool:taskfw__tasks__add_commit",
+      "label": "add_commit",
+      "kind": "tool",
+      "group": "group:taskfw:tasks"
+    },
+    {
+      "id": "tool:taskfw__tasks__add_decision",
+      "label": "add_decision",
+      "kind": "tool",
+      "group": "group:taskfw:tasks"
+    },
+    {
+      "id": "tool:taskfw__tasks__add_introspection",
+      "label": "add_introspection",
+      "kind": "tool",
+      "group": "group:taskfw:tasks"
+    },
+    {
+      "id": "tool:taskfw__tasks__check_item",
+      "label": "check_item",
+      "kind": "tool",
+      "group": "group:taskfw:tasks"
+    },
+    {
+      "id": "tool:taskfw__tasks__context",
+      "label": "context",
+      "kind": "tool",
+      "group": "group:taskfw:tasks"
+    },
+    {
+      "id": "tool:taskfw__tasks__create",
+      "label": "create",
+      "kind": "tool",
+      "group": "group:taskfw:tasks"
+    },
+    {
+      "id": "tool:taskfw__tasks__finish",
+      "label": "finish",
+      "kind": "tool",
+      "group": "group:taskfw:tasks"
+    },
+    {
+      "id": "tool:taskfw__tasks__format_commit_message",
+      "label": "format_commit_message",
+      "kind": "tool",
+      "group": "group:taskfw:tasks"
+    },
+    {
+      "id": "tool:taskfw__tasks__get",
+      "label": "get",
+      "kind": "tool",
+      "group": "group:taskfw:tasks"
+    },
+    {
+      "id": "tool:taskfw__tasks__list",
+      "label": "list",
+      "kind": "tool",
+      "group": "group:taskfw:tasks"
+    },
+    {
+      "id": "tool:taskfw__tasks__log_skill_invocation",
+      "label": "log_skill_invocation",
+      "kind": "tool",
+      "group": "group:taskfw:tasks"
+    },
+    {
+      "id": "tool:taskfw__tasks__logs",
+      "label": "logs",
+      "kind": "tool",
+      "group": "group:taskfw:tasks"
+    },
+    {
+      "id": "tool:taskfw__tasks__set_active",
+      "label": "set_active",
+      "kind": "tool",
+      "group": "group:taskfw:tasks"
+    },
+    {
+      "id": "tool:taskfw__tasks__update",
+      "label": "update",
+      "kind": "tool",
+      "group": "group:taskfw:tasks"
+    },
+    {
+      "id": "tool:wyckoff-analyzer__check_spring_or_sos",
+      "label": "check_spring_or_sos",
+      "kind": "tool",
+      "group": "group:wyckoff-analyzer:wyckoff-analyzer"
+    },
+    {
+      "id": "tool:wyckoff-analyzer__db_init_state",
+      "label": "db_init_state",
+      "kind": "tool",
+      "group": "group:wyckoff-analyzer:wyckoff-analyzer"
+    },
+    {
+      "id": "tool:wyckoff-analyzer__sector_relative_strength",
+      "label": "sector_relative_strength",
+      "kind": "tool",
+      "group": "group:wyckoff-analyzer:wyckoff-analyzer"
+    },
+    {
+      "id": "tool:wyckoff-analyzer__signal_weight_table",
+      "label": "signal_weight_table",
+      "kind": "tool",
+      "group": "group:wyckoff-analyzer:wyckoff-analyzer"
+    },
+    {
+      "id": "tool:wyckoff-analyzer__update_delivery",
+      "label": "update_delivery",
+      "kind": "tool",
+      "group": "group:wyckoff-analyzer:wyckoff-analyzer"
+    },
+    {
+      "id": "tool:wyckoff-analyzer__update_run",
+      "label": "update_run",
+      "kind": "tool",
+      "group": "group:wyckoff-analyzer:wyckoff-analyzer"
+    }
+  ],
+  "edges": [
+    {
+      "from": "server:wyckoff-analyzer",
+      "to": "group:wyckoff-analyzer:wyckoff-analyzer",
+      "relation": "provides"
+    },
+    {
+      "from": "group:wyckoff-analyzer:wyckoff-analyzer",
+      "to": "market_analysis",
+      "relation": "in_category"
+    },
+    {
+      "from": "server:local-mac",
+      "to": "group:local-mac:market",
+      "relation": "provides"
+    },
+    {
+      "from": "group:local-mac:market",
+      "to": "market_analysis",
+      "relation": "in_category"
+    },
+    {
+      "from": "server:local-mac",
+      "to": "group:local-mac:vault",
+      "relation": "provides"
+    },
+    {
+      "from": "group:local-mac:vault",
+      "to": "memory_knowledge",
+      "relation": "in_category"
+    },
+    {
+      "from": "server:local-mac",
+      "to": "group:local-mac:vault_rag",
+      "relation": "provides"
+    },
+    {
+      "from": "group:local-mac:vault_rag",
+      "to": "memory_knowledge",
+      "relation": "in_category"
+    },
+    {
+      "from": "server:local-mac",
+      "to": "group:local-mac:notes",
+      "relation": "provides"
+    },
+    {
+      "from": "group:local-mac:notes",
+      "to": "memory_knowledge",
+      "relation": "in_category"
+    },
+    {
+      "from": "server:local-mac",
+      "to": "group:local-mac:code_rag",
+      "relation": "provides"
+    },
+    {
+      "from": "group:local-mac:code_rag",
+      "to": "memory_knowledge",
+      "relation": "in_category"
+    },
+    {
+      "from": "server:claude-hooks",
+      "to": "group:claude-hooks:code_rag",
+      "relation": "provides"
+    },
+    {
+      "from": "group:claude-hooks:code_rag",
+      "to": "memory_knowledge",
+      "relation": "in_category"
+    },
+    {
+      "from": "server:claude-hooks",
+      "to": "group:claude-hooks:diff_rag",
+      "relation": "provides"
+    },
+    {
+      "from": "group:claude-hooks:diff_rag",
+      "to": "memory_knowledge",
+      "relation": "in_category"
+    },
+    {
+      "from": "server:claude-hooks",
+      "to": "group:claude-hooks:memory",
+      "relation": "provides"
+    },
+    {
+      "from": "group:claude-hooks:memory",
+      "to": "memory_knowledge",
+      "relation": "in_category"
+    },
+    {
+      "from": "server:claude-hooks",
+      "to": "group:claude-hooks:scratch",
+      "relation": "provides"
+    },
+    {
+      "from": "group:claude-hooks:scratch",
+      "to": "memory_knowledge",
+      "relation": "in_category"
+    },
+    {
+      "from": "server:claude-hooks",
+      "to": "group:claude-hooks:think",
+      "relation": "provides"
+    },
+    {
+      "from": "group:claude-hooks:think",
+      "to": "memory_knowledge",
+      "relation": "in_category"
+    },
+    {
+      "from": "server:claude-hooks",
+      "to": "group:claude-hooks:hooks",
+      "relation": "provides"
+    },
+    {
+      "from": "group:claude-hooks:hooks",
+      "to": "hooks_observability",
+      "relation": "in_category"
+    },
+    {
+      "from": "server:taskfw",
+      "to": "group:taskfw:tasks",
+      "relation": "provides"
+    },
+    {
+      "from": "group:taskfw:tasks",
+      "to": "task_management",
+      "relation": "in_category"
+    },
+    {
+      "from": "server:taskfw",
+      "to": "group:taskfw:task_memory",
+      "relation": "provides"
+    },
+    {
+      "from": "group:taskfw:task_memory",
+      "to": "memory_knowledge",
+      "relation": "in_category"
+    },
+    {
+      "from": "server:taskfw",
+      "to": "group:taskfw:concept",
+      "relation": "provides"
+    },
+    {
+      "from": "group:taskfw:concept",
+      "to": "task_management",
+      "relation": "in_category"
+    },
+    {
+      "from": "server:local-mac",
+      "to": "group:local-mac:calendar",
+      "relation": "provides"
+    },
+    {
+      "from": "group:local-mac:calendar",
+      "to": "personal_comms",
+      "relation": "in_category"
+    },
+    {
+      "from": "server:local-mac",
+      "to": "group:local-mac:reminders",
+      "relation": "provides"
+    },
+    {
+      "from": "group:local-mac:reminders",
+      "to": "personal_comms",
+      "relation": "in_category"
+    },
+    {
+      "from": "server:local-mac",
+      "to": "group:local-mac:contacts",
+      "relation": "provides"
+    },
+    {
+      "from": "group:local-mac:contacts",
+      "to": "personal_comms",
+      "relation": "in_category"
+    },
+    {
+      "from": "server:local-mac",
+      "to": "group:local-mac:mail",
+      "relation": "provides"
+    },
+    {
+      "from": "group:local-mac:mail",
+      "to": "personal_comms",
+      "relation": "in_category"
+    },
+    {
+      "from": "server:local-mac",
+      "to": "group:local-mac:imessage",
+      "relation": "provides"
+    },
+    {
+      "from": "group:local-mac:imessage",
+      "to": "personal_comms",
+      "relation": "in_category"
+    },
+    {
+      "from": "server:claude_ai_Gmail",
+      "to": "group:claude_ai_Gmail:claude_ai_Gmail",
+      "relation": "provides"
+    },
+    {
+      "from": "group:claude_ai_Gmail:claude_ai_Gmail",
+      "to": "personal_comms",
+      "relation": "in_category"
+    },
+    {
+      "from": "server:claude_ai_Google_Calendar",
+      "to": "group:claude_ai_Google_Calendar:claude_ai_Google_Calendar",
+      "relation": "provides"
+    },
+    {
+      "from": "group:claude_ai_Google_Calendar:claude_ai_Google_Calendar",
+      "to": "personal_comms",
+      "relation": "in_category"
+    },
+    {
+      "from": "server:claude_ai_Slack",
+      "to": "group:claude_ai_Slack:claude_ai_Slack",
+      "relation": "provides"
+    },
+    {
+      "from": "group:claude_ai_Slack:claude_ai_Slack",
+      "to": "personal_comms",
+      "relation": "in_category"
+    },
+    {
+      "from": "server:claude_ai_Claude_Docs",
+      "to": "group:claude_ai_Claude_Docs:claude_ai_Claude_Docs",
+      "relation": "provides"
+    },
+    {
+      "from": "group:claude_ai_Claude_Docs:claude_ai_Claude_Docs",
+      "to": "docs_collab",
+      "relation": "in_category"
+    },
+    {
+      "from": "server:claude_ai_Google_Drive",
+      "to": "group:claude_ai_Google_Drive:claude_ai_Google_Drive",
+      "relation": "provides"
+    },
+    {
+      "from": "group:claude_ai_Google_Drive:claude_ai_Google_Drive",
+      "to": "docs_collab",
+      "relation": "in_category"
+    },
+    {
+      "from": "server:claude_ai_Notion",
+      "to": "group:claude_ai_Notion:claude_ai_Notion",
+      "relation": "provides"
+    },
+    {
+      "from": "group:claude_ai_Notion:claude_ai_Notion",
+      "to": "docs_collab",
+      "relation": "in_category"
+    },
+    {
+      "from": "server:local-mac",
+      "to": "group:local-mac:safari",
+      "relation": "provides"
+    },
+    {
+      "from": "group:local-mac:safari",
+      "to": "ui_automation",
+      "relation": "in_category"
+    },
+    {
+      "from": "server:computer-use",
+      "to": "group:computer-use:computer-use",
+      "relation": "provides"
+    },
+    {
+      "from": "group:computer-use:computer-use",
+      "to": "ui_automation",
+      "relation": "in_category"
+    },
+    {
+      "from": "server:cmux-cua",
+      "to": "group:cmux-cua:cmux-cua",
+      "relation": "provides"
+    },
+    {
+      "from": "group:cmux-cua:cmux-cua",
+      "to": "ui_automation",
+      "relation": "in_category"
+    },
+    {
+      "from": "server:claude-in-chrome",
+      "to": "group:claude-in-chrome:claude-in-chrome",
+      "relation": "provides"
+    },
+    {
+      "from": "group:claude-in-chrome:claude-in-chrome",
+      "to": "ui_automation",
+      "relation": "in_category"
+    },
+    {
+      "from": "server:local-mac",
+      "to": "group:local-mac:system",
+      "relation": "provides"
+    },
+    {
+      "from": "group:local-mac:system",
+      "to": "system_control",
+      "relation": "in_category"
+    },
+    {
+      "from": "server:local-mac",
+      "to": "group:local-mac:sound",
+      "relation": "provides"
+    },
+    {
+      "from": "group:local-mac:sound",
+      "to": "system_control",
+      "relation": "in_category"
+    },
+    {
+      "from": "server:local-mac",
+      "to": "group:local-mac:vpn",
+      "relation": "provides"
+    },
+    {
+      "from": "group:local-mac:vpn",
+      "to": "system_control",
+      "relation": "in_category"
+    },
+    {
+      "from": "server:local-mac",
+      "to": "group:local-mac:music",
+      "relation": "provides"
+    },
+    {
+      "from": "group:local-mac:music",
+      "to": "system_control",
+      "relation": "in_category"
+    },
+    {
+      "from": "server:local-mac",
+      "to": "group:local-mac:podcasts",
+      "relation": "provides"
+    },
+    {
+      "from": "group:local-mac:podcasts",
+      "to": "system_control",
+      "relation": "in_category"
+    },
+    {
+      "from": "server:local-mac",
+      "to": "group:local-mac:time",
+      "relation": "provides"
+    },
+    {
+      "from": "group:local-mac:time",
+      "to": "system_control",
+      "relation": "in_category"
+    },
+    {
+      "from": "server:local-mac",
+      "to": "group:local-mac:connector",
+      "relation": "provides"
+    },
+    {
+      "from": "group:local-mac:connector",
+      "to": "system_control",
+      "relation": "in_category"
+    },
+    {
+      "from": "server:local-mac",
+      "to": "group:local-mac:ollama_agent",
+      "relation": "provides"
+    },
+    {
+      "from": "group:local-mac:ollama_agent",
+      "to": "local_llm",
+      "relation": "in_category"
+    },
+    {
+      "from": "server:sysml-mcp",
+      "to": "group:sysml-mcp:sysml-mcp",
+      "relation": "provides"
+    },
+    {
+      "from": "group:sysml-mcp:sysml-mcp",
+      "to": "modeling",
+      "relation": "in_category"
+    },
+    {
+      "from": "server:astrology",
+      "to": "group:astrology:aq",
+      "relation": "provides"
+    },
+    {
+      "from": "group:astrology:aq",
+      "to": "astrology",
+      "relation": "in_category"
+    },
+    {
+      "from": "server:astrology",
+      "to": "group:astrology:astrology",
+      "relation": "provides"
+    },
+    {
+      "from": "group:astrology:astrology",
+      "to": "astrology",
+      "relation": "in_category"
+    },
+    {
+      "from": "server:astrology",
+      "to": "group:astrology:gochar",
+      "relation": "provides"
+    },
+    {
+      "from": "group:astrology:gochar",
+      "to": "astrology",
+      "relation": "in_category"
+    },
+    {
+      "from": "server:astrology",
+      "to": "group:astrology:panchang",
+      "relation": "provides"
+    },
+    {
+      "from": "group:astrology:panchang",
+      "to": "astrology",
+      "relation": "in_category"
+    },
+    {
+      "from": "server:astrology",
+      "to": "group:astrology:planets",
+      "relation": "provides"
+    },
+    {
+      "from": "group:astrology:planets",
+      "to": "astrology",
+      "relation": "in_category"
+    },
+    {
+      "from": "group:local-mac:code_rag",
+      "to": "group:claude-hooks:code_rag",
+      "relation": "overlaps_with",
+      "note": "same tool names; pick one index"
+    },
+    {
+      "from": "group:local-mac:safari",
+      "to": "group:computer-use:computer-use",
+      "relation": "overlaps_with",
+      "note": "Safari JS/DOM vs pixel control; computer-use blocks browser input"
+    },
+    {
+      "from": "group:local-mac:safari",
+      "to": "group:claude-in-chrome:claude-in-chrome",
+      "relation": "overlaps_with",
+      "note": "Safari vs Chrome DOM automation"
+    },
+    {
+      "from": "group:computer-use:computer-use",
+      "to": "group:cmux-cua:cmux-cua",
+      "relation": "overlaps_with",
+      "note": "foreground pixel vs background AX-tree control"
+    },
+    {
+      "from": "group:local-mac:mail",
+      "to": "group:claude_ai_Gmail:claude_ai_Gmail",
+      "relation": "overlaps_with",
+      "note": "Apple Mail vs Gmail connector"
+    },
+    {
+      "from": "group:local-mac:calendar",
+      "to": "group:claude_ai_Google_Calendar:claude_ai_Google_Calendar",
+      "relation": "overlaps_with",
+      "note": "Apple Calendar vs Google Calendar"
+    },
+    {
+      "from": "group:local-mac:vault",
+      "to": "group:claude_ai_Notion:claude_ai_Notion",
+      "relation": "overlaps_with",
+      "note": "Obsidian vs Notion notes"
+    },
+    {
+      "from": "group:local-mac:vault",
+      "to": "group:local-mac:notes",
+      "relation": "overlaps_with",
+      "note": "Obsidian vs Apple Notes"
+    },
+    {
+      "from": "group:local-mac:vault",
+      "to": "group:claude_ai_Claude_Docs:claude_ai_Claude_Docs",
+      "relation": "overlaps_with",
+      "note": "local vault vs hosted docs"
+    },
+    {
+      "from": "group:claude-hooks:memory",
+      "to": "group:taskfw:task_memory",
+      "relation": "overlaps_with",
+      "note": "global memory vs task-scoped memory"
+    },
+    {
+      "from": "group:claude-hooks:memory",
+      "to": "group:local-mac:vault",
+      "relation": "overlaps_with",
+      "note": "MEMORY.sqlite vs vault"
+    },
+    {
+      "from": "group:local-mac:ollama_agent",
+      "to": "group:local-mac:system",
+      "relation": "overlaps_with",
+      "note": "foundation_models_query lives in system group"
+    },
+    {
+      "from": "task_management",
+      "to": "memory_knowledge",
+      "relation": "feeds",
+      "note": "logs decisions/concepts into"
+    },
+    {
+      "from": "market_analysis",
+      "to": "memory_knowledge",
+      "relation": "feeds",
+      "note": "thesis checkpoints written to vault/memory"
+    },
+    {
+      "from": "hooks_observability",
+      "to": "memory_knowledge",
+      "relation": "feeds",
+      "note": "logs feed memory and tool hints"
+    },
+    {
+      "from": "hooks_observability",
+      "to": "task_management",
+      "relation": "feeds",
+      "note": "session/task drift checks"
+    },
+    {
+      "from": "ui_automation",
+      "to": "market_analysis",
+      "relation": "feeds",
+      "note": "scrapes NSE/Groww data the analyzer lacks"
+    },
+    {
+      "from": "memory_knowledge",
+      "to": "task_management",
+      "relation": "feeds",
+      "note": "memory recall grooms tasks"
+    },
+    {
+      "from": "group:taskfw:tasks",
+      "to": "group:claude-hooks:memory",
+      "relation": "often_follows",
+      "count": 19,
+      "p": 0.41
+    },
+    {
+      "from": "group:wyckoff-analyzer:wyckoff-analyzer",
+      "to": "group:taskfw:tasks",
+      "relation": "often_follows",
+      "count": 18,
+      "p": 0.69
+    },
+    {
+      "from": "group:taskfw:task_memory",
+      "to": "group:taskfw:tasks",
+      "relation": "often_follows",
+      "count": 12,
+      "p": 0.92
+    },
+    {
+      "from": "group:taskfw:tasks",
+      "to": "group:taskfw:task_memory",
+      "relation": "often_follows",
+      "count": 11,
+      "p": 0.24
+    },
+    {
+      "from": "group:claude-hooks:memory",
+      "to": "group:taskfw:tasks",
+      "relation": "often_follows",
+      "count": 11,
+      "p": 0.52
+    },
+    {
+      "from": "group:claude-hooks:hooks",
+      "to": "group:taskfw:tasks",
+      "relation": "often_follows",
+      "count": 8,
+      "p": 1.0
+    },
+    {
+      "from": "group:taskfw:tasks",
+      "to": "group:taskfw:concept",
+      "relation": "often_follows",
+      "count": 8,
+      "p": 0.17
+    },
+    {
+      "from": "group:taskfw:concept",
+      "to": "group:taskfw:tasks",
+      "relation": "often_follows",
+      "count": 7,
+      "p": 0.7
+    },
+    {
+      "from": "group:wyckoff-analyzer:wyckoff-analyzer",
+      "to": "group:claude-hooks:memory",
+      "relation": "often_follows",
+      "count": 5,
+      "p": 0.19
+    },
+    {
+      "from": "group:claude-hooks:memory",
+      "to": "group:wyckoff-analyzer:wyckoff-analyzer",
+      "relation": "often_follows",
+      "count": 4,
+      "p": 0.19
+    },
+    {
+      "from": "group:taskfw:tasks",
+      "to": "group:local-mac:safari",
+      "relation": "often_follows",
+      "count": 4,
+      "p": 0.09
+    },
+    {
+      "from": "group:local-mac:safari",
+      "to": "group:taskfw:tasks",
+      "relation": "often_follows",
+      "count": 4,
+      "p": 0.4
+    },
+    {
+      "from": "group:local-mac:safari",
+      "to": "group:wyckoff-analyzer:wyckoff-analyzer",
+      "relation": "often_follows",
+      "count": 3,
+      "p": 0.3
+    },
+    {
+      "from": "group:local-mac:safari",
+      "to": "group:claude-hooks:memory",
+      "relation": "often_follows",
+      "count": 3,
+      "p": 0.3
+    },
+    {
+      "from": "group:claude-hooks:memory",
+      "to": "group:local-mac:safari",
+      "relation": "often_follows",
+      "count": 3,
+      "p": 0.14
+    },
+    {
+      "from": "group:local-mac:system",
+      "to": "group:taskfw:tasks",
+      "relation": "often_follows",
+      "count": 3,
+      "p": 1.0
+    },
+    {
+      "from": "tool:claude-hooks__hooks__server_memory",
+      "to": "group:claude-hooks:hooks",
+      "relation": "member_of"
+    },
+    {
+      "from": "tool:claude-hooks__memory__add",
+      "to": "group:claude-hooks:memory",
+      "relation": "member_of"
+    },
+    {
+      "from": "tool:claude-hooks__memory__add_batch",
+      "to": "group:claude-hooks:memory",
+      "relation": "member_of"
+    },
+    {
+      "from": "tool:claude-hooks__memory__search",
+      "to": "group:claude-hooks:memory",
+      "relation": "member_of"
+    },
+    {
+      "from": "tool:local-mac__safari__close_tab",
+      "to": "group:local-mac:safari",
+      "relation": "member_of"
+    },
+    {
+      "from": "tool:local-mac__safari__current_url",
+      "to": "group:local-mac:safari",
+      "relation": "member_of"
+    },
+    {
+      "from": "tool:local-mac__safari__js",
+      "to": "group:local-mac:safari",
+      "relation": "member_of"
+    },
+    {
+      "from": "tool:local-mac__safari__navigate",
+      "to": "group:local-mac:safari",
+      "relation": "member_of"
+    },
+    {
+      "from": "tool:local-mac__safari__open",
+      "to": "group:local-mac:safari",
+      "relation": "member_of"
+    },
+    {
+      "from": "tool:local-mac__safari__read",
+      "to": "group:local-mac:safari",
+      "relation": "member_of"
+    },
+    {
+      "from": "tool:local-mac__vault__filename_search",
+      "to": "group:local-mac:vault",
+      "relation": "member_of"
+    },
+    {
+      "from": "tool:local-mac__vault__read",
+      "to": "group:local-mac:vault",
+      "relation": "member_of"
+    },
+    {
+      "from": "tool:local-mac__vault__write",
+      "to": "group:local-mac:vault",
+      "relation": "member_of"
+    },
+    {
+      "from": "tool:taskfw__concept__search",
+      "to": "group:taskfw:concept",
+      "relation": "member_of"
+    },
+    {
+      "from": "tool:taskfw__concept__uncovered",
+      "to": "group:taskfw:concept",
+      "relation": "member_of"
+    },
+    {
+      "from": "tool:taskfw__concept__upsert",
+      "to": "group:taskfw:concept",
+      "relation": "member_of"
+    },
+    {
+      "from": "tool:taskfw__task_memory__link",
+      "to": "group:taskfw:task_memory",
+      "relation": "member_of"
+    },
+    {
+      "from": "tool:taskfw__task_memory__recall",
+      "to": "group:taskfw:task_memory",
+      "relation": "member_of"
+    },
+    {
+      "from": "tool:taskfw__task_memory__record",
+      "to": "group:taskfw:task_memory",
+      "relation": "member_of"
+    },
+    {
+      "from": "tool:taskfw__tasks__active",
+      "to": "group:taskfw:tasks",
+      "relation": "member_of"
+    },
+    {
+      "from": "tool:taskfw__tasks__add_commit",
+      "to": "group:taskfw:tasks",
+      "relation": "member_of"
+    },
+    {
+      "from": "tool:taskfw__tasks__add_decision",
+      "to": "group:taskfw:tasks",
+      "relation": "member_of"
+    },
+    {
+      "from": "tool:taskfw__tasks__add_introspection",
+      "to": "group:taskfw:tasks",
+      "relation": "member_of"
+    },
+    {
+      "from": "tool:taskfw__tasks__check_item",
+      "to": "group:taskfw:tasks",
+      "relation": "member_of"
+    },
+    {
+      "from": "tool:taskfw__tasks__context",
+      "to": "group:taskfw:tasks",
+      "relation": "member_of"
+    },
+    {
+      "from": "tool:taskfw__tasks__create",
+      "to": "group:taskfw:tasks",
+      "relation": "member_of"
+    },
+    {
+      "from": "tool:taskfw__tasks__finish",
+      "to": "group:taskfw:tasks",
+      "relation": "member_of"
+    },
+    {
+      "from": "tool:taskfw__tasks__format_commit_message",
+      "to": "group:taskfw:tasks",
+      "relation": "member_of"
+    },
+    {
+      "from": "tool:taskfw__tasks__get",
+      "to": "group:taskfw:tasks",
+      "relation": "member_of"
+    },
+    {
+      "from": "tool:taskfw__tasks__list",
+      "to": "group:taskfw:tasks",
+      "relation": "member_of"
+    },
+    {
+      "from": "tool:taskfw__tasks__log_skill_invocation",
+      "to": "group:taskfw:tasks",
+      "relation": "member_of"
+    },
+    {
+      "from": "tool:taskfw__tasks__logs",
+      "to": "group:taskfw:tasks",
+      "relation": "member_of"
+    },
+    {
+      "from": "tool:taskfw__tasks__set_active",
+      "to": "group:taskfw:tasks",
+      "relation": "member_of"
+    },
+    {
+      "from": "tool:taskfw__tasks__update",
+      "to": "group:taskfw:tasks",
+      "relation": "member_of"
+    },
+    {
+      "from": "tool:wyckoff-analyzer__check_spring_or_sos",
+      "to": "group:wyckoff-analyzer:wyckoff-analyzer",
+      "relation": "member_of"
+    },
+    {
+      "from": "tool:wyckoff-analyzer__db_init_state",
+      "to": "group:wyckoff-analyzer:wyckoff-analyzer",
+      "relation": "member_of"
+    },
+    {
+      "from": "tool:wyckoff-analyzer__sector_relative_strength",
+      "to": "group:wyckoff-analyzer:wyckoff-analyzer",
+      "relation": "member_of"
+    },
+    {
+      "from": "tool:wyckoff-analyzer__signal_weight_table",
+      "to": "group:wyckoff-analyzer:wyckoff-analyzer",
+      "relation": "member_of"
+    },
+    {
+      "from": "tool:wyckoff-analyzer__update_delivery",
+      "to": "group:wyckoff-analyzer:wyckoff-analyzer",
+      "relation": "member_of"
+    },
+    {
+      "from": "tool:wyckoff-analyzer__update_run",
+      "to": "group:wyckoff-analyzer:wyckoff-analyzer",
+      "relation": "member_of"
+    },
+    {
+      "from": "tool:wyckoff-analyzer__db_init_state",
+      "to": "tool:wyckoff-analyzer__update_run",
+      "relation": "often_follows",
+      "count": 23,
+      "p": 0.96
+    },
+    {
+      "from": "tool:taskfw__tasks__log_skill_invocation",
+      "to": "tool:taskfw__tasks__context",
+      "relation": "often_follows",
+      "count": 16,
+      "p": 0.24
+    },
+    {
+      "from": "tool:local-mac__safari__open",
+      "to": "tool:local-mac__safari__js",
+      "relation": "often_follows",
+      "count": 15,
+      "p": 0.54
+    },
+    {
+      "from": "tool:local-mac__safari__open",
+      "to": "tool:local-mac__safari__read",
+      "relation": "often_follows",
+      "count": 13,
+      "p": 0.46
+    },
+    {
+      "from": "tool:wyckoff-analyzer__update_run",
+      "to": "tool:wyckoff-analyzer__sector_relative_strength",
+      "relation": "often_follows",
+      "count": 12,
+      "p": 0.48
+    },
+    {
+      "from": "tool:local-mac__safari__read",
+      "to": "tool:local-mac__safari__js",
+      "relation": "often_follows",
+      "count": 11,
+      "p": 0.34
+    },
+    {
+      "from": "tool:taskfw__tasks__log_skill_invocation",
+      "to": "tool:taskfw__tasks__add_introspection",
+      "relation": "often_follows",
+      "count": 10,
+      "p": 0.15
+    },
+    {
+      "from": "tool:local-mac__safari__navigate",
+      "to": "tool:local-mac__safari__read",
+      "relation": "often_follows",
+      "count": 10,
+      "p": 0.83
+    },
+    {
+      "from": "tool:taskfw__tasks__active",
+      "to": "tool:taskfw__tasks__list",
+      "relation": "often_follows",
+      "count": 10,
+      "p": 0.45
+    },
+    {
+      "from": "tool:local-mac__safari__read",
+      "to": "tool:local-mac__safari__navigate",
+      "relation": "often_follows",
+      "count": 9,
+      "p": 0.28
+    },
+    {
+      "from": "tool:taskfw__tasks__context",
+      "to": "tool:taskfw__tasks__log_skill_invocation",
+      "relation": "often_follows",
+      "count": 9,
+      "p": 0.5
+    },
+    {
+      "from": "tool:taskfw__tasks__log_skill_invocation",
+      "to": "tool:taskfw__tasks__update",
+      "relation": "often_follows",
+      "count": 9,
+      "p": 0.13
+    },
+    {
+      "from": "tool:taskfw__tasks__add_introspection",
+      "to": "tool:taskfw__tasks__log_skill_invocation",
+      "relation": "often_follows",
+      "count": 8,
+      "p": 0.53
+    },
+    {
+      "from": "tool:claude-hooks__hooks__server_memory",
+      "to": "tool:taskfw__tasks__logs",
+      "relation": "often_follows",
+      "count": 8,
+      "p": 1.0
+    },
+    {
+      "from": "tool:local-mac__safari__js",
+      "to": "tool:local-mac__safari__read",
+      "relation": "often_follows",
+      "count": 8,
+      "p": 0.3
+    },
+    {
+      "from": "tool:taskfw__tasks__update",
+      "to": "tool:taskfw__tasks__log_skill_invocation",
+      "relation": "often_follows",
+      "count": 7,
+      "p": 0.58
+    },
+    {
+      "from": "tool:taskfw__tasks__add_commit",
+      "to": "tool:taskfw__tasks__log_skill_invocation",
+      "relation": "often_follows",
+      "count": 7,
+      "p": 0.54
+    },
+    {
+      "from": "tool:taskfw__tasks__create",
+      "to": "tool:taskfw__tasks__check_item",
+      "relation": "often_follows",
+      "count": 7,
+      "p": 0.29
+    },
+    {
+      "from": "tool:local-mac__safari__js",
+      "to": "tool:local-mac__safari__close_tab",
+      "relation": "often_follows",
+      "count": 7,
+      "p": 0.26
+    },
+    {
+      "from": "tool:taskfw__tasks__format_commit_message",
+      "to": "tool:taskfw__tasks__add_commit",
+      "relation": "often_follows",
+      "count": 6,
+      "p": 0.86
+    },
+    {
+      "from": "tool:claude-hooks__memory__search",
+      "to": "tool:claude-hooks__memory__add",
+      "relation": "often_follows",
+      "count": 6,
+      "p": 0.4
+    },
+    {
+      "from": "tool:local-mac__safari__js",
+      "to": "tool:local-mac__safari__open",
+      "relation": "often_follows",
+      "count": 6,
+      "p": 0.22
+    },
+    {
+      "from": "tool:taskfw__tasks__create",
+      "to": "tool:taskfw__tasks__log_skill_invocation",
+      "relation": "often_follows",
+      "count": 6,
+      "p": 0.25
+    },
+    {
+      "from": "tool:local-mac__safari__close_tab",
+      "to": "tool:local-mac__safari__open",
+      "relation": "often_follows",
+      "count": 6,
+      "p": 0.67
+    },
+    {
+      "from": "tool:taskfw__tasks__list",
+      "to": "tool:claude-hooks__memory__add_batch",
+      "relation": "often_follows",
+      "count": 5,
+      "p": 0.28
+    },
+    {
+      "from": "tool:taskfw__tasks__set_active",
+      "to": "tool:taskfw__tasks__log_skill_invocation",
+      "relation": "often_follows",
+      "count": 5,
+      "p": 0.45
+    },
+    {
+      "from": "tool:taskfw__tasks__log_skill_invocation",
+      "to": "tool:taskfw__tasks__add_decision",
+      "relation": "often_follows",
+      "count": 5,
+      "p": 0.07
+    },
+    {
+      "from": "tool:taskfw__tasks__add_decision",
+      "to": "tool:taskfw__tasks__check_item",
+      "relation": "often_follows",
+      "count": 5,
+      "p": 0.42
+    },
+    {
+      "from": "tool:wyckoff-analyzer__sector_relative_strength",
+      "to": "tool:taskfw__tasks__list",
+      "relation": "often_follows",
+      "count": 5,
+      "p": 0.29
+    },
+    {
+      "from": "tool:taskfw__tasks__add_decision",
+      "to": "tool:taskfw__tasks__log_skill_invocation",
+      "relation": "often_follows",
+      "count": 4,
+      "p": 0.33
+    },
+    {
+      "from": "tool:taskfw__task_memory__link",
+      "to": "tool:taskfw__task_memory__record",
+      "relation": "often_follows",
+      "count": 4,
+      "p": 0.57
+    },
+    {
+      "from": "tool:taskfw__tasks__log_skill_invocation",
+      "to": "tool:taskfw__tasks__set_active",
+      "relation": "often_follows",
+      "count": 4,
+      "p": 0.06
+    },
+    {
+      "from": "tool:taskfw__tasks__log_skill_invocation",
+      "to": "tool:taskfw__tasks__add_commit",
+      "relation": "often_follows",
+      "count": 4,
+      "p": 0.06
+    },
+    {
+      "from": "tool:taskfw__tasks__active",
+      "to": "tool:taskfw__tasks__create",
+      "relation": "often_follows",
+      "count": 4,
+      "p": 0.18
+    },
+    {
+      "from": "tool:taskfw__tasks__check_item",
+      "to": "tool:taskfw__tasks__log_skill_invocation",
+      "relation": "often_follows",
+      "count": 4,
+      "p": 0.25
+    },
+    {
+      "from": "tool:local-mac__vault__read",
+      "to": "tool:local-mac__vault__write",
+      "relation": "often_follows",
+      "count": 4,
+      "p": 0.67
+    },
+    {
+      "from": "tool:taskfw__task_memory__recall",
+      "to": "tool:taskfw__tasks__log_skill_invocation",
+      "relation": "often_follows",
+      "count": 4,
+      "p": 0.67
+    },
+    {
+      "from": "tool:taskfw__tasks__log_skill_invocation",
+      "to": "tool:taskfw__task_memory__record",
+      "relation": "often_follows",
+      "count": 3,
+      "p": 0.04
+    },
+    {
+      "from": "tool:local-mac__vault__filename_search",
+      "to": "tool:local-mac__vault__read",
+      "relation": "often_follows",
+      "count": 3,
+      "p": 0.6
+    },
+    {
+      "from": "tool:local-mac__safari__js",
+      "to": "tool:local-mac__safari__navigate",
+      "relation": "often_follows",
+      "count": 3,
+      "p": 0.11
+    },
+    {
+      "from": "tool:local-mac__safari__read",
+      "to": "tool:local-mac__safari__current_url",
+      "relation": "often_follows",
+      "count": 3,
+      "p": 0.09
+    },
+    {
+      "from": "tool:claude-hooks__memory__search",
+      "to": "tool:taskfw__tasks__list",
+      "relation": "often_follows",
+      "count": 3,
+      "p": 0.2
+    },
+    {
+      "from": "tool:taskfw__tasks__list",
+      "to": "tool:local-mac__safari__open",
+      "relation": "often_follows",
+      "count": 3,
+      "p": 0.17
+    },
+    {
+      "from": "tool:taskfw__tasks__list",
+      "to": "tool:taskfw__tasks__create",
+      "relation": "often_follows",
+      "count": 3,
+      "p": 0.17
+    },
+    {
+      "from": "tool:taskfw__tasks__log_skill_invocation",
+      "to": "tool:taskfw__tasks__create",
+      "relation": "often_follows",
+      "count": 3,
+      "p": 0.04
+    },
+    {
+      "from": "tool:wyckoff-analyzer__update_run",
+      "to": "tool:taskfw__tasks__active",
+      "relation": "often_follows",
+      "count": 3,
+      "p": 0.12
+    },
+    {
+      "from": "tool:taskfw__tasks__list",
+      "to": "tool:claude-hooks__memory__add",
+      "relation": "often_follows",
+      "count": 3,
+      "p": 0.17
+    },
+    {
+      "from": "tool:taskfw__tasks__check_item",
+      "to": "tool:taskfw__tasks__format_commit_message",
+      "relation": "often_follows",
+      "count": 3,
+      "p": 0.19
+    },
+    {
+      "from": "tool:local-mac__vault__write",
+      "to": "tool:local-mac__vault__read",
+      "relation": "often_follows",
+      "count": 3,
+      "p": 1.0
+    },
+    {
+      "from": "tool:local-mac__safari__read",
+      "to": "tool:local-mac__safari__close_tab",
+      "relation": "often_follows",
+      "count": 3,
+      "p": 0.09
+    },
+    {
+      "from": "tool:taskfw__task_memory__record",
+      "to": "tool:taskfw__tasks__log_skill_invocation",
+      "relation": "often_follows",
+      "count": 3,
+      "p": 0.38
+    },
+    {
+      "from": "tool:taskfw__tasks__add_commit",
+      "to": "tool:taskfw__tasks__add_decision",
+      "relation": "often_follows",
+      "count": 2,
+      "p": 0.15
+    },
+    {
+      "from": "tool:taskfw__tasks__get",
+      "to": "tool:taskfw__tasks__log_skill_invocation",
+      "relation": "often_follows",
+      "count": 2,
+      "p": 1.0
+    },
+    {
+      "from": "tool:taskfw__tasks__log_skill_invocation",
+      "to": "tool:taskfw__task_memory__link",
+      "relation": "often_follows",
+      "count": 2,
+      "p": 0.03
+    },
+    {
+      "from": "tool:wyckoff-analyzer__sector_relative_strength",
+      "to": "tool:claude-hooks__memory__search",
+      "relation": "often_follows",
+      "count": 2,
+      "p": 0.12
+    },
+    {
+      "from": "tool:taskfw__tasks__logs",
+      "to": "tool:claude-hooks__memory__search",
+      "relation": "often_follows",
+      "count": 2,
+      "p": 0.25
+    },
+    {
+      "from": "tool:local-mac__safari__current_url",
+      "to": "tool:local-mac__safari__read",
+      "relation": "often_follows",
+      "count": 2,
+      "p": 0.67
+    },
+    {
+      "from": "tool:local-mac__safari__read",
+      "to": "tool:wyckoff-analyzer__db_init_state",
+      "relation": "often_follows",
+      "count": 2,
+      "p": 0.06
+    },
+    {
+      "from": "tool:claude-hooks__memory__search",
+      "to": "tool:claude-hooks__memory__add_batch",
+      "relation": "often_follows",
+      "count": 2,
+      "p": 0.13
+    },
+    {
+      "from": "tool:wyckoff-analyzer__sector_relative_strength",
+      "to": "tool:taskfw__tasks__active",
+      "relation": "often_follows",
+      "count": 2,
+      "p": 0.12
+    },
+    {
+      "from": "tool:wyckoff-analyzer__update_run",
+      "to": "tool:taskfw__tasks__list",
+      "relation": "often_follows",
+      "count": 2,
+      "p": 0.08
+    },
+    {
+      "from": "tool:taskfw__tasks__set_active",
+      "to": "tool:taskfw__tasks__active",
+      "relation": "often_follows",
+      "count": 2,
+      "p": 0.18
+    },
+    {
+      "from": "tool:taskfw__tasks__create",
+      "to": "tool:taskfw__tasks__finish",
+      "relation": "often_follows",
+      "count": 2,
+      "p": 0.08
+    },
+    {
+      "from": "tool:taskfw__tasks__log_skill_invocation",
+      "to": "tool:taskfw__concept__search",
+      "relation": "often_follows",
+      "count": 2,
+      "p": 0.03
+    },
+    {
+      "from": "tool:taskfw__concept__search",
+      "to": "tool:taskfw__tasks__create",
+      "relation": "often_follows",
+      "count": 2,
+      "p": 1.0
+    },
+    {
+      "from": "tool:taskfw__tasks__logs",
+      "to": "tool:taskfw__tasks__log_skill_invocation",
+      "relation": "often_follows",
+      "count": 2,
+      "p": 0.25
+    },
+    {
+      "from": "tool:taskfw__tasks__check_item",
+      "to": "tool:taskfw__tasks__add_commit",
+      "relation": "often_follows",
+      "count": 2,
+      "p": 0.12
+    },
+    {
+      "from": "tool:taskfw__tasks__check_item",
+      "to": "tool:taskfw__tasks__add_decision",
+      "relation": "often_follows",
+      "count": 2,
+      "p": 0.12
+    },
+    {
+      "from": "tool:claude-hooks__memory__add",
+      "to": "tool:taskfw__tasks__active",
+      "relation": "often_follows",
+      "count": 2,
+      "p": 0.25
+    },
+    {
+      "from": "tool:taskfw__tasks__create",
+      "to": "tool:taskfw__tasks__set_active",
+      "relation": "often_follows",
+      "count": 2,
+      "p": 0.08
+    },
+    {
+      "from": "tool:taskfw__tasks__list",
+      "to": "tool:taskfw__tasks__active",
+      "relation": "often_follows",
+      "count": 2,
+      "p": 0.11
+    },
+    {
+      "from": "tool:claude-hooks__memory__add",
+      "to": "tool:local-mac__safari__open",
+      "relation": "often_follows",
+      "count": 2,
+      "p": 0.25
+    },
+    {
+      "from": "tool:local-mac__safari__navigate",
+      "to": "tool:local-mac__safari__js",
+      "relation": "often_follows",
+      "count": 2,
+      "p": 0.17
+    },
+    {
+      "from": "tool:taskfw__tasks__add_introspection",
+      "to": "tool:taskfw__tasks__create",
+      "relation": "often_follows",
+      "count": 2,
+      "p": 0.13
+    },
+    {
+      "from": "tool:taskfw__tasks__check_item",
+      "to": "tool:taskfw__tasks__finish",
+      "relation": "often_follows",
+      "count": 2,
+      "p": 0.12
+    },
+    {
+      "from": "tool:taskfw__tasks__finish",
+      "to": "tool:taskfw__tasks__add_introspection",
+      "relation": "often_follows",
+      "count": 2,
+      "p": 0.5
+    },
+    {
+      "from": "tool:wyckoff-analyzer__update_run",
+      "to": "tool:wyckoff-analyzer__check_spring_or_sos",
+      "relation": "often_follows",
+      "count": 2,
+      "p": 0.08
+    },
+    {
+      "from": "tool:wyckoff-analyzer__check_spring_or_sos",
+      "to": "tool:wyckoff-analyzer__sector_relative_strength",
+      "relation": "often_follows",
+      "count": 2,
+      "p": 0.67
+    },
+    {
+      "from": "tool:wyckoff-analyzer__update_run",
+      "to": "tool:wyckoff-analyzer__update_delivery",
+      "relation": "often_follows",
+      "count": 2,
+      "p": 0.08
+    },
+    {
+      "from": "tool:taskfw__tasks__context",
+      "to": "tool:taskfw__tasks__check_item",
+      "relation": "often_follows",
+      "count": 2,
+      "p": 0.11
+    },
+    {
+      "from": "tool:taskfw__task_memory__recall",
+      "to": "tool:taskfw__task_memory__link",
+      "relation": "often_follows",
+      "count": 2,
+      "p": 0.33
+    },
+    {
+      "from": "tool:taskfw__task_memory__link",
+      "to": "tool:taskfw__tasks__log_skill_invocation",
+      "relation": "often_follows",
+      "count": 2,
+      "p": 0.29
+    },
+    {
+      "from": "tool:taskfw__tasks__log_skill_invocation",
+      "to": "tool:taskfw__concept__uncovered",
+      "relation": "often_follows",
+      "count": 2,
+      "p": 0.03
+    },
+    {
+      "from": "tool:taskfw__tasks__active",
+      "to": "tool:taskfw__tasks__add_introspection",
+      "relation": "often_follows",
+      "count": 2,
+      "p": 0.09
+    },
+    {
+      "from": "tool:wyckoff-analyzer__sector_relative_strength",
+      "to": "tool:wyckoff-analyzer__signal_weight_table",
+      "relation": "often_follows",
+      "count": 2,
+      "p": 0.12
+    },
+    {
+      "from": "tool:taskfw__tasks__create",
+      "to": "tool:taskfw__tasks__add_commit",
+      "relation": "often_follows",
+      "count": 2,
+      "p": 0.08
+    },
+    {
+      "from": "tool:taskfw__concept__upsert",
+      "to": "tool:taskfw__tasks__log_skill_invocation",
+      "relation": "often_follows",
+      "count": 2,
+      "p": 0.5
+    },
+    {
+      "from": "tool:taskfw__tasks__context",
+      "to": "tool:taskfw__tasks__add_commit",
+      "relation": "often_follows",
+      "count": 2,
+      "p": 0.11
+    }
+  ]
+}
