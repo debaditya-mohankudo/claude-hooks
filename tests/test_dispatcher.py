@@ -106,6 +106,20 @@ def test_includes_tool_hints():
     assert "tasks__create" in result
 
 
+def test_tool_hints_add_suggested_tool_groups_section():
+    hint = {"tool_name": "vault__read", "skill": "", "count": 3}
+    result = _format_system_prompt(_base_ctx(tool_hints=[hint]))
+    assert "## Suggested tool groups" in result
+    assert "local-mac/vault" in result
+
+
+def test_no_group_section_when_hints_have_no_known_group():
+    hint = {"tool_name": "nonesuch__thing", "skill": "", "count": 1}
+    result = _format_system_prompt(_base_ctx(tool_hints=[hint]))
+    assert "## Suggested tools" in result
+    assert "## Suggested tool groups" not in result
+
+
 def test_includes_user_context_block_verbatim():
     # _format_system_prompt appends the pre-rendered user-context string as-is;
     # render_user_context (tested in test_user_context.py) owns the headings.

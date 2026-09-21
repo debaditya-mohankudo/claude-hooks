@@ -111,6 +111,7 @@ def _format_system_prompt(ctx: dict) -> str:
             count = hint.get("count", 0)
             lines.append(f"- `{tool}` (skill={skill}, used={count}x)")
         lines.append("")
+        lines.extend(format_groups(route_groups(ctx["tool_hints"])))
 
     # Active task, execution contract, task decisions/memories/history, relevant
     # code, and related tasks/commits blocks are gone (task:882d67fa) — that
@@ -121,6 +122,7 @@ def _format_system_prompt(ctx: dict) -> str:
 
 
 from hooks.user_context import render_user_context
+from langchain_learning.tool_groups import format_groups, route_groups
 
 
 def _handle_user_prompt_submit(hook_input: dict) -> dict | None:
