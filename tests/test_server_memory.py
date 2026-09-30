@@ -69,6 +69,17 @@ def test_empty_task_id_is_noop():
     assert sm.get_server_memory()["events"] == []
 
 
+def test_record_session_end_appears_in_events():
+    sm.record_session_end("s1", "clear")
+    ev = sm.get_server_memory()["events"][-1]
+    assert (ev["type"], ev["content"], ev["claude_session_id"]) == ("session_end", "clear", "s1")
+
+
+def test_session_end_without_session_id_is_noop():
+    sm.record_session_end("", "clear")
+    assert sm.get_server_memory()["events"] == []
+
+
 # ── hook helpers ──────────────────────────────────────────────────────────────
 
 def test_record_tool_from_hook_strips_prefix():

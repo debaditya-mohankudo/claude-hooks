@@ -184,6 +184,11 @@ async def session_end(request: Request):
     body = await _safe_json(request)
     from hooks.dispatcher import _handle_session_end
     _handle_session_end(body)
+    try:
+        import hooks.server_memory as server_memory
+        server_memory.record_session_end(body.get("session_id", ""), body.get("reason", ""))
+    except Exception as exc:
+        log.warning("server_memory: record_session_end failed: %s", exc)
     return JSONResponse(content={})
 
 

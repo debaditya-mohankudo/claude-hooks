@@ -53,6 +53,8 @@ def handle_server_memory(n_events: int = 50) -> dict:
             t = e.get("type")
             if t == "prompt":
                 rows.append((e["content"], []))
+            elif t == "session_end" and e.get("content") in ("clear", "logout"):
+                rows.append((f"— /{e['content']} —" if e["content"] == "clear" else "— logout —", []))
             elif t == "tool" and rows:
                 label = e["content"]
                 args = e.get("args")

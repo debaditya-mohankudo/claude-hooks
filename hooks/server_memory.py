@@ -74,7 +74,7 @@ class ServerMemory:
                    server_session_id TEXT,
                    claude_session_id TEXT,
                    ts                REAL,
-                   type              TEXT,   -- 'prompt' | 'tool' | 'task'
+                   type              TEXT,   -- 'prompt' | 'tool' | 'task' | 'memories' | 'session_end'
                    content           TEXT,   -- prompt text / tool short-name / task title
                    ref               TEXT,   -- task_id for tasks; NULL otherwise
                    args              TEXT,   -- MCP tool input args as compact JSON; NULL otherwise
@@ -231,6 +231,15 @@ class ServerMemory:
             cls._insert(claude_session_id, type="task", content=title or "", ref=task_id)
 
     @classmethod
+    def record_session_end(cls, claude_session_id: str, reason: str) -> None:
+        """Record a session boundary (SessionEnd reason: clear, resume, logout, ...).
+
+        /clear is a built-in that never fires UserPromptSubmit, so this is the only trace of it.
+        """
+        if claude_session_id:
+            cls._insert(claude_session_id, type="session_end", content=reason or "other")
+
+    @classmethod
     def record_memories(cls, claude_session_id: str, names: list[str]) -> None:
         """Record which memory IDs were injected on this prompt turn."""
         if names:
@@ -248,7 +257,7 @@ class ServerMemory:
         """Last N events from the unified chronological timeline.
 
         Served from the in-memory session (hydrated from SQLite at startup).
-        Each event has: claude_session_id, ts, type ('prompt'|'tool'|'task'|'turn'), content, ref.
+        Each event has: claude_session_id, ts, type ('prompt'|'tool'|'task'|'memories'|'session_end'), content, ref.
         """
         cache = cls._cache
         events = [dict(e) for e in (cache[-n_events:] if n_events > 0 else [])]
@@ -291,6 +300,10 @@ def record_tool(claude_session_id: str, tool: str, args: str | None = None, resu
 
 def record_task(claude_session_id: str, task_id: str, title: str) -> None:
     ServerMemory.record_task(claude_session_id, task_id, title)
+
+
+def record_session_end(claude_session_id: str, reason: str) -> None:
+    ServerMemory.record_session_end(claude_session_id, reason)
 
 
 def record_memories(claude_session_id: str, names: list[str]) -> None:

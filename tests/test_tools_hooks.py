@@ -40,6 +40,19 @@ class TestHandleServerMemory:
         assert "hello" in result
         assert "Read" in result
 
+    def test_clear_boundary_row_and_other_reasons_ignored(self):
+        events = [
+            {"type": "prompt", "content": "before"},
+            {"type": "session_end", "content": "clear"},
+            {"type": "session_end", "content": "resume"},
+            {"type": "prompt", "content": "after"},
+        ]
+        with patch("urllib.request.urlopen", return_value=_mock_response({"events": events})):
+            result = handle_server_memory()
+        assert "— /clear —" in result
+        assert "resume" not in result
+        assert result.index("before") < result.index("— /clear —") < result.index("after")
+
     def test_tool_with_path_args(self):
         home = Path.home()
         events = [
