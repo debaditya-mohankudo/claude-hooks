@@ -58,13 +58,14 @@ def group_of(tool_name: str, groups: dict, by_name: dict) -> str | None:
 
     `grp__tool` resolves by group name; ambiguous names (code_rag lives in two
     servers) are skipped. Bare names (wyckoff-analyzer tools) match a group's
-    listed tools, including `prefix_*` wildcards.
+    listed tools (`tools` plus `bare_tools`, the full list when `tools` is an
+    abridged display string), including `prefix_*` wildcards.
     """
     if "__" in tool_name:
         cands = by_name.get(tool_name.split("__", 1)[0], [])
         return cands[0] if len(cands) == 1 else None
     for gid, node in groups.items():
-        for tok in _TOKEN.findall(node.get("tools", "")):
+        for tok in _TOKEN.findall(node.get("tools", "") + " " + node.get("bare_tools", "")):
             if tok == tool_name or (tok.endswith("_*") and tool_name.startswith(tok[:-1])):
                 return gid
     return None
@@ -182,3 +183,31 @@ def format_groups(routes: list[dict], max_tools: int = 110) -> list[str]:
         lines.append(line)
     lines.append("")
     return lines
+
+
+def group_drift(live_tools: list[str], graph: dict) -> dict[str, list[str]]:
+    """Compare a live tool list (`mcp__server__group__tool`, or `mcp__server__tool`
+    for a single-namespace server whose group is the server name) with the graph's groups.
+
+    `unregistered`: live groups with no graph group. `missing`: graph groups absent
+    from the live list although their server is live. `unverified`: graph groups whose
+    server has no live tools at all (not loaded this session), plus built-in claude-code
+    groups -- reported, never a failure.
+    """
+    live: dict[str, set[str]] = {}  # server -> groups seen
+    for name in live_tools:
+        parts = name.strip().split("__")
+        if parts[0] != "mcp" or len(parts) < 3:
+            continue
+        live.setdefault(parts[1], set()).add(parts[2] if len(parts) >= 4 else parts[1])
+    known = {n["id"] for n in graph["nodes"] if n["kind"] == "tool_group"}
+    out: dict[str, list[str]] = {"unregistered": [], "missing": [], "unverified": []}
+    for server, grps in live.items():
+        out["unregistered"] += [f"group:{server}:{g}" for g in sorted(grps) if f"group:{server}:{g}" not in known]
+    for gid in sorted(known):
+        _, server, grp = gid.split(":", 2)
+        if server == "claude-code" or server not in live:
+            out["unverified"].append(gid)
+        elif grp not in live[server]:
+            out["missing"].append(gid)
+    return out

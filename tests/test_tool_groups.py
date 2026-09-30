@@ -284,3 +284,31 @@ def test_group_without_index_edges_prints_no_index_text():
     [r] = route_groups(_hints("notes__add"), _graph_with_index())
     line = format_groups([r])[1]
     assert "indexes" not in line and "indexed by" not in line
+
+
+def test_bare_tools_field_resolves_but_tools_stays_display_only():
+    from langchain_learning.tool_groups import group_of
+    node = {"id": "group:w:w", "kind": "tool_group", "tools": "run, ...", "bare_tools": "update_run, momentum_*"}
+    groups = {"group:w:w": node}
+    assert group_of("update_run", groups, {}) == "group:w:w"
+    assert group_of("momentum_rebalance", groups, {}) == "group:w:w"
+    assert group_of("other", groups, {}) is None
+
+
+def test_group_drift_reports_unregistered_missing_and_unverified():
+    from langchain_learning.tool_groups import group_drift
+    g = {"nodes": [{"id": f"group:{s}:{n}", "kind": "tool_group"} for s, n in
+                   [("a", "x"), ("a", "y"), ("solo", "solo"), ("off", "off"), ("claude-code", "meta")]]}
+    live = ["mcp__a__x__t", "mcp__a__z__t", "mcp__solo__t"]
+    assert group_drift(live, g) == {
+        "unregistered": ["group:a:z"],
+        "missing": ["group:a:y"],
+        "unverified": ["group:claude-code:meta", "group:off:off"],
+    }
+
+
+def test_real_graph_group_strings_fit_the_display_cap():
+    from langchain_learning.tool_groups import load_graph
+    for n in load_graph()["nodes"]:
+        if n["kind"] == "tool_group":
+            assert len(n["tools"]) <= 110, n["id"]
