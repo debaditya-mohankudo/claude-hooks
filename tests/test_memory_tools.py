@@ -16,6 +16,8 @@ from tools.memory import (
     handle_delete,
     handle_tool_hints,
     handle_read_compact,
+    handle_stale,
+    handle_validate,
 )
 from src.db.schema import MEMORIES_DDL, MCP_TOOL_HINTS_DDL
 
@@ -382,3 +384,48 @@ def test_add_batch_missing_required_field(mem_db):
         result = handle_add_batch(batch)
     assert result["count"] == 0
     assert "error" in result["results"][0]
+
+
+# ---------------------------------------------------------------------------
+# handle_stale / handle_validate
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def aged_db():
+    db = _make_memory_db([
+        {"name": "never-hit-old", "type": "user", "tags": "", "body": "old, never retrieved"},
+        {"name": "hit-recent", "type": "user", "tags": "", "body": "retrieved yesterday"},
+        {"name": "hit-long-ago", "type": "project", "tags": "", "body": "retrieved 90d ago"},
+        {"name": "validated-recent", "type": "user", "tags": "", "body": "old but just reviewed"},
+    ])
+    con = sqlite3.connect(str(db))
+    con.execute("UPDATE memories SET updated = datetime('now', '-100 days')")
+    con.execute("UPDATE memories SET last_hit = datetime('now', '-1 days') WHERE name='hit-recent'")
+    con.execute("UPDATE memories SET last_hit = datetime('now', '-90 days'), hit_count=3 WHERE name='hit-long-ago'")
+    con.execute("UPDATE memories SET last_validated = datetime('now', '-2 days') WHERE name='validated-recent'")
+    con.commit()
+    con.close()
+    return db
+
+
+def test_stale_lists_unhit_and_unvalidated_never_hit_first(aged_db):
+    with patch("tools.memory.MEMORY_DB", str(aged_db)):
+        result = handle_stale()
+    assert [m["name"] for m in result["memories"]] == ["never-hit-old", "hit-long-ago"]
+    assert result["total_stale"] == 2
+
+
+def test_stale_type_filter_and_limit(aged_db):
+    with patch("tools.memory.MEMORY_DB", str(aged_db)):
+        assert [m["name"] for m in handle_stale(type="project")["memories"]] == ["hit-long-ago"]
+        result = handle_stale(limit=1)
+    assert result["count"] == 1 and result["total_stale"] == 2
+
+
+def test_validate_removes_from_stale_and_reports_missing(aged_db):
+    with patch("tools.memory.MEMORY_DB", str(aged_db)):
+        result = handle_validate(["never-hit-old", "nope"])
+        stale = handle_stale()
+    assert result["validated"] == ["never-hit-old"]
+    assert result["missing"] == ["nope"]
+    assert [m["name"] for m in stale["memories"]] == ["hit-long-ago"]

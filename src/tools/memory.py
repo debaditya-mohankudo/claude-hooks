@@ -328,6 +328,74 @@ def handle_read_compact(session_id: str) -> dict:
     }
 
 
+def handle_stale(
+    unhit_days: int = 30,
+    unvalidated_days: int = 30,
+    type: str = "",
+    limit: int = 20,
+) -> dict:
+    """List memories due for review: not retrieved recently AND not validated recently.
+
+    A memory is stale when it has never been hit or its last_hit is older than
+    unhit_days, and its last_validated (falling back to updated) is older than
+    unvalidated_days or unset. Never-hit memories come first, then oldest last_hit.
+    Review each one: keep → memory__validate, fix → memory__add, wrong → memory__delete.
+
+    Args:
+        unhit_days:       Retrieval-age threshold in days.
+        unvalidated_days: Validation-age threshold in days.
+        type:             Optional filter by type (user/feedback/project/reference).
+        limit:            Max rows to return (one review batch).
+    """
+    where = """
+        (last_hit IS NULL OR last_hit < datetime('now', ?))
+        AND (COALESCE(last_validated, updated) IS NULL
+             OR COALESCE(last_validated, updated) < datetime('now', ?))
+    """
+    params: list = [f"-{int(unhit_days)} days", f"-{int(unvalidated_days)} days"]
+    if type:
+        where += " AND type = ?"
+        params.append(type)
+
+    with sqlite3.connect(MEMORY_DB) as con:
+        con.row_factory = sqlite3.Row
+        _ensure_schema(con)
+        total = con.execute(f"SELECT COUNT(*) FROM memories WHERE {where}", params).fetchone()[0]
+        rows = con.execute(
+            f"""
+            SELECT name, type, tags, substr(body, 1, 300) AS body_preview,
+                   COALESCE(hit_count, 0) AS hit_count, last_hit, last_validated, updated
+            FROM memories WHERE {where}
+            ORDER BY (last_hit IS NOT NULL), last_hit, COALESCE(last_validated, updated)
+            LIMIT ?
+            """,
+            params + [int(limit)],
+        ).fetchall()
+
+    return {"total_stale": total, "count": len(rows), "memories": [dict(r) for r in rows]}
+
+
+def handle_validate(names: list[str]) -> dict:
+    """Mark memories as reviewed and still correct (sets last_validated to now).
+
+    Args:
+        names: Memory slugs to re-validate.
+    """
+    validated, missing = [], []
+    with sqlite3.connect(MEMORY_DB) as con:
+        _ensure_schema(con)
+        for name in names:
+            cur = con.execute(
+                "UPDATE memories SET last_validated = datetime('now') WHERE name = ?", (name,)
+            )
+            (validated if cur.rowcount else missing).append(name)
+    _log.info("memories validated: %s (missing: %s)", validated, missing)
+    result: dict = {"ok": True, "validated": validated}
+    if missing:
+        result["missing"] = missing
+    return result
+
+
 def handle_delete(name: str) -> dict:
     """Delete a memory by name.
 
