@@ -1,6 +1,6 @@
 """Top banner text: the active taskfw task (id + title) for the focused window's cwd.
 
-Read from ~/.taskfw/active.json, which taskfw writes on every activation; entries whose owning server pid is dead are skipped. With no task active in this cwd it shows the project and the first prompt of the
+Read from ~/.taskfw/active.json, which taskfw writes on every activation; entries whose owning server pid is dead are skipped. With no task active in this cwd it shows the project and the latest prompt of the
 newest Claude Code session there (read from its transcript), then the window title.
 """
 import json
@@ -13,7 +13,7 @@ ACTIVE_FILE = os.path.expanduser("~/.taskfw/active.json")
 
 PROJECTS_DIR = os.path.expanduser("~/.claude/projects")
 MAX_PROMPT = 100
-_prompt_cache = {}   # transcript path -> (mtime, first prompt)
+_prompt_cache = {}   # transcript path -> (mtime, latest prompt)
 
 
 def _window_cwd():
@@ -21,8 +21,9 @@ def _window_cwd():
     return (tab.get_cwd_of_active_window() if tab is not None else None) or ""
 
 
-def _first_prompt(path):
-    """First typed prompt of a Claude Code transcript: the first user message whose content is plain text."""
+def _last_prompt(path):
+    """Latest typed prompt of a Claude Code transcript: the last user message whose content is plain text."""
+    last = ""
     with open(path) as f:
         for line in f:
             try:
@@ -31,12 +32,12 @@ def _first_prompt(path):
                 continue
             text = d.get("message", {}).get("content") if d.get("type") == "user" else None
             if isinstance(text, str) and not d.get("isMeta") and not text.lstrip().startswith("<"):
-                return " ".join(text.split())
-    return ""
+                last = " ".join(text.split())
+    return last
 
 
 def _session_prompt():
-    """(project, first prompt) of the newest Claude Code session for the focused window's cwd, or None."""
+    """(project, latest prompt) of the newest Claude Code session for the focused window's cwd, or None."""
     try:
         d = _window_cwd()
         while d and d != os.path.dirname(d):
@@ -47,8 +48,8 @@ def _session_prompt():
                     newest = max(files, key=os.path.getmtime)
                     mtime = os.path.getmtime(newest)
                     cached = _prompt_cache.get(newest)
-                    if cached is None or (cached[0] != mtime and not cached[1]):
-                        cached = _prompt_cache[newest] = (mtime, _first_prompt(newest))
+                    if cached is None or cached[0] != mtime:
+                        cached = _prompt_cache[newest] = (mtime, _last_prompt(newest))
                     if cached[1]:
                         return os.path.basename(d), cached[1]
                 return None
