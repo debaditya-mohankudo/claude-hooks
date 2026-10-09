@@ -101,49 +101,15 @@ async def user_prompt_submit(request: Request):
     checkpoint. Returns hookSpecificOutput.additionalSystemPrompt for Claude to consume.
     All lc.* node logs write immediately to claude_hooks.sqlite via SQLiteHandler.
     """
-    body = await _safe_json(request)
-    return JSONResponse(content=_run_user_prompt_submit(body) or {})
-
-
-def _run_user_prompt_submit(body: dict) -> dict:
-    """Run the UPS chain and record the prompt; shared by the hook route and /wait."""
     from hooks.dispatcher import _handle_user_prompt_submit, _extract_prompt
+    body = await _safe_json(request)
     result = _handle_user_prompt_submit(body)
     try:
         import hooks.server_memory as server_memory
         server_memory.record_prompt(body.get("session_id", ""), _extract_prompt(body))
     except Exception as exc:
         log.warning("server_memory: record_prompt failed: %s", exc)
-    return result
-
-
-_WAIT_MAX_DELAY_S = 3600
-
-
-@app.get("/wait")
-async def wait(session_id: str, prompt: str, delay: float = 0, cwd: str = ""):
-    """Delayed prompt — sleep, run the UPS chain with `prompt`, return the result as text.
-
-    Meant to be called from a background command (`curl .../wait?...` under Bash
-    run_in_background): when the delay elapses the command exits and Claude Code
-    re-invokes the model with this response as the command output. The server cannot
-    push a prompt into an idle session itself; the exiting curl is what wakes it.
-    The body carries the prompt followed by whatever the UPS chain injected
-    (additionalSystemPrompt), so the woken turn sees the same context a typed
-    prompt would. `delay` is clamped to [0, _WAIT_MAX_DELAY_S].
-    """
-    import asyncio
-    from fastapi.responses import PlainTextResponse
-
-    await asyncio.sleep(min(max(delay, 0), _WAIT_MAX_DELAY_S))
-    result = _run_user_prompt_submit(
-        {"session_id": session_id, "cwd": cwd or "/tmp", "prompt": prompt}
-    ) or {}
-    injected = (result.get("hookSpecificOutput") or {}).get("additionalSystemPrompt", "")
-    text = f"[scheduled prompt]\n{prompt}"
-    if injected:
-        text += f"\n\n{injected}"
-    return PlainTextResponse(text)
+    return JSONResponse(content=result or {})
 
 
 @app.post("/hook/PreToolUse")
