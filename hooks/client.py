@@ -39,6 +39,8 @@ try:
     # session's KITTY_* env. It is fire-and-forget and independent of the POST.
     import kitty_status
     kitty_status.update(EVENT, payload)
+    import dashboard_plan
+    dashboard_plan.update(EVENT, payload)
     if EVENT in KITTY_ONLY_EVENTS:
         print("{}")
         sys.exit(0)
