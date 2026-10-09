@@ -16,15 +16,6 @@ MAX_PROMPT = 100
 _prompt_cache = {}   # transcript path -> (mtime, latest prompt)
 
 
-def _fit(text):
-    """Trim text to the focused window's width so the banner stops at the border."""
-    try:
-        cols = get_boss().active_tab_manager.active_tab.active_window.screen.columns
-    except Exception:
-        return text
-    return text if len(text) <= cols else text[:max(cols - 1, 1)] + "…"
-
-
 def _window_cwd():
     tab = get_boss().active_tab_manager.active_tab
     return (tab.get_cwd_of_active_window() if tab is not None else None) or ""
@@ -98,13 +89,24 @@ def _active_task():
     return None
 
 
+def _render(label, text):
+    """'{ dir } text', trimmed to the window width (minus 2 cells for the pill caps)."""
+    try:
+        cols = get_boss().active_tab_manager.active_tab.active_window.screen.columns - 2
+    except Exception:
+        cols = 0
+    out = f" {{ {label} }} {text} " if label else f" {text} "
+    return out if not cols or len(out) <= cols else out[:max(cols - 2, 1)] + "… "
+
+
 def draw_window_title(data):
+    label = os.path.basename(_window_cwd().rstrip("/"))
     task = _active_task()
     if task:
-        return _fit(f" ◆ {task[0]}  {' '.join((task[1] or '').split())} ")
+        return _render(label, f"◆ {task[0]}  {' '.join((task[1] or '').split())}")
     prompt = _session_prompt()
     if prompt:
         text = prompt[1] if len(prompt[1]) <= MAX_PROMPT else prompt[1][:MAX_PROMPT - 1] + "…"
-        return _fit(f" ◇ {prompt[0]}  {text} ")
+        return _render(label or prompt[0], f"◇ {text}")
     title = data.get("title", "") if isinstance(data, dict) else ""
-    return _fit(f" {title} ")
+    return _render(label, title)
