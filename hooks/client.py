@@ -13,6 +13,7 @@ with empty JSON.
 
 Usage: python3 client.py <HookEvent>
 Events: UserPromptSubmit | PreToolUse | PostToolUse | Stop | SessionStart | SessionEnd
+        | Notification (kitty tab status only; not forwarded to the server)
 """
 import json
 import os
@@ -27,10 +28,20 @@ if not EVENT:
 
 SERVER = os.environ.get("CLAUDE_HOOKS_SERVER", "http://127.0.0.1:8766")
 
+# Events that only drive the kitty tab; the server has no route for them.
+KITTY_ONLY_EVENTS = {"Notification"}
+
 print(f"claude-hooks: client.py invoked for {EVENT}", file=sys.stderr)
 
 try:
     payload = json.load(sys.stdin)
+    # Kitty tab status runs here, not on the server: only this process has the
+    # session's KITTY_* env. It is fire-and-forget and independent of the POST.
+    import kitty_status
+    kitty_status.update(EVENT, payload)
+    if EVENT in KITTY_ONLY_EVENTS:
+        print("{}")
+        sys.exit(0)
     if not payload.get("cwd"):
         payload["cwd"] = os.environ.get("CLAUDE_CWD", "")
     data = json.dumps(payload).encode()

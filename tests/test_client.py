@@ -28,7 +28,9 @@ _PYTHON = sys.executable
 
 
 def _run(event: str, stdin: dict, env: dict | None = None, server: str | None = None) -> subprocess.CompletedProcess:
-    merged_env = {**os.environ, **(env or {})}
+    # Blank KITTY_* so a suite run inside kitty never repaints the developer's live tabs.
+    merged_env = {k: v for k, v in os.environ.items() if not k.startswith("KITTY_")}
+    merged_env.update(env or {})
     if server:
         merged_env["CLAUDE_HOOKS_SERVER"] = server
     return subprocess.run(

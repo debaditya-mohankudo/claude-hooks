@@ -224,9 +224,11 @@
       "created_at": "2026-07-08T11:29:24.786447+00:00",
       "description": "Thin HTTP client for the FastAPI hook server. Reads the hook JSON payload from stdin (which already carries the real per-session cwd from Claude Code) and POSTs it to localhost:8766/hook/{event}.",
       "evidence": [
-        "hooks/client.py"
+        "hooks/client.py",
+        "hooks/kitty_status.py"
       ],
       "invariants": [
+        "Kitty tab status (hooks/kitty_status.py) is driven from this client, not the server, because only this process inherits the session's KITTY_WINDOW_ID / KITTY_LISTEN_ON. It is fire-and-forget (detached `kitten @`, output discarded, never waited on), targets only `window_id:$KITTY_WINDOW_ID`'s tab, and is a silent no-op without kitty env, the `kitten` binary, or with CLAUDE_KITTY_STATUS=0; it must never change this client's stdout or exit code. Notification is kitty-only: it prints {} and is not POSTed, since the server has no /hook/Notification route (task:ec3a156a)",
         "CLAUDE_CWD env var is a fallback only, used when payload['cwd'] from stdin is missing/empty — it must never unconditionally overwrite a cwd Claude Code already supplied, since CLAUDE_CWD reflects whatever cwd the long-running server process happened to launch from, not the calling session's cwd (bug found 2026-07-08: unconditional overwrite clobbered every session's reported cwd with a stale/empty env var)",
         "Fails open: if the server is unreachable, exits 0 with an empty JSON object rather than blocking the hook event",
         "Every invocation prints a one-line 'claude-hooks: client.py invoked for {EVENT}' announcement to stderr immediately after EVENT is resolved, unconditionally (before the try/except) — this exists because server-side dispatcher logs only show the server's view, giving no signal that client.py itself ran for a given hook event (task:fb7d3777)"
@@ -234,6 +236,29 @@
       "last_validated": "2026-07-25T20:50:36.296661+00:00",
       "module": "hooks/client.py",
       "name": "hooks-client-cwd-forwarding"
+    },
+    "hooks-kitty-tab-status": {
+      "confidence": 0.9,
+      "contracts": [
+        "update(event, payload) maps a hook event to a tab state and repaints the tab holding this session's window: UserPromptSubmit/PreToolUse/PostToolUse -> working (amber '● claude'), Stop -> done (green '✓ claude'), Notification -> needs_input (red '▲ claude'; notification_type 'idle_prompt' -> done), SessionStart/SessionEnd -> cleared (empty title, NONE colours)",
+        "Issues `kitten @ --to $KITTY_LISTEN_ON set-tab-title|set-tab-color --match window_id:$KITTY_WINDOW_ID` — two detached spawns per event; requires allow_remote_control socket-only and listen_on in kitty.conf (kitty restart needed)"
+      ],
+      "created_at": "2026-10-09T04:00:00+00:00",
+      "description": "Per-session kitty tab status driven by Claude Code hook events. Called from hooks/client.py because only the session's own process inherits KITTY_WINDOW_ID / KITTY_LISTEN_ON; the long-running hook server has neither.",
+      "evidence": [
+        "hooks/kitty_status.py",
+        "tests/test_kitty_status.py"
+      ],
+      "invariants": [
+        "Never raises and never blocks the hook: `kitten @` is spawned detached with stdin/stdout/stderr discarded and is not waited on, so latency stays off the PreToolUse/PostToolUse path and a hung kitty cannot stall Claude Code",
+        "Silent no-op when KITTY_LISTEN_ON or KITTY_WINDOW_ID is unset, when the `kitten` binary is not on PATH, or when CLAUDE_KITTY_STATUS=0",
+        "Targets only the tab of the firing window (match window_id:N), so concurrent sessions never repaint each other; two sessions in split windows of one tab share that tab's state",
+        "set-tab-title replaces a manually set tab title with '<glyph> claude'; only SessionStart/SessionEnd restore the automatic title, and 'done' persists until the next prompt (hooks cannot see focus)",
+        "kitty hides the tab bar with a single tab (tab_bar_min_tabs 2), so the status is invisible until a second tab exists"
+      ],
+      "last_validated": "2026-10-09T04:00:00+00:00",
+      "module": "hooks/kitty_status.py",
+      "name": "hooks-kitty-tab-status"
     },
     "hooks-mcp-tools-observability": {
       "confidence": 0.95,
