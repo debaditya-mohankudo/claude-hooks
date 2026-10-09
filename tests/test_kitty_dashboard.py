@@ -14,6 +14,8 @@ _spec.loader.exec_module(dash)
 @pytest.fixture(autouse=True)
 def _no_real_note(tmp_path, monkeypatch):
     monkeypatch.setattr(dash, "NOTE", tmp_path / "absent-note.md")
+    monkeypatch.setattr(dash, "PLAN", tmp_path / "absent-plan.json")
+    monkeypatch.setattr(dash, "TURN", tmp_path / "absent-turn.json")
 
 
 def _db(tmp_path, rows):

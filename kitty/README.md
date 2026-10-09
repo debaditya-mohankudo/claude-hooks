@@ -32,3 +32,10 @@ and the dashboard shows it as `PLAN done/total` with `[x]`/`[ ]` items:
 
 This file is hook-owned; `dashboard_note.md` stays Claude's for free text
 (e.g. "waiting on you for X").
+
+## Turn tab + next-steps split
+
+`kitty/layout.sh` opens a tab with `--view turn` (current prompt and the final
+summary of the last turn) and a parallel vsplit with `--view next` (pending plan
+items only). `hooks/dashboard_turn.py` feeds it on UserPromptSubmit / Stop via
+`~/.claude/dashboard_turn.json` (`CLAUDE_DASHBOARD_TURN`; `=0` disables).

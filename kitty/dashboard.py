@@ -4,6 +4,9 @@ Read-only view of ~/.claude/server_memory.sqlite (stdlib only). Shows the latest
 task activation and the last N prompt / tool events, refreshed every few
 seconds. Launch it with `kitten @ launch --location=vsplit python3 kitty/dashboard.py`.
 
+`--view turn` shows the current prompt and final summary; `--view next` shows the
+pending plan items. kitty/layout.sh opens them as one tab with a vsplit.
+
 Claude can write a plan / waiting-on-you note to ~/.claude/dashboard_note.md
 (CLAUDE_DASHBOARD_NOTE overrides); it is shown above the feed.
 
@@ -19,6 +22,7 @@ import select
 import sqlite3
 import sys
 import termios
+import textwrap
 import time
 import tty
 from datetime import datetime
@@ -27,6 +31,7 @@ from pathlib import Path
 DB = Path(os.environ.get("CLAUDE_SERVER_MEMORY_DB", "~/.claude/server_memory.sqlite")).expanduser()
 NOTE = Path(os.environ.get("CLAUDE_DASHBOARD_NOTE", "~/.claude/dashboard_note.md")).expanduser()
 PLAN = Path(os.environ.get("CLAUDE_DASHBOARD_PLAN", "~/.claude/dashboard_plan.json")).expanduser()
+TURN = Path(os.environ.get("CLAUDE_DASHBOARD_TURN", "~/.claude/dashboard_turn.json")).expanduser()
 _SHOWN = ("prompt", "tool", "task")
 _GLYPH = {"prompt": "❯", "tool": "·", "task": "★"}
 
@@ -80,6 +85,38 @@ def read_plan(path: Path, width: int, max_lines: int = 12) -> list[str]:
     return lines[:max_lines] + ["─" * min(width, 60)]
 
 
+def _wrap(label: str, text: str, width: int, max_lines: int) -> list[str]:
+    body = textwrap.wrap(" ".join((text or "").split()) or "(none yet)", max(width - 2, 10))
+    if len(body) > max_lines:
+        body = body[:max_lines - 1] + [_clip(body[max_lines - 1], width - 3) + "…"]
+    return [label] + [f"  {l}" for l in body]
+
+
+def read_turn(path: Path, width: int, height: int = 40) -> str:
+    """Prompt + final summary of the current turn (hooks/dashboard_turn.py)."""
+    try:
+        turn = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return "no turn recorded yet"
+    room = max(height - 4, 6)
+    out = _wrap("❯ PROMPT", turn.get("prompt", ""), width, max(room // 3, 3))
+    out += ["─" * min(width, 60)]
+    out += _wrap("★ SUMMARY", turn.get("summary", ""), width, room - len(out))
+    return "\n".join(out)
+
+
+def read_next(path: Path, width: int) -> str:
+    """Pending plan items only: the next nodes still to do."""
+    try:
+        items = json.loads(path.read_text()).get("items", [])
+    except (OSError, ValueError):
+        return "no plan"
+    todo = [i for i in items if not i.get("done")]
+    if not todo:
+        return "NEXT  nothing pending"
+    return "\n".join([f"NEXT {len(todo)} pending"] + [_clip(f"  → {i.get('text', '')}", width) for i in todo])
+
+
 def render(task, rows, width: int, note: list[str] | None = None) -> str:
     out = list(note or [])
     if task:
@@ -94,7 +131,11 @@ def render(task, rows, width: int, note: list[str] | None = None) -> str:
     return "\n".join(out)
 
 
-def snapshot(db: Path, n: int, width: int) -> str:
+def snapshot(db: Path, n: int, width: int, view: str = "all") -> str:
+    if view == "turn":
+        return read_turn(TURN, width, os.get_terminal_size().lines if sys.stdout.isatty() else 40)
+    if view == "next":
+        return read_next(PLAN, width)
     try:
         return render(*fetch(db, n), width, read_plan(PLAN, width) + read_note(NOTE, width))
     except sqlite3.Error as e:
@@ -113,6 +154,8 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("-n", type=int, default=15, help="events to show")
     ap.add_argument("-i", "--interval", type=float, default=2.0)
+    ap.add_argument("--view", choices=("all", "turn", "next"), default="all",
+                    help="all: event feed; turn: prompt + final summary; next: pending plan items")
     ap.add_argument("--once", action="store_true", help="print once and exit")
     args = ap.parse_args(argv)
     fd = sys.stdin.fileno() if sys.stdin.isatty() and not args.once else None
@@ -122,7 +165,7 @@ def main(argv: list[str] | None = None) -> int:
             tty.setcbreak(fd)
         while True:
             width = os.get_terminal_size().columns if sys.stdout.isatty() else 80
-            text = snapshot(DB, args.n, width)
+            text = snapshot(DB, args.n, width, args.view)
             if args.once:
                 print(text)
                 return 0
