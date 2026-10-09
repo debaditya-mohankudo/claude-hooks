@@ -16,6 +16,15 @@ MAX_PROMPT = 100
 _prompt_cache = {}   # transcript path -> (mtime, latest prompt)
 
 
+def _fit(text):
+    """Trim text to the focused window's width so the banner stops at the border."""
+    try:
+        cols = get_boss().active_tab_manager.active_tab.active_window.screen.columns
+    except Exception:
+        return text
+    return text if len(text) <= cols else text[:max(cols - 1, 1)] + "…"
+
+
 def _window_cwd():
     tab = get_boss().active_tab_manager.active_tab
     return (tab.get_cwd_of_active_window() if tab is not None else None) or ""
@@ -92,10 +101,10 @@ def _active_task():
 def draw_window_title(data):
     task = _active_task()
     if task:
-        return f" ◆ {task[0]}  {' '.join((task[1] or '').split())} "
+        return _fit(f" ◆ {task[0]}  {' '.join((task[1] or '').split())} ")
     prompt = _session_prompt()
     if prompt:
         text = prompt[1] if len(prompt[1]) <= MAX_PROMPT else prompt[1][:MAX_PROMPT - 1] + "…"
-        return f" ◇ {prompt[0]}  {text} "
+        return _fit(f" ◇ {prompt[0]}  {text} ")
     title = data.get("title", "") if isinstance(data, dict) else ""
-    return f" {title} "
+    return _fit(f" {title} ")
