@@ -7,17 +7,20 @@ seconds. Launch it with `kitten @ launch --location=vsplit python3 kitty/dashboa
 Claude can write a plan / waiting-on-you note to ~/.claude/dashboard_note.md
 (CLAUDE_DASHBOARD_NOTE overrides); it is shown above the feed.
 
-Fails soft: a missing or locked DB prints one line and keeps polling; Ctrl-C and
---once exit 0.
+Fails soft: a missing or locked DB prints one line and keeps polling; Esc, Ctrl-C
+and --once exit 0.
 """
 from __future__ import annotations
 
 import argparse
 import json
 import os
+import select
 import sqlite3
 import sys
+import termios
 import time
+import tty
 from datetime import datetime
 from pathlib import Path
 
@@ -98,13 +101,25 @@ def snapshot(db: Path, n: int, width: int) -> str:
         return f"dashboard: cannot read {db}: {e}"
 
 
+def _esc_pressed(wait: float) -> bool:
+    """Wait up to `wait` seconds; True if a bare Esc arrived (arrow-key sequences don't count)."""
+    if not select.select([sys.stdin], [], [], wait)[0]:
+        return False
+    data = os.read(sys.stdin.fileno(), 32)
+    return data == b"\x1b"
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("-n", type=int, default=15, help="events to show")
     ap.add_argument("-i", "--interval", type=float, default=2.0)
     ap.add_argument("--once", action="store_true", help="print once and exit")
     args = ap.parse_args(argv)
+    fd = sys.stdin.fileno() if sys.stdin.isatty() and not args.once else None
+    saved = termios.tcgetattr(fd) if fd is not None else None
     try:
+        if fd is not None:
+            tty.setcbreak(fd)
         while True:
             width = os.get_terminal_size().columns if sys.stdout.isatty() else 80
             text = snapshot(DB, args.n, width)
@@ -113,9 +128,15 @@ def main(argv: list[str] | None = None) -> int:
                 return 0
             sys.stdout.write("\x1b[H\x1b[2J" + text + "\n")
             sys.stdout.flush()
-            time.sleep(args.interval)
+            if fd is None:
+                time.sleep(args.interval)
+            elif _esc_pressed(args.interval):
+                return 0
     except KeyboardInterrupt:
         return 0
+    finally:
+        if saved is not None:
+            termios.tcsetattr(fd, termios.TCSADRAIN, saved)
 
 
 if __name__ == "__main__":
