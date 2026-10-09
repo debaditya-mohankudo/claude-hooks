@@ -223,23 +223,50 @@ class TestUserPromptSubmit:
 
 
 # ---------------------------------------------------------------------------
-# Fixed memory set surfaced purely on keyword overlap (no domain scoping any
-# more) — test-fixture-alpha/beta are seeded in MEMORY.sqlite tagged with
-# "integration test fixture cwd tmp sentinel ..." so this prompt's tokens hit
-# them regardless of cwd.
+# Keyword-overlap memory injection against a hermetic memory DB. The live
+# MEMORY.sqlite is not usable here: the scorer only looks at the 500 most
+# recently updated rows, so fixtures seeded there fall out of the window as
+# the DB grows, and the run would also bump the live hit counts.
 # ---------------------------------------------------------------------------
 
 class TestTmpCwdFixedMemories:
-    def test_tmp_cwd_injects_known_fixture_memories(self, client):
+    @pytest.fixture
+    def fixture_memory_db(self, tmp_path):
+        import sqlite3
+        from src.config import config as base_cfg
+
+        db = tmp_path / "MEMORY.sqlite"
+        conn = sqlite3.connect(db)
+        conn.execute(
+            "CREATE TABLE memories (id INTEGER PRIMARY KEY, name TEXT UNIQUE NOT NULL, "
+            "type TEXT NOT NULL DEFAULT 'feedback', domain TEXT NOT NULL DEFAULT 'global', "
+            "tags TEXT, body TEXT NOT NULL, updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP, "
+            "hit_count INTEGER DEFAULT 0, last_hit TIMESTAMP, last_validated TIMESTAMP, "
+            "files TEXT, docs TEXT, related TEXT)"
+        )
+        for name, tag in (("test-fixture-alpha", "alpha"), ("test-fixture-beta", "beta")):
+            conn.execute(
+                "INSERT INTO memories (name, type, tags, body) VALUES (?, 'reference', ?, ?)",
+                (name, f"integration test fixture cwd tmp sentinel {tag}", f"fixture body {tag}"),
+            )
+        conn.commit()
+        conn.close()
+
+        original = base_cfg.memory_db
+        object.__setattr__(base_cfg, "memory_db", db)  # Settings is frozen
+        yield db
+        object.__setattr__(base_cfg, "memory_db", original)
+
+    def test_tmp_cwd_injects_known_fixture_memories(self, client, fixture_memory_db):
         r = client.post("/hook/UserPromptSubmit", json={
             "session_id": "api-test-tmp-memories",
             "cwd": "/tmp",
-            "prompt": "integration test fixture sentinel",
+            "prompt": "integration test fixture cwd tmp sentinel alpha beta",
         })
         assert r.status_code == 200
         prompt = r.json().get("hookSpecificOutput", {}).get("additionalSystemPrompt", "")
-        assert "test-fixture-alpha" in prompt
-        assert "test-fixture-beta" in prompt
+        assert "### test-fixture-alpha" in prompt
+        assert "### test-fixture-beta" in prompt
 
 
 # ---------------------------------------------------------------------------
