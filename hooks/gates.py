@@ -3,15 +3,12 @@
 Single source of truth for which tools are gated and what prerequisites they
 require. Completely independent of DB state — operates purely on GateContext (in-memory dataclass).
 
-Adding a gate for an external MCP tool: edit ~/.claude/gate_rules.yaml — no Python change needed.
-Adding a gate with custom DB logic: add a Gate subclass below + register in GATES.
+Adding a gate: add a Gate subclass below + register it in GATES. Gates for
+other repos' MCP tools live with those tools, not here.
 
 Anti-hallucination principle: Claude cannot be trusted to remember whether it
 already verified something. Only tool call records in prompt_tool_calls (written
 by the hook infrastructure, not the model) are facts. Gates enforce this.
-
-External tool gate rules live in ~/.claude/gate_rules.yaml (or CLAUDE_GATE_RULES env var).
-They are loaded at module import time and registered into GATES automatically.
 """
 from __future__ import annotations
 
@@ -20,7 +17,6 @@ from abc import ABC, abstractmethod
 from collections import OrderedDict
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable
 
 from src.logger import get_logger
 
@@ -156,162 +152,6 @@ class Gate(ABC):
 # ---------------------------------------------------------------------------
 # Concrete gate classes
 # ---------------------------------------------------------------------------
-
-DEFAULT_WINDOW_S = 120.0  # seconds — default staleness window for all prereq checks
-
-# Type alias for a pure verifier function: (GateContext) -> (deny, reason)
-# deny=True blocks the tool; deny=False allows it.
-# Verifiers are pure — no logging, no side effects.
-Verifier = Callable[[GateContext], "tuple[bool, str]"]
-
-
-# ---------------------------------------------------------------------------
-# Verifier factories — one per YAML gate field
-# ---------------------------------------------------------------------------
-
-def _make_input_arg_check(gated: str, input_arg: str) -> Verifier:
-    """Gated tool's own input[input_arg] must appear as a substring in the prompt."""
-    def _check(ctx: GateContext) -> tuple[bool, str]:
-        value = (ctx.tool_input.get(input_arg) or "").lower().strip()
-        if not value:
-            return False, ""  # no value to check — pass through
-        found = any(value in pt.lower() for pt in ctx.prompt_texts() if pt)
-        _log.info("[%s] input_arg_check %s=%r found_in_recent=%s", gated, input_arg, value, found)
-        if not found:
-            return True, (
-                f"Blocked: {gated} — '{ctx.tool_input.get(input_arg)}' "
-                f"does not appear in the current or previous prompt. "
-                f"Confirm the intended value first."
-            )
-        return False, ""
-    return _check
-
-
-def _make_prereq_check(gated: str, prereq_tool: str, window_s: float, name_arg: str) -> Verifier:
-    """Prereq tool must have run recently. If name_arg set, its value must appear in the prompt."""
-    def _check(ctx: GateContext) -> tuple[bool, str]:
-        import time
-        cutoff = time.time() - window_s
-        for tc in ctx.prev_tools():
-            if tc.tool != prereq_tool:
-                continue
-            if name_arg and not tc.tool_input.get(name_arg):
-                continue
-            if tc.ts < cutoff:
-                continue
-            if name_arg:
-                searched = tc.tool_input.get(name_arg, "").lower()
-                found = any(searched in pt.lower() for pt in ctx.prompt_texts() if pt)
-                _log.info("[%s] name_arg_check name=%r found_in_recent=%s", gated, searched, found)
-                if searched and not found:
-                    return True, (
-                        f"Blocked: {gated} — {prereq_tool} was called for "
-                        f"'{tc.tool_input.get(name_arg)}' but that name does not appear "
-                        f"in the current or previous prompt. Search for the intended recipient first."
-                    )
-            return False, ""
-        qualifier = f" with a non-empty '{name_arg}' arg" if name_arg else ""
-        return True, (
-            f"Blocked: {gated} requires {prereq_tool}{qualifier} within the last "
-            f"{int(window_s)}s. Call {prereq_tool} first, then retry."
-        )
-    return _check
-
-
-# ---------------------------------------------------------------------------
-# Chain builder — composes verifiers sequentially, short-circuits on first deny
-# ---------------------------------------------------------------------------
-
-def _build_gate_chain(rule: dict) -> Verifier:
-    """Build a verifier chain from a gate_rules.yaml entry.
-
-    Each YAML field maps to one verifier. The chain runs them in order and
-    returns on the first deny. Adding a new gate type = one new factory +
-    one new entry here.
-    """
-    gated = (rule.get("tool") or "").strip()
-    verifiers: list[Verifier] = []
-
-    if rule.get("input_arg"):
-        verifiers.append(_make_input_arg_check(gated, rule["input_arg"].strip()))
-
-    if rule.get("prereq"):
-        verifiers.append(_make_prereq_check(
-            gated,
-            rule["prereq"].strip(),
-            float(rule.get("window_s", DEFAULT_WINDOW_S)),
-            (rule.get("name_arg") or "").strip(),
-        ))
-
-    def _chain(ctx: GateContext) -> tuple[bool, str]:
-        for v in verifiers:
-            deny, reason = v(ctx)
-            if deny:
-                return deny, reason
-        return False, ""
-
-    return _chain
-
-
-def _logged_chain(tool_name: str, chain: Verifier) -> Verifier:
-    """Wrap a verifier chain with DENY/ALLOW logging."""
-    def _run(ctx: GateContext) -> tuple[bool, str]:
-        deny, reason = chain(ctx)
-        tag = f"[{tool_name}] prompt={ctx.prompt_id[:8] if ctx.prompt_id else '?'}"
-        if deny:
-            _log.warning("%s DENY reason=%s", tag, reason.split(".")[0])
-        else:
-            _log.info("%s ALLOW", tag)
-        return deny, reason
-    return _run
-
-
-# ---------------------------------------------------------------------------
-# External gate loader — reads ~/.claude/gate_rules.yaml (or CLAUDE_GATE_RULES)
-# ---------------------------------------------------------------------------
-
-_GATE_RULES_DEFAULT = Path.home() / ".claude" / "gate_rules.yaml"
-
-
-def _load_external_gates(path: Path | None = None) -> dict[str, Gate]:
-    """Load prereq-style gates from a YAML config file.
-
-    Returns a dict of {tool_name: Gate} ready to merge into GATES.
-    Fails open on any error — a missing or malformed config never blocks tools.
-    """
-    rules_path = path or Path(os.environ.get("CLAUDE_GATE_RULES", str(_GATE_RULES_DEFAULT)))
-    if not rules_path.exists():
-        _log.debug("[gates] gate_rules not found at %s — skipping external gates", rules_path)
-        return {}
-
-    try:
-        import yaml  # pyyaml — available in project deps
-        with rules_path.open() as f:
-            config = yaml.safe_load(f) or {}
-    except Exception as exc:
-        _log.warning("[gates] failed to load %s: %s — no external gates registered", rules_path, exc)
-        return {}
-
-    loaded: dict[str, Gate] = {}
-    for entry in config.get("gates", []):
-        tool_name = (entry.get("tool") or "").strip()
-        if not tool_name:
-            _log.warning("[gates] skipping malformed entry (missing tool): %s", entry)
-            continue
-
-        prereq_tool = (entry.get("prereq") or "").strip()
-        chain = _logged_chain(tool_name, _build_gate_chain(entry))
-        cls = type(f"_ExternalGate_{tool_name}", (Gate,), {
-            "tool_name": tool_name,
-            "verify": lambda _self, ctx, _c=chain: _c(ctx),
-        })
-        cls.__abstractmethods__ = cls.__abstractmethods__ - {"verify"}  # type: ignore[attr-defined]
-        loaded[tool_name] = cls()
-        window_s = int(float(entry.get("window_s", DEFAULT_WINDOW_S)))
-        _log.info("[gates] registered external gate: %s → prereq=%s window=%ss", tool_name, prereq_tool, window_s)
-
-    return loaded
-
 
 import re as _re
 import shlex as _shlex
@@ -546,9 +386,6 @@ GATES: dict[str, Gate] = {g.tool_name: g for g in [
     GitCommitGate(),
     GitCommitMcpGate(),
 ]}
-
-# Merge external gates from gate_rules.yaml — external entries never override internal ones
-GATES = {**_load_external_gates(), **GATES}
 
 
 def check(tool_short_name: str, ctx: GateContext) -> tuple[bool, str]:

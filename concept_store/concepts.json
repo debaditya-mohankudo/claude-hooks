@@ -180,13 +180,13 @@
         "deny=True means the tool must be blocked; reason is shown to Claude"
       ],
       "created_at": "2026-06-29T09:47:25.285339+00:00",
-      "description": "Anti-hallucination send-gate system. Verifies tool calls against session history before allowing them. Each gate is a composable chain of verifier factories loaded from gate_rules.yaml or hardcoded subclasses.",
+      "description": "Anti-hallucination send-gate system. Verifies tool calls against session history before allowing them. Gates are hardcoded Gate subclasses registered in GATES (the universal git-commit task-id gates); gates for other repos' MCP tools live with those tools, and the external gate_rules.yaml loader was removed.",
       "evidence": [
         "hooks/gates.py"
       ],
       "invariants": [
         "Gates operate only on tool call records written by the hook infrastructure, never on model memory",
-        "External gate rules from gate_rules.yaml never override internal Python gates",
+        "Only internal Python gates exist here; there is no external rules file",
         "All gates fail open on DB errors — a broken gate never blocks tools"
       ],
       "last_validated": "2026-06-29T09:47:25.285339+00:00",

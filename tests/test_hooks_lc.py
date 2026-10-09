@@ -73,55 +73,6 @@ class TestPreToolUseLc:
         )
         assert result == {}
 
-    # test_gated_tool_denied_without_prereq removed here: it exercised
-    # imessage__send, which moved to claude_for_mac_local along with the
-    # tool itself. test_mail_compose_denied_without_prereq below covers the
-    # same "gated tool denied without prereq" shape for the gate that remains.
-
-    def test_gated_tool_allowed_after_prereq(self, tmp_path):
-        from langgraph.checkpoint.memory import MemorySaver
-        import langchain_learning.nodes.log_tool_usage as tn
-        from langchain_learning.config import config as lc_cfg
-        import hooks.dispatcher as tul_mod
-
-        # Share one MemorySaver graph across all calls in this test
-        shared = sg_mod.build_session_graph(checkpointer=MemorySaver())
-        sg_mod._graph = shared
-
-        sg_mod.run_session(prompt="send message to Alice", session_id="sess-1", cwd="/tmp")
-
-        tool_hints_path = tmp_path / "tool_hints.sqlite"
-        with sqlite3.connect(str(tool_hints_path)) as conn:
-            conn.executescript(MCP_TOOL_HINTS_DDL)
-            conn.commit()
-        mock_cfg_tn = MagicMock()
-        mock_cfg_tn.tool_hints_db = tool_hints_path
-        mock_cfg_tn.valid_domains = lc_cfg.valid_domains
-        mock_cfg_tn.memory_db = lc_cfg.memory_db
-
-        with patch.object(tn, "_cfg", mock_cfg_tn), \
-             patch("sys.argv", ["dispatcher.py", "PostToolUse"]), \
-             patch("sys.stdin", StringIO(json.dumps({"tool_name": "mcp__local-mac__contacts__search", "session_id": "sess-1", "duration_ms": 50, "tool_input": {"name": "Alice"}, "tool_response": {"name": "Alice", "phoneNumbers": [{"value": "+911234567890"}]}}))), \
-             patch("sys.stdout", new_callable=StringIO):
-            tul_mod.main()
-
-        # Run gate without resetting _graph so shared MemorySaver state is preserved
-        import hooks.dispatcher as hook_mod
-        with patch("sys.argv", ["dispatcher.py", "PreToolUse"]), \
-             patch("sys.stdin", StringIO(json.dumps({"tool_name": "mcp__local-mac__imessage__send", "session_id": "sess-1"}))), \
-             patch("sys.stdout", new_callable=StringIO) as mock_out:
-            hook_mod.main()
-            result = json.loads(mock_out.getvalue().strip() or "{}")
-        sg_mod._graph = None
-        assert "hookSpecificOutput" not in result
-
-    def test_mail_compose_denied_without_prereq(self, tmp_path):
-        result = self._run(
-            {"tool_name": "mcp__local-mac__mail__compose", "session_id": "s2", "tool_use_id": "p2"},
-            tmp_path=tmp_path,
-        )
-        assert result.get("hookSpecificOutput", {}).get("permissionDecision") == "deny"
-
     def test_ungated_mcp_tool_allowed(self, tmp_path):
         result = self._run(
             {"tool_name": "mcp__local-mac__music__play", "session_id": "s3", "tool_use_id": "p3"},
@@ -136,25 +87,6 @@ class TestPreToolUseLc:
         )
         assert result == {}
 
-    def test_prereq_from_different_prompt_still_denied(self, tmp_path):
-        from langgraph.checkpoint.memory import MemorySaver
-        sg_mod._graph = sg_mod.build_session_graph(checkpointer=MemorySaver())
-
-        # Turn 1: UserPromptSubmit + contacts__search PostToolUse (prereq recorded)
-        sg_mod.run_session(prompt="find alice", session_id="sess-x", cwd="/tmp")
-        sg_mod.run_post_tool("mcp__local-mac__contacts__search", {}, session_id="sess-x", duration_ms=30)
-
-        # Turn 2: new UserPromptSubmit — resets prompt_tools to []
-        sg_mod.run_session(prompt="now send message", session_id="sess-x", cwd="/tmp")
-
-        # Gate on new prompt — contacts__search not in this prompt's prompt_tools → deny
-        result = self._run({
-            "tool_name": "mcp__local-mac__mail__compose",
-            "session_id": "sess-x",
-            "tool_input": {"to": "alice@example.com"},
-        })
-        sg_mod._graph = None
-        assert result.get("hookSpecificOutput", {}).get("permissionDecision") == "deny"
 
 
 # ---------------------------------------------------------------------------

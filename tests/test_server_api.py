@@ -293,36 +293,6 @@ class TestPreToolUse:
         assert r.status_code == 200
         assert r.json() == {}
 
-    def test_gated_tool_denied_without_prereq(self, client):
-        """imessage__send denied when no contacts__search prereq in session."""
-        r = client.post("/hook/PreToolUse", json={
-            "session_id": "api-test-ptu-no-prereq",
-            "tool_name": "mcp__local-mac__imessage__send",
-            "tool_input": {"to": "alice", "message": "hi"},
-        })
-        assert r.status_code == 200
-        body = r.json()
-        assert body.get("hookSpecificOutput", {}).get("permissionDecision") == "deny"
-
-    def test_deny_response_has_reason(self, client):
-        r = client.post("/hook/PreToolUse", json={
-            "session_id": "api-test-ptu-no-prereq-2",
-            "tool_name": "mcp__local-mac__imessage__send",
-            "tool_input": {"to": "alice", "message": "hi"},
-        })
-        body = r.json()
-        reason = body.get("hookSpecificOutput", {}).get("permissionDecisionReason", "")
-        assert isinstance(reason, str) and len(reason) > 0
-
-    def test_deny_response_has_hook_event_name(self, client):
-        r = client.post("/hook/PreToolUse", json={
-            "session_id": "api-test-ptu-no-prereq-3",
-            "tool_name": "mcp__local-mac__imessage__send",
-            "tool_input": {"to": "alice", "message": "hi"},
-        })
-        body = r.json()
-        assert body.get("hookSpecificOutput", {}).get("hookEventName") == "PreToolUse"
-
     def test_non_mcp_non_bash_tool_passthrough(self, client, ptu_session):
         """Non-MCP, non-Bash tools are not gated — fail open."""
         r = client.post("/hook/PreToolUse", json={

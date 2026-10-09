@@ -71,7 +71,7 @@ Ground truth: `hooks/dispatcher.py:_handle_user_prompt_submit()` and `langchain_
 
 The architecture is designed to support:
 
-- Additional gate policies (a new internal `Gate` class, or just a `~/.claude/gate_rules.yaml` entry for external tools — no code change)
+- Additional gate policies (a new internal `Gate` class registered in `GATES`)
 - New memory retrieval strategies (swap `CombinationSignalRetriever` via Protocol)
 - Multiple MCP servers and domains
 - Richer task graphs and subtask hierarchies

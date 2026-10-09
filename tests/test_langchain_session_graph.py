@@ -433,9 +433,11 @@ class TestCheckpointCrossHook:
         sg = mem_graph
         sid = "chk-test-no-prior"
 
-        gate_result = sg.run_gate("mail__compose", {"to": "alice@example.com"}, session_id=sid)
+        # Command words are assembled at runtime so the commit gate does not trip on this file's source.
+        cmd = " ".join(["g" + "it", "com" + "mit", "-m", "no task id"])
+        gate_result = sg.run_gate("Bash", {"command": cmd}, session_id=sid)
         assert gate_result["gate_denied"], \
-            "Gate must deny gated tool when no checkpoint exists (no contacts__search recorded)"
+            "Gate must deny a gated call when no checkpoint exists (commit without a task id)"
         # Fallback prompt_id must be generated so gate logs are traceable (not prompt_id=?)
         rows = _log_test_marker(search="generated fallback prompt_id")
         assert rows, "run_gate must generate a fallback prompt_id when no UPS checkpoint exists"

@@ -1,4 +1,4 @@
-"""Tests for hooks/gates.py — Gate ABC, loader, registry, and check()."""
+"""Tests for hooks/gates.py — Gate ABC, GateContext, the commit gates, and check()."""
 import time
 from collections import OrderedDict
 
@@ -7,8 +7,6 @@ import pytest
 from hooks.gates import (
     Gate, GateContext, ToolCall, GATES, check,
     GitCommitGate, GitCommitMcpGate,
-    DEFAULT_WINDOW_S, _load_external_gates,
-    _make_input_arg_check, _make_prereq_check, _build_gate_chain,
 )
 
 
@@ -23,7 +21,7 @@ def _tc(tool: str, tool_input: dict | None = None, ts: float | None = None) -> d
 
 def _stale_ts() -> float:
     """Return a timestamp older than the staleness window."""
-    return time.time() - DEFAULT_WINDOW_S - 10
+    return time.time() - 120.0 - 10
 
 
 def _ctx(
@@ -57,232 +55,6 @@ def _ctx(
 def test_gate_is_abstract():
     with pytest.raises(TypeError):
         Gate()
-
-
-# ---------------------------------------------------------------------------
-# @prereq decorator — structural checks
-# ---------------------------------------------------------------------------
-
-# imessage__send and mail__delete gates moved to claude_for_mac_local — that
-# repo owns those tools now, so their gate_rules.yaml entries and these tests
-# went with them. mail__compose stays: it's the one gate still defined here.
-
-def test_prereq_gates_are_gate_subclasses():
-    assert isinstance(GATES["mail__compose"], Gate)
-
-
-def test_prereq_gates_registered_in_registry():
-    assert "mail__compose" in GATES
-
-
-def test_prereq_gates_preserve_tool_name():
-    assert GATES["mail__compose"].tool_name == "mail__compose"
-
-
-# ---------------------------------------------------------------------------
-# Verifier factories — unit tests (pure functions, no Gate subclass needed)
-# ---------------------------------------------------------------------------
-
-def test_input_arg_check_allow_when_value_in_prompt():
-    check = _make_input_arg_check("mail__compose", "to")
-    ctx = _ctx("mail__compose", tool_input={"to": "alice@example.com"}, prompt_text="send to alice@example.com")
-    deny, _ = check(ctx)
-    assert deny is False
-
-
-def test_input_arg_check_deny_when_value_not_in_prompt():
-    check = _make_input_arg_check("mail__compose", "to")
-    ctx = _ctx("mail__compose", tool_input={"to": "alice@example.com"}, prompt_text="send to someone")
-    deny, reason = check(ctx)
-    assert deny is True
-    assert "alice@example.com" in reason
-
-
-def test_input_arg_check_allow_when_no_value():
-    check = _make_input_arg_check("mail__compose", "to")
-    ctx = _ctx("mail__compose", tool_input={})
-    deny, _ = check(ctx)
-    assert deny is False  # no value to check — pass through
-
-
-def test_prereq_check_allow_when_prereq_ran():
-    check = _make_prereq_check("imessage__send", "contacts__search", DEFAULT_WINDOW_S, "name")
-    ctx = _ctx(
-        "imessage__send",
-        session_tools={"p1": [_tc("contacts__search", {"name": "Alice"})]},
-        prompt_text="send message to Alice",
-    )
-    deny, _ = check(ctx)
-    assert deny is False
-
-
-def test_prereq_check_deny_when_prereq_missing():
-    check = _make_prereq_check("imessage__send", "contacts__search", DEFAULT_WINDOW_S, "name")
-    ctx = _ctx("imessage__send", prompt_text="send message to Alice")
-    deny, reason = check(ctx)
-    assert deny is True
-    assert "contacts__search" in reason
-
-
-def test_prereq_check_deny_when_name_not_in_prompt():
-    check = _make_prereq_check("imessage__send", "contacts__search", DEFAULT_WINDOW_S, "name")
-    ctx = _ctx(
-        "imessage__send",
-        session_tools={"p1": [_tc("contacts__search", {"name": "Alice"})]},
-        prompt_text="send message to Bob",
-    )
-    deny, reason = check(ctx)
-    assert deny is True
-    assert "Alice" in reason
-
-
-def test_prereq_check_deny_when_stale():
-    check = _make_prereq_check("imessage__send", "contacts__search", DEFAULT_WINDOW_S, "name")
-    ctx = _ctx(
-        "imessage__send",
-        session_tools={"p1": [_tc("contacts__search", {"name": "Alice"}, ts=_stale_ts())]},
-        prompt_text="send message to Alice",
-    )
-    deny, _ = check(ctx)
-    assert deny is True
-
-
-def test_build_gate_chain_runs_verifiers_in_order():
-    # input_arg check runs first — fails before prereq is checked
-    rule = {"tool": "mail__compose", "prereq": "contacts__search", "input_arg": "to"}
-    chain = _build_gate_chain(rule)
-    ctx = _ctx(
-        "mail__compose",
-        tool_input={"to": "alice@example.com"},
-        session_tools={"p1": [_tc("contacts__search")]},
-        prompt_text="send to someone",  # email not in prompt → input_arg check fails
-    )
-    deny, reason = chain(ctx)
-    assert deny is True
-    assert "alice@example.com" in reason  # input_arg deny, not prereq deny
-
-
-def test_build_gate_chain_allow_all_pass():
-    rule = {"tool": "mail__compose", "prereq": "contacts__search", "input_arg": "to"}
-    chain = _build_gate_chain(rule)
-    ctx = _ctx(
-        "mail__compose",
-        tool_input={"to": "alice@example.com"},
-        session_tools={"p1": [_tc("contacts__search")]},
-        prompt_text="send to alice@example.com",
-    )
-    deny, _ = chain(ctx)
-    assert deny is False
-
-
-# ---------------------------------------------------------------------------
-# _load_external_gates — loader unit tests
-# ---------------------------------------------------------------------------
-
-def test_loader_missing_file_returns_empty(tmp_path):
-    result = _load_external_gates(tmp_path / "nonexistent.yaml")
-    assert result == {}
-
-
-def test_loader_malformed_yaml_returns_empty(tmp_path):
-    bad = tmp_path / "gate_rules.yaml"
-    bad.write_text(": not: valid: yaml: [[[")
-    result = _load_external_gates(bad)
-    assert result == {}
-
-
-def test_loader_missing_tool_field_skipped(tmp_path):
-    cfg = tmp_path / "gate_rules.yaml"
-    cfg.write_text("gates:\n  - prereq: contacts__search\n")
-    result = _load_external_gates(cfg)
-    assert result == {}
-
-
-def test_loader_registers_prereq_gate(tmp_path):
-    cfg = tmp_path / "gate_rules.yaml"
-    cfg.write_text(
-        "gates:\n"
-        "  - tool: test__send\n"
-        "    prereq: contacts__search\n"
-        "    name_arg: name\n"
-        "    window_s: 60\n"
-    )
-    result = _load_external_gates(cfg)
-    assert "test__send" in result
-    assert isinstance(result["test__send"], Gate)
-    assert result["test__send"].tool_name == "test__send"
-
-
-def test_loader_gate_deny_without_prereq(tmp_path):
-    cfg = tmp_path / "gate_rules.yaml"
-    cfg.write_text(
-        "gates:\n"
-        "  - tool: test__send\n"
-        "    prereq: contacts__search\n"
-        "    name_arg: name\n"
-    )
-    gate = _load_external_gates(cfg)["test__send"]
-    ctx = _ctx("test__send", prompt_text="send message to Alice")
-    deny, reason = gate.verify(ctx)
-    assert deny is True
-    assert "contacts__search" in reason
-
-
-def test_loader_gate_allow_with_prereq(tmp_path):
-    cfg = tmp_path / "gate_rules.yaml"
-    cfg.write_text(
-        "gates:\n"
-        "  - tool: test__send\n"
-        "    prereq: contacts__search\n"
-        "    name_arg: name\n"
-    )
-    gate = _load_external_gates(cfg)["test__send"]
-    ctx = _ctx(
-        "test__send",
-        session_tools={"p1": [_tc("contacts__search", {"name": "Alice"})]},
-        prompt_text="send message to Alice",
-    )
-    deny, _ = gate.verify(ctx)
-    assert deny is False
-
-
-def test_loader_input_arg_gate_deny_email_not_in_prompt(tmp_path):
-    cfg = tmp_path / "gate_rules.yaml"
-    cfg.write_text(
-        "gates:\n"
-        "  - tool: mail__compose\n"
-        "    prereq: contacts__search\n"
-        "    input_arg: to\n"
-    )
-    gate = _load_external_gates(cfg)["mail__compose"]
-    ctx = _ctx(
-        "mail__compose",
-        tool_input={"to": "alice@example.com"},
-        session_tools={"p1": [_tc("contacts__search")]},
-        prompt_text="send email to someone",
-    )
-    deny, reason = gate.verify(ctx)
-    assert deny is True
-    assert "alice@example.com" in reason
-
-
-def test_loader_input_arg_gate_allow_email_in_prompt(tmp_path):
-    cfg = tmp_path / "gate_rules.yaml"
-    cfg.write_text(
-        "gates:\n"
-        "  - tool: mail__compose\n"
-        "    prereq: contacts__search\n"
-        "    input_arg: to\n"
-    )
-    gate = _load_external_gates(cfg)["mail__compose"]
-    ctx = _ctx(
-        "mail__compose",
-        tool_input={"to": "alice@example.com"},
-        session_tools={"p1": [_tc("contacts__search")]},
-        prompt_text="send email to alice@example.com",
-    )
-    deny, _ = gate.verify(ctx)
-    assert deny is False
 
 
 # ---------------------------------------------------------------------------
@@ -361,74 +133,6 @@ def test_ctx_called_recently_mixed_stale_and_fresh():
 
 
 # ---------------------------------------------------------------------------
-# GATES registry
-# ---------------------------------------------------------------------------
-
-# IMessageSendGate tests removed here: imessage__send moved to
-# claude_for_mac_local along with the tool itself, so this repo no longer
-# defines or gates it.
-
-def test_mail_compose_gate_exists():
-    assert "mail__compose" in GATES
-    assert isinstance(GATES["mail__compose"], Gate)
-
-
-# ---------------------------------------------------------------------------
-# MailComposeGate
-# ---------------------------------------------------------------------------
-
-def test_mail_compose_denied_without_contacts_search():
-    ctx = _ctx("mail__compose")
-    deny, reason = GATES["mail__compose"].verify(ctx)
-    assert deny is True
-    assert "contacts__search" in reason
-
-
-def test_mail_compose_allowed_after_contacts_search_with_email_in_prompt():
-    ctx = _ctx(
-        "mail__compose",
-        tool_input={"to": "tanvi910@gmail.com"},
-        session_tools={"p1": [_tc("contacts__search")]},
-        session_prompt_ids=["p1"],
-        prompt_id="p1",
-        prompt_text="send this to tanvi910@gmail.com please",
-    )
-    deny, _ = GATES["mail__compose"].verify(ctx)
-    assert deny is False
-
-
-def test_mail_compose_denied_email_not_in_prompt():
-    ctx = _ctx(
-        "mail__compose",
-        tool_input={"to": "tanvi910@gmail.com"},
-        session_tools={"p1": [_tc("contacts__search")]},
-        session_prompt_ids=["p1"],
-        prompt_id="p1",
-        prompt_text="send the summary to someone",
-    )
-    deny, reason = GATES["mail__compose"].verify(ctx)
-    assert deny is True
-    assert "tanvi910@gmail.com" in reason
-
-
-def test_mail_compose_allowed_no_to_param_after_contacts_search():
-    # If no 'to' param provided, skip email check and allow (compose can still open)
-    ctx = _ctx(
-        "mail__compose",
-        tool_input={},
-        session_tools={"p1": [_tc("contacts__search")]},
-        session_prompt_ids=["p1"],
-        prompt_id="p1",
-    )
-    deny, _ = GATES["mail__compose"].verify(ctx)
-    assert deny is False
-
-
-# MailDeleteGate tests removed here: mail__delete moved to
-# claude_for_mac_local along with the tool itself, so this repo no longer
-# defines or gates it.
-
-# ---------------------------------------------------------------------------
 # check() dispatch
 # ---------------------------------------------------------------------------
 
@@ -438,12 +142,6 @@ def test_check_ungated_tool_always_allowed():
     assert deny is False
     assert reason == ""
 
-
-def test_check_mail_compose_denied_via_dispatch():
-    ctx = _ctx("mail__compose")
-    deny, reason = check("mail__compose", ctx)
-    assert deny is True
-    assert "contacts__search" in reason
 
 # ---------------------------------------------------------------------------
 # GitCommitGate
@@ -647,19 +345,19 @@ class TestGateAdversarialInputs:
     # -- None / missing fields -----------------------------------------------
 
     def test_none_tool_input_does_not_raise(self):
-        ctx = _ctx("mail__compose", tool_input=None)
-        deny, reason = check("mail__compose", ctx)
+        ctx = _ctx("Bash", tool_input=None)
+        deny, reason = check("Bash", ctx)
         # Must not raise — result can be deny or allow
         assert isinstance(deny, bool)
 
     def test_empty_prompt_id_does_not_raise(self):
-        ctx = _ctx("mail__compose", prompt_id="")
-        deny, reason = check("mail__compose", ctx)
+        ctx = _ctx("Bash", prompt_id="")
+        deny, reason = check("Bash", ctx)
         assert isinstance(deny, bool)
 
     def test_none_prompt_text_does_not_raise(self):
         ctx = GateContext(
-            tool_name="mail__compose",
+            tool_name="Bash",
             tool_input={},
             current_calls=[],
             session_tools=OrderedDict(),
@@ -668,44 +366,10 @@ class TestGateAdversarialInputs:
             prompt_text=None,  # type: ignore[arg-type]
         )
         # __post_init__ should handle this gracefully
-        deny, reason = check("mail__compose", ctx)
+        deny, reason = check("Bash", ctx)
         assert isinstance(deny, bool)
 
     # -- Corrupted prompt_tools / session_tools ------------------------------
-
-    def test_corrupted_session_tools_entry_does_not_raise(self):
-        """session_tools bucket contains garbage — gate must not crash."""
-        corrupt_session = OrderedDict({
-            "p1": [None, 42, {"no_tool_key": True}, "bare-string"],
-        })
-        ctx = GateContext(
-            tool_name="mail__compose",
-            tool_input={},
-            current_calls=[],
-            session_tools=corrupt_session,
-            session_prompt_ids=["p1"],
-            prompt_id="p2",
-            prompt_text="send message",
-        )
-        deny, reason = check("mail__compose", ctx)
-        # Corrupted history → prereq not found → deny
-        assert deny is True
-
-    def test_current_calls_with_missing_fields_does_not_raise(self):
-        """ToolCall with ts=0 and empty tool_input — gate must handle gracefully."""
-        tc = ToolCall(tool="contacts__search", prompt_id="p1", tool_input={"name": "Alice"}, ts=0.0)
-        ctx = GateContext(
-            tool_name="mail__compose",
-            tool_input={},
-            current_calls=[tc],
-            session_tools=OrderedDict(),
-            session_prompt_ids=["p1"],
-            prompt_id="p1",
-            prompt_text="send message to Alice",
-        )
-        # ts=0 is stale but current_calls path should still work
-        deny, reason = check("mail__compose", ctx)
-        assert isinstance(deny, bool)
 
     def test_extremely_long_tool_name_does_not_raise(self):
         tool = "mcp__local-mac__" + "a" * 500
@@ -727,24 +391,10 @@ class TestGateAdversarialInputs:
 
     # -- Empty / minimal session state ---------------------------------------
 
-    def test_empty_session_prompt_ids_does_not_raise(self):
-        ctx = GateContext(
-            tool_name="mail__compose",
-            tool_input={},
-            current_calls=[],
-            session_tools=OrderedDict(),
-            session_prompt_ids=[],  # no prompts yet
-            prompt_id="",
-            prompt_text="",
-        )
-        deny, reason = check("mail__compose", ctx)
-        # No prereq → deny
-        assert deny is True
-
     def test_gate_deny_reason_is_always_str(self):
         """reason must always be a str, never None."""
-        for tool in ["mail__compose"]:
-            ctx = _ctx(tool)
+        for tool in ["Bash"]:
+            ctx = _ctx(tool, tool_input={"command": "ls"})
             deny, reason = check(tool, ctx)
             assert isinstance(reason, str), f"{tool}: reason is {type(reason)}"
 
