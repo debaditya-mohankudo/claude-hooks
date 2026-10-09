@@ -72,6 +72,29 @@
       "name": "config-db-paths-and-domains",
       "related": []
     },
+    "dashboard-plan-mirror": {
+      "confidence": 0.8,
+      "contracts": [
+        "TodoWrite replaces the plan; tasks__create sets title + resolution checklist; tasks__check_item ticks an item only if the plan's task_id matches",
+        "CLAUDE_DASHBOARD_PLAN overrides the path; '0' disables"
+      ],
+      "created_at": "2026-10-09T05:19:06.615900+00:00",
+      "description": "Client-side PostToolUse step (called from client.py beside kitty_status) that mirrors Claude's plan into ~/.claude/dashboard_plan.json for the kitty dashboard.",
+      "evidence": [
+        "hooks/dashboard_plan.py:update",
+        "hooks/dashboard_plan.py:new_plan",
+        "tests/test_dashboard_plan.py:test_taskfw_create_then_check_item"
+      ],
+      "invariants": [
+        "Never raises or blocks: update() swallows all exceptions",
+        "Writes are atomic (temp file + os.replace)",
+        "Only the hook writes this file; free-text notes live in dashboard_note.md, Claude-owned"
+      ],
+      "last_validated": "2026-10-09T05:19:06.616310+00:00",
+      "module": "hooks/dashboard_plan.py",
+      "name": "dashboard-plan-mirror",
+      "related": []
+    },
     "db-schema-ddl-and-migrations": {
       "confidence": 0.95,
       "contracts": [],
@@ -290,6 +313,30 @@
       "last_validated": "2026-09-03T06:19:17.423128+00:00",
       "module": "src/tools/hooks.py",
       "name": "hooks-mcp-tools-observability",
+      "related": []
+    },
+    "kitty-session-dashboard": {
+      "confidence": 0.8,
+      "contracts": [
+        "Launched as a plain script via `kitten @ launch --location=vsplit`; not a kitty-process kitten",
+        "Missing/locked DB prints one line and keeps polling; --once prints and exits 0"
+      ],
+      "created_at": "2026-10-09T05:19:09.165458+00:00",
+      "description": "Optional read-only live view for a kitty split: dashboard_plan.json plan, dashboard_note.md note, latest task event and last N prompt/tool events from server_memory.sqlite. Stdlib only; nothing in the hooks imports it.",
+      "evidence": [
+        "kitty/dashboard.py:fetch",
+        "kitty/dashboard.py:read_plan",
+        "kitty/dashboard.py:snapshot",
+        "tests/test_kitty_dashboard.py:test_missing_db_fails_soft"
+      ],
+      "invariants": [
+        "Opens the DB read-only (mode=ro)",
+        "Must stay importable by kitty's older PATH python3: keep `from __future__ import annotations`",
+        "Active-task header is the latest type='task' server_memory event, not the in-memory taskfw pointer, so it can be stale"
+      ],
+      "last_validated": "2026-10-09T05:19:09.165475+00:00",
+      "module": "kitty/dashboard.py",
+      "name": "kitty-session-dashboard",
       "related": []
     },
     "live-session-audit": {
@@ -693,6 +740,6 @@
     "commit": "5f62c6b5150a20fe7198d7bd6c155c4b3c0d3101",
     "extracted_at": "2026-07-23T05:42:23Z",
     "note": "incremental upsert (task:a2fd402d)",
-    "updated_at": "2026-09-21T05:46:48.424004+00:00"
+    "updated_at": "2026-10-09T05:19:09.165520+00:00"
   }
 }
