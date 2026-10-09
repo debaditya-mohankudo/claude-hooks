@@ -486,3 +486,31 @@ class TestMalformedRequestBody:
         r = client.post("/hook/PostToolUse", content=b"{broken", headers={"Content-Type": "application/json"})
         assert r.status_code == 200
         assert r.json() == {}
+
+
+# ---------------------------------------------------------------------------
+# GET /wait — delayed prompt
+# ---------------------------------------------------------------------------
+
+class TestWait:
+    def test_returns_prompt_as_text_after_delay(self, client):
+        import time
+        t0 = time.perf_counter()
+        r = client.get("/wait", params={
+            "session_id": "api-test-wait", "prompt": "check the build", "delay": 0.2, "cwd": "/tmp",
+        })
+        assert r.status_code == 200
+        assert r.headers["content-type"].startswith("text/plain")
+        assert "[scheduled prompt]\ncheck the build" in r.text
+        assert time.perf_counter() - t0 >= 0.2
+
+    def test_runs_ups_chain_for_the_session(self, client):
+        client.get("/wait", params={"session_id": "api-test-wait-ups", "prompt": "hi"})
+        assert client.get("/session/api-test-wait-ups").status_code == 200
+
+    def test_negative_delay_is_clamped_to_zero(self, client):
+        r = client.get("/wait", params={"session_id": "api-test-wait", "prompt": "x", "delay": -5})
+        assert r.status_code == 200
+
+    def test_missing_prompt_is_rejected(self, client):
+        assert client.get("/wait", params={"session_id": "api-test-wait"}).status_code in (400, 422)
