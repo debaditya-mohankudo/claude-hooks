@@ -9,6 +9,7 @@ from langchain_learning.nodes.backfill_memory_files import BackfillMemoryFilesNo
 from langchain_learning.nodes.mcp_hook_bridge import McpHookBridgeNode
 from langchain_learning.nodes.noop import NoopNode
 from langchain_learning.nodes.play_sound import PlaySoundNode
+from langchain_learning.nodes.route_model import RouteModelNode
 from langchain_learning.nodes.score_tools import ScoreToolsNode
 from langchain_learning.nodes.set_prompt_id import SetPromptIdNode
 
@@ -23,6 +24,7 @@ NODE_REGISTRY: dict[str, object] = {
     # downstream
     "score_tools":             ScoreToolsNode,
     "set_prompt_id":           SetPromptIdNode,
+    "route_model":             RouteModelNode,
     # PreToolUse chain
     "gate_check":              GateCheckNode,
     # PostToolUse chain

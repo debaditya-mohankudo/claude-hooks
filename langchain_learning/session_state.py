@@ -25,6 +25,8 @@ class SessionState(TypedDict):
     stop_alert_sent: bool            # True once NoopNode has seen the first Stop event of the current turn; reset by run_session, set by NoopNode
     sound_played: bool               # True once PlaySoundNode has fired the completion chime for the current turn; reset by run_session, set by PlaySoundNode
 
+    route_decision: dict             # RouteModelNode: {tier, model, effort, score, advisory}; advisory only
+
     # --- stop chain ---
     current_state: str               # "prompt" | "stop"
 
