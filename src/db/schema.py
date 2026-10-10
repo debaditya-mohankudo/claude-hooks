@@ -39,6 +39,50 @@ CREATE TABLE IF NOT EXISTS memories (
 )
 """
 
+# Typed memory-to-memory links (task:5f08a3b8). Edges key on memories.id, so an
+# upsert (ON CONFLICT DO UPDATE) keeps them. The closed type set is the
+# edge_types table: adding a type is one INSERT. Enforcement is by triggers as
+# well as FKs, because SQLite FKs are per-connection and off by default (the
+# sqlite3 CLI and bare sqlite3.connect() skip them); triggers fire regardless.
+# Symmetric types (relates_to, contradicts) are stored once with src_id < dst_id
+# and read from either end. Do not rebuild `memories` (CREATE/INSERT/DROP/RENAME)
+# without recreating these triggers: the rebuild would orphan the edges.
+MEMORY_LINKS_DDL = """
+CREATE TABLE IF NOT EXISTS edge_types (
+    type      TEXT PRIMARY KEY,
+    symmetric INTEGER NOT NULL DEFAULT 0
+);
+INSERT OR IGNORE INTO edge_types (type, symmetric) VALUES
+    ('relates_to', 1), ('contradicts', 1),
+    ('supersedes', 0), ('learned_from', 0), ('extends', 0);
+CREATE TABLE IF NOT EXISTS memory_links (
+    src_id  INTEGER NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
+    dst_id  INTEGER NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
+    type    TEXT NOT NULL REFERENCES edge_types(type),
+    created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (src_id, dst_id, type),
+    CHECK (src_id != dst_id)
+);
+CREATE INDEX IF NOT EXISTS idx_memory_links_dst ON memory_links(dst_id);
+CREATE TRIGGER IF NOT EXISTS memory_links_validate
+BEFORE INSERT ON memory_links
+BEGIN
+    SELECT RAISE(ABORT, 'unknown link type')
+      WHERE NOT EXISTS (SELECT 1 FROM edge_types WHERE type = NEW.type);
+    SELECT RAISE(ABORT, 'link endpoint memory does not exist')
+      WHERE NOT EXISTS (SELECT 1 FROM memories WHERE id = NEW.src_id)
+         OR NOT EXISTS (SELECT 1 FROM memories WHERE id = NEW.dst_id);
+    SELECT RAISE(ABORT, 'symmetric link must be stored with src_id < dst_id')
+      WHERE NEW.src_id > NEW.dst_id
+        AND (SELECT symmetric FROM edge_types WHERE type = NEW.type) = 1;
+END;
+CREATE TRIGGER IF NOT EXISTS memory_links_cascade
+BEFORE DELETE ON memories
+BEGIN
+    DELETE FROM memory_links WHERE src_id = OLD.id OR dst_id = OLD.id;
+END;
+"""
+
 
 def migrate_memory_db(conn: sqlite3.Connection) -> None:
     """Additive migrations for MEMORY.sqlite."""
@@ -54,6 +98,7 @@ def migrate_memory_db(conn: sqlite3.Connection) -> None:
     for col, typedef in additive.items():
         if col not in cols:
             conn.execute(f"ALTER TABLE memories ADD COLUMN {col} {typedef}")
+    conn.executescript(MEMORY_LINKS_DDL)
     conn.commit()
 
 

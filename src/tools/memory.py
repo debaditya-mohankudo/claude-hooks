@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 
 from config import config
+from src.db.schema import MEMORY_LINKS_DDL
 from src.logger import get_logger
 
 # Ensure repo root is on path so scripts.build_memories_embeddings resolves
@@ -38,6 +39,77 @@ def _ensure_schema(con: sqlite3.Connection) -> None:
             pass  # column already exists
 
 
+def _connect() -> sqlite3.Connection:
+    """Connection with FK enforcement on (per-connection in SQLite) and the links schema present."""
+    con = sqlite3.connect(MEMORY_DB)
+    con.execute("PRAGMA foreign_keys = ON")
+    return con
+
+
+def _ensure_links_schema(con: sqlite3.Connection) -> None:
+    con.executescript(MEMORY_LINKS_DDL)  # idempotent; commits any open transaction first
+
+
+def _normalize_links(links) -> tuple[list[tuple[str, str]], str | None]:
+    """Parse `links` into [(target_slug, type)]. A bare string means relates_to."""
+    out: list[tuple[str, str]] = []
+    for item in links or []:
+        if isinstance(item, str):
+            item = {"to": item}
+        if not isinstance(item, dict) or not item.get("to"):
+            return [], f"invalid link {item!r}: expected {{'to': slug, 'type': link_type}}"
+        out.append((item["to"], item.get("type") or "relates_to"))
+    return out, None
+
+
+def _validate_links(con: sqlite3.Connection, name: str, links: list[tuple[str, str]],
+                    batch_names: set[str] = frozenset()) -> str | None:
+    """Return an error message if any link is invalid, else None. Targets may be in the same batch."""
+    types = {r[0] for r in con.execute("SELECT type FROM edge_types")}
+    for target, ltype in links:
+        if ltype not in types:
+            return f"unknown link type '{ltype}'. Must be one of: {', '.join(sorted(types))}"
+        if target == name:
+            return f"memory '{name}' cannot link to itself"
+        if target not in batch_names and not con.execute(
+            "SELECT 1 FROM memories WHERE name = ?", (target,)
+        ).fetchone():
+            return f"link target '{target}' does not exist"
+    return None
+
+
+def _write_links(con: sqlite3.Connection, name: str, links: list[tuple[str, str]]) -> None:
+    """Insert edges (additive, idempotent). Symmetric types are stored once with src_id < dst_id."""
+    src = con.execute("SELECT id FROM memories WHERE name = ?", (name,)).fetchone()[0]
+    for target, ltype in links:
+        dst = con.execute("SELECT id FROM memories WHERE name = ?", (target,)).fetchone()[0]
+        symmetric = con.execute("SELECT symmetric FROM edge_types WHERE type = ?", (ltype,)).fetchone()[0]
+        a, b = (min(src, dst), max(src, dst)) if symmetric else (src, dst)
+        con.execute(
+            "INSERT OR IGNORE INTO memory_links (src_id, dst_id, type) VALUES (?, ?, ?)",
+            (a, b, ltype),
+        )
+
+
+def _links_for(con: sqlite3.Connection, memory_id: int) -> list[dict]:
+    """Typed links touching a memory. Symmetric edges appear from either end with direction 'both'."""
+    rows = con.execute(
+        """
+        SELECT l.type, e.symmetric, l.src_id = ? AS outgoing, m.name
+        FROM memory_links l
+        JOIN edge_types e ON e.type = l.type
+        JOIN memories m ON m.id = CASE WHEN l.src_id = ? THEN l.dst_id ELSE l.src_id END
+        WHERE l.src_id = ? OR l.dst_id = ?
+        ORDER BY l.type, m.name
+        """,
+        (memory_id,) * 4,
+    ).fetchall()
+    return [
+        {"type": t, "name": n, "direction": "both" if sym else ("out" if out else "in")}
+        for t, sym, out, n in rows
+    ]
+
+
 def handle_add(
     name: str,
     type: str,
@@ -46,6 +118,7 @@ def handle_add(
     files: str = "",
     docs: str = "",
     related: str = "",
+    links: list | None = None,
 ) -> dict:
     """Insert or update a memory in MEMORY.sqlite.
 
@@ -56,14 +129,27 @@ def handle_add(
         tags:   Comma-separated keywords for retrieval scoring.
         files:  Comma-separated source file paths this memory relates to.
         docs:   Comma-separated vault doc paths linked to this memory.
+        links:  Typed links to EXISTING memories: [{"to": slug, "type": t}], t one of
+                relates_to (default), supersedes, contradicts, learned_from, extends.
+                A bare slug string means relates_to. Additive: re-adding never removes
+                edges. Any invalid link rejects the whole call (nothing is written).
     """
     if type not in VALID_TYPES:
         _log.warning("handle_add rejected invalid type '%s' for name='%s'", type, name)
         return {"error": f"Invalid type '{type}'. Must be one of: {', '.join(VALID_TYPES)}"}
 
-    with sqlite3.connect(MEMORY_DB) as con:
+    parsed, err = _normalize_links(links)
+    if err:
+        return {"error": err}
+
+    with _connect() as con:
         con.row_factory = sqlite3.Row
         _ensure_schema(con)
+        _ensure_links_schema(con)
+        err = _validate_links(con, name, parsed)
+        if err:
+            _log.warning("handle_add rejected links for name='%s': %s", name, err)
+            return {"error": err}
         con.execute(
             """
             INSERT INTO memories (name, type, tags, body, files, docs, related, updated, last_validated)
@@ -80,7 +166,8 @@ def handle_add(
             """,
             (name, type, tags, body, files, docs, related),
         )
-    _log.info("memory upserted: name='%s' type=%s", name, type)
+        _write_links(con, name, parsed)
+    _log.info("memory upserted: name='%s' type=%s links=%d", name, type, len(parsed))
     try:
         from scripts.build_memories_embeddings import upsert_memories
         upsert_memories([name])
@@ -94,12 +181,16 @@ def handle_add_batch(memories: list[dict]) -> dict:
 
     Args:
         memories: List of memory dicts, each with keys: name, type, body,
-                  tags (optional, default '').
+                  tags (optional, default ''), links (optional; see memory__add,
+                  targets may be other memories in the same batch).
     """
     results = []
     names_to_embed = []
-    with sqlite3.connect(MEMORY_DB) as con:
+    batch_names = {m.get("name", "") for m in memories}
+    pending_links: list[tuple[str, list[tuple[str, str]]]] = []
+    with _connect() as con:
         _ensure_schema(con)
+        _ensure_links_schema(con)
         for m in memories:
             name   = m.get("name", "")
             mtype  = m.get("type", "")
@@ -113,6 +204,11 @@ def handle_add_batch(memories: list[dict]) -> dict:
                 continue
             if mtype not in VALID_TYPES:
                 results.append({"name": name, "error": f"invalid type '{mtype}'"})
+                continue
+            parsed, err = _normalize_links(m.get("links"))
+            err = err or _validate_links(con, name, parsed, batch_names)
+            if err:
+                results.append({"name": name, "error": err})
                 continue
             con.execute(
                 """
@@ -130,9 +226,22 @@ def handle_add_batch(memories: list[dict]) -> dict:
                 """,
                 (name, mtype, tags, body, files, docs, related),
             )
+            pending_links.append((name, parsed))
             results.append({"name": name, "action": "upserted"})
             names_to_embed.append(name)
             _log.info("memory upserted: name='%s' type=%s", name, mtype)
+
+        # After all upserts, so a link may target a memory added earlier in the same batch.
+        # A target that was itself rejected in this batch fails here, not silently.
+        for name, parsed in pending_links:
+            try:
+                _write_links(con, name, parsed)
+            except (sqlite3.DatabaseError, TypeError) as exc:
+                for r in results:
+                    if r["name"] == name:
+                        r.pop("action", None)
+                        r["error"] = f"link write failed: {exc} (memory saved without links)"
+                        r["action"] = "upserted"
 
     if names_to_embed:
         try:
@@ -196,6 +305,13 @@ def handle_search(query: str, type: str = "") -> dict:
                 rows = sorted(seen.values(), key=lambda r: r["updated"], reverse=True)
 
     results = [dict(r) for r in rows]
+    if results:
+        with sqlite3.connect(MEMORY_DB) as con:
+            try:
+                for r in results:
+                    r["links"] = _links_for(con, r["id"])
+            except sqlite3.OperationalError:
+                pass  # links table not created yet (no memory added since the feature shipped)
 
     _log.debug("handle_search query='%s' type=%s → %d results", query, type, len(results))
     return {
@@ -245,7 +361,13 @@ def handle_get(name: str) -> dict:
         _log.warning("handle_get: no memory found with name='%s'", name)
         return {"error": f"No memory found with name '{name}'"}
     _log.debug("handle_get: fetched name='%s'", name)
-    return dict(row)
+    result = dict(row)
+    with sqlite3.connect(MEMORY_DB) as con:
+        try:
+            result["links"] = _links_for(con, result["id"])
+        except sqlite3.OperationalError:
+            result["links"] = []
+    return result
 
 
 def handle_tool_hints(top_n: int = 20) -> dict:
@@ -402,8 +524,9 @@ def handle_delete(name: str) -> dict:
     Args:
         name: The memory slug to delete.
     """
-    with sqlite3.connect(MEMORY_DB) as con:
+    with _connect() as con:
         con.row_factory = sqlite3.Row
+        # The memory_links_cascade trigger removes its edges, FK pragma or not.
         cur = con.execute("DELETE FROM memories WHERE name = ?", (name,))
 
     if cur.rowcount == 0:
