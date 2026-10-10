@@ -118,12 +118,6 @@ def _format_system_prompt(ctx: dict) -> str:
     # context is task-framework's now, read via tasks__context rather than
     # pushed into the system prompt every turn.
 
-    rd = ctx.get("route_decision") or {}
-    if rd.get("advisory"):
-        lines.append("## Model routing")
-        lines.append(rd["advisory"])
-        lines.append("")
-
     return "\n".join(lines).strip()
 
 
@@ -496,22 +490,6 @@ def _handle_session_start(hook_input: dict) -> dict | None:
     return None
 
 
-def _record_route_outcome(session_id: str, hook_input: dict) -> None:
-    """Attach the turn's observed model/tokens/tool count to the router's decision.
-
-    Fail open: outcome tracking must never affect the Stop hook (task:9b311942).
-    """
-    try:
-        from src.db import route_store
-        out = route_store.read_turn_outcome(hook_input.get("transcript_path", ""))
-        if out:
-            eff = (hook_input.get("effort") or {}).get("level") or os.environ.get("CLAUDE_EFFORT")
-            route_store.record_outcome(session_id, actual_model=out["model"], effort=eff,
-                                       output_tokens=out["output_tokens"], tool_calls=out["tool_calls"])
-    except Exception as exc:
-        log.warning("route outcome failed open: %s", exc)
-
-
 def _handle_stop(hook_input: dict) -> dict | None:
     session_id = hook_input.get("session_id", "")
     if not session_id:
@@ -521,7 +499,6 @@ def _handle_stop(hook_input: dict) -> dict | None:
     t0 = time.monotonic()
     from langchain_learning.session_graph import run_stop
     hook_output = run_stop(session_id=session_id)
-    _record_route_outcome(session_id, hook_input)
     log.info("Stop done: session=%s elapsed_ms=%.0f%s", session_id[:8], (time.monotonic() - t0) * 1000,
               " sound_alert=1" if hook_output else "")
     return hook_output or None

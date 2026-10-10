@@ -7,7 +7,7 @@ in a single graph topology.
 Graph shape:
 
     START → route_event (conditional)
-      ├── user_prompt_submit → load_turn → load_memories / score_tools → set_prompt_id → route_model → END
+      ├── user_prompt_submit → load_turn → load_memories / score_tools → set_prompt_id → END
       ├── pre_tool_use       → gate_check → END
       ├── post_tool_use      → log_tool_usage → (__hook__ result → mcp_hook_bridge | *) → END
       └── stop               → noop → play_sound → END
@@ -68,7 +68,7 @@ def build_session_graph(checkpointer=None):
     for name in [
         "noop",
         "load_turn", "load_memories",
-        "score_tools", "set_prompt_id", "route_model",
+        "score_tools", "set_prompt_id",
         "gate_check",
         "log_tool_usage",
         "mcp_hook_bridge",
@@ -117,10 +117,7 @@ def build_session_graph(checkpointer=None):
     # store this repo no longer owns. Its introspection nudge is gone with
     # deactivate_task (task:882d67fa) — task-framework's own tasks__finish
     # closes the loop now.
-    # route_model: advisory model/effort recommendation (task:9b311942). Hooks
-    # cannot switch the model, so it only injects + logs; graded via route_decisions.
-    builder.add_edge("set_prompt_id", "route_model")
-    builder.add_edge("route_model", END)
+    builder.add_edge("set_prompt_id", END)
 
     # PreToolUse chain
     builder.add_edge("gate_check", END)
