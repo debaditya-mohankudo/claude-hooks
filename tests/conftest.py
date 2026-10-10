@@ -281,13 +281,3 @@ def _isolate_routing_snapshot(tmp_path, monkeypatch):
     except Exception:
         return
     monkeypatch.setattr(sm.ServerMemory, "_SNAPSHOT_DB", tmp_path / "routing_snapshot.sqlite")
-
-
-@pytest.fixture(autouse=True)
-def _isolate_route_decisions(tmp_path, monkeypatch):
-    """RouteModelNode runs in every UPS graph invoke and writes route_decisions into
-    claude_hooks.sqlite (task:9b311942). Tests that drive the real graph must never
-    reach the production DB — the first full-suite run left 109 junk rows in it,
-    all tier=small, which would have skewed the performance report."""
-    import src.db.route_store as rs
-    monkeypatch.setattr(rs, "config", type("C", (), {"log_db": tmp_path / "route_test.sqlite"})())
