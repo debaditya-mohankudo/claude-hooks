@@ -9,6 +9,9 @@ Contract:
   paints the tab that contains this session's window (match window_id:N), so
   concurrent sessions never touch each other's tabs.
 - SessionStart / SessionEnd clear the tab's title and colours.
+- A tab launched for a taskfw task (TASKFW_TASK_ID in the environment, set by
+  kitty-taskfw at launch) keeps the title it was launched with: only colours are
+  painted there, never the title, so the task id is not replaced by "claude".
 - Never raises, never blocks: `kitten @` is spawned detached with output
   discarded and is not waited on. Without kitty, a socket, or the `kitten`
   binary (or with CLAUDE_KITTY_STATUS=0) it does nothing.
@@ -45,18 +48,15 @@ def state_for(event: str, payload: dict | None = None) -> str | None:
 
 def _commands(window_id: str, state: str) -> list[list[str]]:
     match = ["--match", f"window_id:{window_id}"]
+    title_is_ours = not os.environ.get("TASKFW_TASK_ID")
     if state == "clear":
-        return [
-            ["set-tab-title", *match, ""],
-            ["set-tab-color", *match, "active_bg=NONE", "active_fg=NONE",
-             "inactive_bg=NONE", "inactive_fg=NONE"],
-        ]
+        cmds = [["set-tab-color", *match, "active_bg=NONE", "active_fg=NONE",
+                 "inactive_bg=NONE", "inactive_fg=NONE"]]
+        return [["set-tab-title", *match, ""], *cmds] if title_is_ours else cmds
     glyph, bg, fg = _STATES[state]
-    return [
-        ["set-tab-title", *match, f"{glyph} claude"],
-        ["set-tab-color", *match, f"active_bg={bg}", f"active_fg={fg}",
-         f"inactive_bg={bg}", f"inactive_fg={fg}"],
-    ]
+    cmds = [["set-tab-color", *match, f"active_bg={bg}", f"active_fg={fg}",
+             f"inactive_bg={bg}", f"inactive_fg={fg}"]]
+    return [["set-tab-title", *match, f"{glyph} claude"], *cmds] if title_is_ours else cmds
 
 
 def update(event: str, payload: dict | None = None) -> None:

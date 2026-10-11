@@ -128,3 +128,14 @@ def test_failing_kitten_does_not_change_client_output(tmp_path):
     exe.chmod(exe.stat().st_mode | stat.S_IXUSR)
     r = _run("PreToolUse", {"session_id": "s"}, tmp_path, **_KITTY)
     assert r.returncode == 0 and r.stdout.decode().strip() == "{}"
+
+
+@pytest.mark.parametrize("event", ["PostToolUse", "Stop", "SessionStart"])
+def test_task_tab_keeps_its_title_but_still_gets_colours(stub_kitten, event):
+    path_dir, log = stub_kitten
+    _run(event, {"session_id": "s"}, path_dir, TASKFW_TASK_ID="4b5f4855", **_KITTY)
+    lines = _calls(log, 1)
+    time.sleep(0.3)  # a stray second spawn would land here
+    lines = log.read_text().splitlines()
+    assert len(lines) == 1 and "set-tab-color" in lines[0]
+    assert not any("set-tab-title" in l for l in lines)
