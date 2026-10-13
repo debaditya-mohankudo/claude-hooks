@@ -91,6 +91,20 @@ def _write_links(con: sqlite3.Connection, name: str, links: list[tuple[str, str]
         )
 
 
+def _write_related(con: sqlite3.Connection, name: str, related: str) -> list[str]:
+    """Mirror the legacy `related` slug list into memory_links as relates_to edges.
+
+    Additive and idempotent, like `links`. Slugs naming no memory (or the memory
+    itself) are skipped, never guessed at, and returned so the caller can report them.
+    """
+    slugs = [x for x in (t.strip() for t in (related or "").split(",")) if x]
+    existing = {r[0] for r in con.execute(
+        f"SELECT name FROM memories WHERE name IN ({','.join('?' * len(slugs))})", slugs
+    )} if slugs else set()
+    _write_links(con, name, [(x, "relates_to") for x in slugs if x in existing and x != name])
+    return [x for x in slugs if x not in existing or x == name]
+
+
 def _links_for(con: sqlite3.Connection, memory_id: int) -> list[dict]:
     """Typed links touching a memory. Symmetric edges appear from either end with direction 'both'."""
     rows = con.execute(
@@ -129,6 +143,9 @@ def handle_add(
         tags:   Comma-separated keywords for retrieval scoring.
         files:  Comma-separated source file paths this memory relates to.
         docs:   Comma-separated vault doc paths linked to this memory.
+        related: Comma-separated memory slugs. Kept in the column and also mirrored into
+                memory_links as relates_to edges (additive); slugs naming no memory are
+                skipped and returned as `unresolved_related`.
         links:  Typed links to EXISTING memories: [{"to": slug, "type": t}], t one of
                 relates_to (default), supersedes, contradicts, learned_from, extends.
                 A bare slug string means relates_to. Additive: re-adding never removes
@@ -167,13 +184,19 @@ def handle_add(
             (name, type, tags, body, files, docs, related),
         )
         _write_links(con, name, parsed)
+        unresolved = _write_related(con, name, related)
+    if unresolved:
+        _log.warning("memory '%s': related slugs not mirrored (no such memory): %s", name, unresolved)
     _log.info("memory upserted: name='%s' type=%s links=%d", name, type, len(parsed))
     try:
         from scripts.build_memories_embeddings import upsert_memories
         upsert_memories([name])
     except Exception as exc:
         _log.warning("memory vector upsert failed for '%s': %s", name, exc)
-    return {"ok": True, "name": name, "action": "upserted"}
+    result = {"ok": True, "name": name, "action": "upserted"}
+    if unresolved:
+        result["unresolved_related"] = unresolved
+    return result
 
 
 def handle_add_batch(memories: list[dict]) -> dict:
@@ -188,6 +211,7 @@ def handle_add_batch(memories: list[dict]) -> dict:
     names_to_embed = []
     batch_names = {m.get("name", "") for m in memories}
     pending_links: list[tuple[str, list[tuple[str, str]]]] = []
+    pending_related: list[tuple[str, str]] = []
     with _connect() as con:
         _ensure_schema(con)
         _ensure_links_schema(con)
@@ -227,6 +251,7 @@ def handle_add_batch(memories: list[dict]) -> dict:
                 (name, mtype, tags, body, files, docs, related),
             )
             pending_links.append((name, parsed))
+            pending_related.append((name, related))
             results.append({"name": name, "action": "upserted"})
             names_to_embed.append(name)
             _log.info("memory upserted: name='%s' type=%s", name, mtype)
@@ -242,6 +267,13 @@ def handle_add_batch(memories: list[dict]) -> dict:
                         r.pop("action", None)
                         r["error"] = f"link write failed: {exc} (memory saved without links)"
                         r["action"] = "upserted"
+
+        for name, related in pending_related:
+            unresolved = _write_related(con, name, related)
+            if unresolved:
+                for r in results:
+                    if r["name"] == name:
+                        r["unresolved_related"] = unresolved
 
     if names_to_embed:
         try:

@@ -131,3 +131,24 @@ def test_backfill_copies_valid_skips_dangling_and_is_idempotent(db, tmp_path):
     with sqlite3.connect(db) as con:
         assert con.execute("SELECT related FROM memories WHERE name='a'").fetchone()[0] == "b,ghost"
     assert [l["name"] for l in mem.handle_get("b")["links"]] == ["a"]
+
+
+def test_related_mirrored_into_links_and_unresolved_reported(db):
+    _add("a")
+    r = _add("b", related="a, ghost, b")
+    assert r["ok"] and r["unresolved_related"] == ["ghost", "b"]
+    assert _edges(db) == 1
+    assert mem.handle_get("a")["links"] == [{"type": "relates_to", "name": "b", "direction": "both"}]
+    _add("b", related="a")  # re-add is idempotent
+    assert _edges(db) == 1
+
+
+def test_batch_related_may_target_same_batch(db):
+    r = mem.handle_add_batch([
+        {"name": "x", "type": "project", "body": "b", "related": "y"},
+        {"name": "y", "type": "project", "body": "b", "related": "nope"},
+    ])
+    assert _edges(db) == 1
+    res = {x["name"]: x for x in r["results"]}
+    assert "unresolved_related" not in res["x"]
+    assert res["y"]["unresolved_related"] == ["nope"]
