@@ -99,6 +99,8 @@ def _format_system_prompt(ctx: dict) -> str:
             domain = mem.get("domain", "")
             body   = mem.get("body", "").strip()
             lines.append(f"### {name} [{domain}]")
+            if mem.get("conflicts_with"):
+                lines.append(f"> conflicts with: {', '.join(mem['conflicts_with'])}")
             if body:
                 lines.append(body)
             lines.append("")

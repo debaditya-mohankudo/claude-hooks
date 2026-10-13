@@ -99,6 +99,12 @@ def test_includes_memories():
     assert "remember this" in result
 
 
+def test_conflicting_memory_is_marked():
+    mem = {"name": "claim", "body": "x", "conflicts_with": ["counter", "other"]}
+    result = _format_system_prompt(_base_ctx(memories=[mem]))
+    assert "> conflicts with: counter, other" in result
+
+
 def test_includes_tool_hints():
     hint = {"tool_name": "tasks__create", "skill": "task-framework", "count": 5}
     result = _format_system_prompt(_base_ctx(tool_hints=[hint]))

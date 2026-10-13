@@ -146,6 +146,116 @@ def test_zero_boost_factor_disables_graph(mem_conn):
 
 
 # ---------------------------------------------------------------------------
+# memory_links neighbour boost (task:5530af93)
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def link_conn(mem_conn):
+    from src.db.schema import migrate_memory_db
+    migrate_memory_db(mem_conn)
+    return mem_conn
+
+
+def _id(con, name):
+    return con.execute("SELECT id FROM memories WHERE name=?", (name,)).fetchone()[0]
+
+
+def _link(con, a, b, etype="relates_to"):
+    x, y = _id(con, a), _id(con, b)
+    if etype == "relates_to":
+        x, y = min(x, y), max(x, y)
+    con.execute("INSERT INTO memory_links (src_id, dst_id, type) VALUES (?,?,?)", (x, y, etype))
+    con.commit()
+
+
+def _run(con, tokens, **over):
+    cfg = {**_CFG, "top_n": 10, **over}
+    with patch("langchain_learning.nodes._memory_scoring.load_scoring_cfg", return_value=cfg):
+        return score_memories(tokens, con, top_n=10)
+
+
+def test_link_neighbour_outside_batch_window_still_surfaces(link_conn):
+    _insert(link_conn, "old-neighbour", tags="zzz", body="zzz")
+    link_conn.execute("UPDATE memories SET updated='2020-01-01 00:00:00' WHERE name='old-neighbour'")
+    _insert(link_conn, "seed", tags="gate", body="gate")
+    _link(link_conn, "seed", "old-neighbour")
+    names = [m["name"] for m in _run(link_conn, {"gate"}, batch_limit=1)]
+    assert "old-neighbour" in names
+
+
+def test_link_neighbours_chosen_by_prompt_match_not_order(link_conn):
+    _insert(link_conn, "seed", tags="gate", body="gate")
+    for n in ("a1", "a2", "a3"):
+        _insert(link_conn, n, tags="zzz", body="zzz")
+        _link(link_conn, "seed", n)
+    _insert(link_conn, "matching", tags="gate door", body="gate door")
+    _link(link_conn, "seed", "matching")
+    names = [m["name"] for m in _run(link_conn, {"gate"}, related_max_neighbours=1)]
+    assert "matching" in names
+    assert sum(n in names for n in ("a1", "a2", "a3")) == 0
+
+
+def test_hub_target_boost_is_capped(link_conn):
+    _insert(link_conn, "hub", tags="zzz", body="zzz")
+    for i in range(5):
+        _insert(link_conn, f"seed{i}", tags="gate", body="gate")
+        _link(link_conn, f"seed{i}", "hub")
+    order = [m["name"] for m in _run(link_conn, {"gate"}, related_boost_factor=0.5, related_target_cap=0.5)]
+    assert "hub" in order
+    assert order.index("hub") > order.index("seed0")  # capped below every direct seed
+
+
+def test_superseded_memory_demoted_below_superseder(link_conn):
+    _insert(link_conn, "old-way", tags="gate", body="gate")
+    _insert(link_conn, "new-way", tags="gate", body="gate")
+    link_conn.execute("UPDATE memories SET updated='2020-01-01 00:00:00' WHERE name='new-way'")  # new-way would otherwise rank lower
+    _link(link_conn, "new-way", "old-way", "supersedes")
+    names = [m["name"] for m in _run(link_conn, {"gate"})]
+    assert names.index("new-way") < names.index("old-way")
+
+
+def test_superseding_seed_does_not_pull_in_old_memory(link_conn):
+    _insert(link_conn, "new-way", tags="gate", body="gate")
+    _insert(link_conn, "old-way", tags="zzz", body="zzz")
+    _link(link_conn, "new-way", "old-way", "supersedes")
+    assert "old-way" not in [m["name"] for m in _run(link_conn, {"gate"})]
+
+
+def test_old_seed_pulls_in_its_superseder(link_conn):
+    _insert(link_conn, "old-way", tags="gate", body="gate")
+    _insert(link_conn, "new-way", tags="zzz", body="zzz")
+    _link(link_conn, "new-way", "old-way", "supersedes")
+    assert "new-way" in [m["name"] for m in _run(link_conn, {"gate"})]
+
+
+def test_contradicting_pair_is_marked_and_not_boosted(link_conn):
+    _insert(link_conn, "claim", tags="gate", body="gate")
+    _insert(link_conn, "counter", tags="gate", body="gate")
+    _insert(link_conn, "lonely-foe", tags="zzz", body="zzz")
+    _link(link_conn, "claim", "counter", "contradicts")
+    _link(link_conn, "claim", "lonely-foe", "contradicts")
+    res = {m["name"]: m for m in _run(link_conn, {"gate"})}
+    assert res["claim"]["conflicts_with"] == ["counter"]
+    assert res["counter"]["conflicts_with"] == ["claim"]
+    assert "lonely-foe" not in res
+
+
+def test_related_source_related_keeps_legacy_behaviour(link_conn):
+    _insert(link_conn, "seed", tags="gate", body="gate", related="col-neighbour")
+    _insert(link_conn, "col-neighbour", tags="zzz", body="zzz")
+    _insert(link_conn, "link-neighbour", tags="zzz", body="zzz")
+    _link(link_conn, "seed", "link-neighbour")
+    names = [m["name"] for m in _run(link_conn, {"gate"}, related_source="related")]
+    assert "col-neighbour" in names and "link-neighbour" not in names
+
+
+def test_missing_memory_links_table_falls_back_to_related_column(mem_conn):
+    _insert(mem_conn, "seed", tags="gate", body="gate", related="col-neighbour")
+    _insert(mem_conn, "col-neighbour", tags="zzz", body="zzz")
+    assert "col-neighbour" in [m["name"] for m in _run(mem_conn, {"gate"})]
+
+
+# ---------------------------------------------------------------------------
 # record_memory_hits — hit_count/last_hit instrumentation (task:fb7d3777-adjacent:
 # found while investigating that task that hit_count/last_hit existed on the
 # live DB schema and in CLAUDE.md's docs, but nothing anywhere ever wrote to
