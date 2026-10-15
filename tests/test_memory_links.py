@@ -101,8 +101,16 @@ def test_batch_links_can_target_same_batch_and_bad_one_is_isolated(db):
 
 def test_search_includes_links(db):
     _add("a"); _add("b", links=["a"])
-    res = mem.handle_search("b")["results"]
+    res = mem.handle_search("b", detail="full")["results"]
     assert any(x["name"] == "b" and x["links"] for x in res)
+
+
+def test_search_slim_omits_links_and_body(db):
+    _add("a"); _add("b", links=["a"])
+    res = mem.handle_search("b")["results"]
+    row = next(x for x in res if x["name"] == "b")
+    assert "links" not in row and "body" not in row
+    assert mem.handle_get("b")["links"]  # detail is one memory__get away
 
 
 def test_self_link_rejected(db):

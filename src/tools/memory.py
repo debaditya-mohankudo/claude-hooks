@@ -308,7 +308,16 @@ def _search_rows(query: str, type: str, con: sqlite3.Connection) -> list:
     return con.execute(sql, params).fetchall()
 
 
-def handle_search(query: str, type: str = "") -> dict:
+_SNIPPET_CHARS = 120
+
+
+def _snippet(body: str | None) -> str:
+    """First _SNIPPET_CHARS of a body with whitespace collapsed, '…' if cut."""
+    flat = " ".join((body or "").split())
+    return flat if len(flat) <= _SNIPPET_CHARS else flat[:_SNIPPET_CHARS].rstrip() + "…"
+
+
+def handle_search(query: str, type: str = "", detail: str = "slim") -> dict:
     """Search memories by keyword across name, tags, and body.
 
     Slug normalization: underscores and hyphens are stripped before matching
@@ -318,9 +327,16 @@ def handle_search(query: str, type: str = "") -> dict:
     with each individual keyword and unions the results.
 
     Args:
-        query:  Keyword(s) to search for (case-insensitive).
-        type:   Optional filter by type (user/feedback/project/reference).
+        query:   Keyword(s) to search for (case-insensitive).
+        type:    Optional filter by type (user/feedback/project/reference).
+        detail:  "slim" (default) returns id, name, type, tags, updated and a
+                 ~120-char body snippet per hit, with no body and no links;
+                 pick the relevant names, then call memory__get(name) for the
+                 full body and links. "full" returns every hit's whole body
+                 and links array (large: avoid unless you need all of them).
     """
+    if detail not in ("slim", "full"):
+        return {"error": f"detail must be 'slim' or 'full', got {detail!r}"}
     with sqlite3.connect(MEMORY_DB) as con:
         con.row_factory = sqlite3.Row
         rows = _search_rows(query, type, con)
@@ -336,16 +352,23 @@ def handle_search(query: str, type: str = "") -> dict:
                         seen.setdefault(row["id"], row)
                 rows = sorted(seen.values(), key=lambda r: r["updated"], reverse=True)
 
-    results = [dict(r) for r in rows]
-    if results:
-        with sqlite3.connect(MEMORY_DB) as con:
-            try:
-                for r in results:
-                    r["links"] = _links_for(con, r["id"])
-            except sqlite3.OperationalError:
-                pass  # links table not created yet (no memory added since the feature shipped)
+    if detail == "slim":
+        results = [
+            {"id": r["id"], "name": r["name"], "type": r["type"], "tags": r["tags"],
+             "updated": r["updated"], "snippet": _snippet(r["body"])}
+            for r in rows
+        ]
+    else:
+        results = [dict(r) for r in rows]
+        if results:
+            with sqlite3.connect(MEMORY_DB) as con:
+                try:
+                    for r in results:
+                        r["links"] = _links_for(con, r["id"])
+                except sqlite3.OperationalError:
+                    pass  # links table not created yet (no memory added since the feature shipped)
 
-    _log.debug("handle_search query='%s' type=%s → %d results", query, type, len(results))
+    _log.debug("handle_search query='%s' type=%s detail=%s → %d results", query, type, detail, len(results))
     return {
         "count": len(results),
         "results": results,

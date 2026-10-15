@@ -259,6 +259,34 @@ def test_search_tags_source_global(mem_db):
     assert result["count"] >= 1
 
 
+def test_search_default_is_slim(mem_db):
+    with patch("tools.memory.MEMORY_DB", str(mem_db)):
+        result = handle_search(query="developer")
+    row = result["results"][0]
+    assert set(row) == {"id", "name", "type", "tags", "updated", "snippet"}
+
+
+def test_search_full_returns_body(mem_db):
+    # links are covered in test_memory_links.py; this fixture has no links table
+    with patch("tools.memory.MEMORY_DB", str(mem_db)):
+        result = handle_search(query="developer", detail="full")
+    assert result["results"][0]["body"] == "User is a developer"
+
+
+def test_search_slim_snippet_truncates_and_collapses_whitespace(mem_db):
+    from tools.memory import _snippet
+    assert _snippet("a\n  b") == "a b"
+    long = "x" * 500
+    out = _snippet(long)
+    assert out.endswith("…") and len(out) == 121
+    assert _snippet(None) == ""
+
+
+def test_search_rejects_unknown_detail(mem_db):
+    with patch("tools.memory.MEMORY_DB", str(mem_db)):
+        assert "error" in handle_search(query="developer", detail="tiny")
+
+
 # ---------------------------------------------------------------------------
 # handle_delete
 # ---------------------------------------------------------------------------

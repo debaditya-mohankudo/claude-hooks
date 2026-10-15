@@ -140,7 +140,7 @@ mcp__claude-hooks__memory__search(query="<changed_filename_stem>", domain="claud
 # e.g. for "hooks/gates.py" → search "gates"
 # e.g. for "src/tools/memory.py" → search "memory tools"
 ```
-Keep only hits where the memory's `files` field actually contains the changed path (partial match is fine: `gates.py` matches `hooks/gates.py`).
+Search returns slim rows (name, tags, snippet; no `files`), so `memory__get` each candidate and keep only those whose `files` field actually contains the changed path (partial match is fine: `gates.py` matches `hooks/gates.py`).
 
 **Step 3 — check git signal on each matching memory:**
 For each matching memory, get its full body via `memory__get` and run:
