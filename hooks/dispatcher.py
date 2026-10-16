@@ -295,6 +295,15 @@ def _handle_post_tool_use(hook_input: dict) -> dict | None:
         except Exception as exc:
             log.debug("tool_response content parse failed, using raw shape: %s", exc)
 
+    # Before the nudge's early return, so a nudge turn never skips a vault reindex.
+    # Keeps the vault SQLite index current after MCP vault writes (src/tools/vault_index.py);
+    # it never raises and records failures in the index's meta table.
+    if tool_name.startswith("mcp__"):
+        from src.tools.vault_index import reindex_for_tool
+        result = reindex_for_tool(strip_mcp_prefix(tool_name), tool_input)
+        if result:
+            log.info("PTU vault reindex: %s", result)
+
     context_nudge = _maybe_context_size_nudge(hook_input, session_id)
     if context_nudge:
         log.info("PTU context-size nudge: session=%s tool=%s", session_id[:8], tool_name)

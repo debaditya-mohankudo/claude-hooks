@@ -50,6 +50,7 @@ DOMAIN_MAP: dict[str, tuple[str, list[str]]] = {
     "diff_rag": ("tools.diff_rag", ["query", "smart_search", "index_commits"]),
     "think":    ("tools.think",    ["think"]),
     "scratch":  ("tools.scratch",  ["set", "get", "list", "delete", "clear"]),
+    "vault_map": ("tools.vault_map", ["overview", "node", "tag", "find"]),
     # "concept" removed here (task:756c14db), along with tools/concept.py — a
     # duplicate of task-framework's own concept__* tools, same on-disk format,
     # same repo-explicit-no-default contract. Kept alive only by inertia until
