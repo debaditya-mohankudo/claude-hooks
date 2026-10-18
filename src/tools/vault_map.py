@@ -90,6 +90,8 @@ def _build(p: Path) -> tuple[dict, dict, dict]:
             e = dirs.setdefault(d, {"files": 0, "tags": Counter(), "words": Counter(),
                                     "samples": [], "children": set()})
             e["files"] += 1
+            if i < len(parts):
+                e["children"].add("/".join(parts[:i + 1]))
             key = _series_key(path)
             if key:
                 if i == len(parts):
@@ -99,8 +101,6 @@ def _build(p: Path) -> tuple[dict, dict, dict]:
             e["words"].update(_words(" ".join(hs[:6]) or (title or "")))
             if i == len(parts) and len(e["samples"]) < 5:
                 e["samples"].append(Path(path).name)
-            if i < len(parts):
-                e["children"].add("/".join(parts[:i + 1]))
     for d in sorted(dirs):
         e = dirs[d]
         nodes[d] = {"id": d, "type": "dir", "files": e["files"],

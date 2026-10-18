@@ -83,19 +83,17 @@ def main():
             e = dirs.setdefault(d, {"id": d, "type": "dir", "files": 0, "tags": Counter(),
                                     "words": Counter(), "samples": [], "children": set()})
             e["files"] += 1
+            if i < len(parts):
+                e["children"].add("/".join(parts[:i + 1]))
             key = _series_key(f["id"])
             if key:
                 if i == len(parts):
                     series.setdefault(d, {}).setdefault(key, []).append(Path(f["id"]).stem)
-                if i < len(parts):
-                    e["children"].add("/".join(parts[:i + 1]))
                 continue
             e["tags"].update(f["tags"])
             e["words"].update(words(f["title"] + " " + " ".join(f["headings"])))
             if i == len(parts) and len(e["samples"]) < 5:
                 e["samples"].append(Path(f["id"]).name)
-            if i < len(parts):
-                e["children"].add("/".join(parts[:i + 1]))
 
     nodes, edges = [], []
     for d in sorted(dirs):

@@ -92,3 +92,11 @@ def test_dated_run_files_collapse_into_a_series(_index):
     assert "zebra" not in daily["top_words"]
     assert daily["series"] == [{"pattern": "*", "count": 2, "first": "2026-10-15", "last": "2026-10-16"}]
     assert all(not f["id"].startswith("Daily/2026") for f in vm.handle_overview("Daily")["files"])
+
+
+def test_dir_holding_only_dated_files_stays_reachable(_index):
+    (_index / "Daily/Sub").mkdir()
+    (_index / "Daily/Sub/2026-10-15.md").write_text("# x\n")
+    vi.reindex_all(vi.connect(os.environ["VAULT_INDEX_DB"]), _index)
+    vm._cache.update(path=None, sig=None)
+    assert [d["id"] for d in vm.handle_overview("Daily")["subdirs"]] == ["Daily/Sub"]
