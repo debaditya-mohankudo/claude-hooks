@@ -17,13 +17,13 @@ from collections import Counter
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from src.tools.vault_index import _split_frontmatter  # frontmatter tags (inline and block lists), as the index reads them
 from src.tools.vault_map import _iso, _series_key, _stamp  # dated-series detection shared with the MCP tools
 
 VAULT = Path.home() / "Library/Mobile Documents/iCloud~md~obsidian/Documents"
 SKIP_DIRS = {".obsidian", ".git", ".trash", "Tmp", "__pycache__"}
 WIKI = re.compile(r"\[\[([^\]|#]+)")
 TAG = re.compile(r"(?:^|\s)#([A-Za-z][\w/-]+)")
-FM_TAGS = re.compile(r"^tags:\s*\[?([^\]\n]*)\]?", re.M)
 HEAD = re.compile(r"^#{1,3}\s+(.+)$", re.M)
 STOP = set("the a an of and or to in for on with is are md note notes untitled class classes".split())
 
@@ -36,9 +36,7 @@ def scan_file(p: Path, root: Path) -> dict:
                 "tags": [], "links": [], "bytes": 0, "unreadable": True}
     heads = [h.strip() for h in HEAD.findall(text)][:8]
     tags = set(TAG.findall(text))
-    m = FM_TAGS.search(text)
-    if m:
-        tags |= {t.strip(" '\"#") for t in m.group(1).split(",") if t.strip()}
+    tags |= set(_split_frontmatter(text.splitlines())[1])
     return {
         "id": str(p.relative_to(root)),
         "type": "file",
