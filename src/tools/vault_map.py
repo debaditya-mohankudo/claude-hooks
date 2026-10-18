@@ -14,6 +14,7 @@ longer read them.
 from __future__ import annotations
 
 import os
+import re
 import sqlite3
 from collections import Counter
 from pathlib import Path
@@ -23,11 +24,34 @@ from src.tools.vault_index import connect, reindex_if_stale, words as _words
 _DEFAULT_PATH = Path.home() / ".claude/vault_index.sqlite"
 _MAX_ROWS = 50
 
+# A dated run file (2026-10-16.md, 10th-Aug-2020.md, NIFTY_WEEKLY_2026-W14.md, X_2026-05-15.md) is one
+# instalment of a series; the map describes the series once per folder, not each file.
+_DATED = re.compile(r"(?<!\d)(?:(?:19|20)\d\d-(?:W\d\d|\d\d(?:-\d\d)?)|\d{1,2}(?:st|nd|rd|th)-[A-Za-z]{3}-(?:19|20)\d\d)(?!\d)")
+
 _cache: dict = {"path": None, "sig": None, "nodes": {}, "out": {}, "inc": {}}
 
 
 def _path() -> Path:
     return Path(os.environ.get("VAULT_INDEX_DB") or _DEFAULT_PATH)
+
+
+def _stamp(stem: str) -> str:
+    return _DATED.search(stem).group(0)
+
+
+def _iso(stamp: str) -> str:
+    """Sortable form of a date stamp (`10th-Aug-2020` -> `2020-08-10`); ISO and week stamps pass through."""
+    m = re.match(r"(\d{1,2})\w\w-([A-Za-z]{3})-(\d{4})", stamp)
+    if not m:
+        return stamp
+    mon = "janfebmaraprmayjunjulaugsepoctnovdec".find(m.group(2).lower()) // 3 + 1
+    return f"{m.group(3)}-{mon:02d}-{int(m.group(1)):02d}"
+
+
+def _series_key(path: str) -> str | None:
+    """Filename with its date stamp replaced by `*`, or None if the note is undated."""
+    stem = Path(path).stem
+    return _DATED.sub("*", stem, count=1) if _DATED.search(stem) else None
 
 
 def _build(p: Path) -> tuple[dict, dict, dict]:
@@ -54,6 +78,7 @@ def _build(p: Path) -> tuple[dict, dict, dict]:
         inc.setdefault(b, []).append((rel, a))
 
     dirs: dict[str, dict] = {}
+    series: dict[str, dict[str, list[str]]] = {}  # dir -> series pattern -> dated stems
     for path, title, nbytes in files:
         hs = heads.get(path, [])
         ftags = sorted(tags.get(path, ()))
@@ -65,6 +90,11 @@ def _build(p: Path) -> tuple[dict, dict, dict]:
             e = dirs.setdefault(d, {"files": 0, "tags": Counter(), "words": Counter(),
                                     "samples": [], "children": set()})
             e["files"] += 1
+            key = _series_key(path)
+            if key:
+                if i == len(parts):
+                    series.setdefault(d, {}).setdefault(key, []).append(Path(path).stem)
+                continue  # instalments don't drive a folder's keywords, tags or samples
             e["tags"].update(ftags)
             e["words"].update(_words(" ".join(hs[:6]) or (title or "")))
             if i == len(parts) and len(e["samples"]) < 5:
@@ -75,7 +105,10 @@ def _build(p: Path) -> tuple[dict, dict, dict]:
         e = dirs[d]
         nodes[d] = {"id": d, "type": "dir", "files": e["files"],
                     "top_tags": [t for t, _ in e["tags"].most_common(6)],
-                    "top_words": [w for w, _ in e["words"].most_common(8)], "samples": e["samples"]}
+                    "top_words": [w for w, _ in e["words"].most_common(8)], "samples": e["samples"],
+                    "series": [{"pattern": k, "count": len(v), "first": min(map(_stamp, v), key=_iso),
+                                "last": max(map(_stamp, v), key=_iso)}
+                               for k, v in sorted(series.get(d, {}).items())]}
         for c in sorted(e["children"]):
             edge(d, "contains", c)
     for path, _, _ in files:
@@ -145,7 +178,7 @@ def _missing() -> dict:
 def _brief(n: dict) -> dict:
     if n["type"] == "dir":
         return {"id": n["id"], "type": "dir", "files": n["files"],
-                "top_words": n["top_words"], "top_tags": n["top_tags"]}
+                "top_words": n["top_words"], "top_tags": n["top_tags"], "series": n["series"]}
     if n["type"] == "tag":
         return {"id": n["id"], "type": "tag", "files": n["files"]}
     return {"id": n["id"], "type": "file", "title": n["title"], "tags": n["tags"]}
@@ -171,7 +204,7 @@ def handle_overview(dir: str = ".", depth: int = 1) -> dict:
     rows.sort(key=lambda r: r["id"])
     files = [g["nodes"][to]["title"] and {"id": to, "title": g["nodes"][to]["title"]}
              for rel, to in g["out"].get(dir, [])
-             if rel == "contains" and g["nodes"][to]["type"] == "file"]
+             if rel == "contains" and g["nodes"][to]["type"] == "file" and not _series_key(to)]
     return {"dir": _brief(g["nodes"][dir]), "index": _index_state(), "subdirs": rows[:_MAX_ROWS],
             "files": files[:_MAX_ROWS], "truncated": len(rows) > _MAX_ROWS or len(files) > _MAX_ROWS}
 

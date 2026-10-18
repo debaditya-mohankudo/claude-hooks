@@ -80,3 +80,15 @@ def test_unwritable_index_reports_how_to_build(monkeypatch, tmp_path):
 def test_overview_reports_index_state():
     st = vm.handle_overview()["index"]
     assert st["last_full_build"] and st["last_error"] is None
+
+
+def test_dated_run_files_collapse_into_a_series(_index):
+    for d in ("2026-10-15", "2026-10-16"):
+        (_index / f"Daily/{d}.md").write_text("# Zebra crossing\n\n## Zebra\n")
+    vi.reindex_all(vi.connect(os.environ["VAULT_INDEX_DB"]), _index)
+    vm._cache.update(path=None, sig=None)
+    daily = vm.handle_overview()["subdirs"][0]
+    assert daily["files"] == 4
+    assert "zebra" not in daily["top_words"]
+    assert daily["series"] == [{"pattern": "*", "count": 2, "first": "2026-10-15", "last": "2026-10-16"}]
+    assert all(not f["id"].startswith("Daily/2026") for f in vm.handle_overview("Daily")["files"])
