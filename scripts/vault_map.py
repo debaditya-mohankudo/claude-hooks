@@ -3,15 +3,21 @@
 
 Writes <vault>/VAULT_MAP.json (graph: dir/file nodes, `contains` + `links_to`
 edges) and <vault>/VAULT_MAP.md (readable tree, one line per dir).
-Mechanical only: titles, headings, tags, wikilinks. No LLM.
+Mechanical only: titles, headings, tags, wikilinks. No LLM. Dated run files
+(2026-10-16.md, ..._2026-W14.md) are summarised once per dir as a series, not
+described individually in the dir's keywords, tags or samples.
 
 Usage: uv run python scripts/vault_map.py [--vault PATH] [--depth N]
 """
 import argparse
 import json
 import re
+import sys
 from collections import Counter
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from src.tools.vault_map import _iso, _series_key, _stamp  # dated-series detection shared with the MCP tools
 
 VAULT = Path.home() / "Library/Mobile Documents/iCloud~md~obsidian/Documents"
 SKIP_DIRS = {".obsidian", ".git", ".trash", "Tmp", "__pycache__"}
@@ -69,6 +75,7 @@ def main():
         stem_to_id.setdefault(Path(f["id"]).stem, f["id"])
 
     dirs: dict[str, dict] = {}
+    series: dict[str, dict[str, list[str]]] = {}  # dir -> series pattern -> dated stems
     for f in files:
         parts = Path(f["id"]).parts[:-1]
         for i in range(len(parts) + 1):
@@ -76,6 +83,13 @@ def main():
             e = dirs.setdefault(d, {"id": d, "type": "dir", "files": 0, "tags": Counter(),
                                     "words": Counter(), "samples": [], "children": set()})
             e["files"] += 1
+            key = _series_key(f["id"])
+            if key:
+                if i == len(parts):
+                    series.setdefault(d, {}).setdefault(key, []).append(Path(f["id"]).stem)
+                if i < len(parts):
+                    e["children"].add("/".join(parts[:i + 1]))
+                continue
             e["tags"].update(f["tags"])
             e["words"].update(words(f["title"] + " " + " ".join(f["headings"])))
             if i == len(parts) and len(e["samples"]) < 5:
@@ -89,9 +103,13 @@ def main():
         nodes.append({"id": d, "type": "dir", "files": e["files"],
                       "top_tags": [t for t, _ in e["tags"].most_common(6)],
                       "top_words": [w for w, _ in e["words"].most_common(8)],
-                      "samples": e["samples"]})
+                      "samples": e["samples"],
+                      "series": [{"pattern": k, "count": len(v), "first": min(map(_stamp, v), key=_iso),
+                                  "last": max(map(_stamp, v), key=_iso)}
+                                 for k, v in sorted(series.get(d, {}).items())]})
         for c in sorted(e["children"]):
             edges.append({"from": d, "to": c, "rel": "contains"})
+    nodes_by_id = {n["id"]: n for n in nodes}
     for f in files:
         d = "/".join(Path(f["id"]).parts[:-1]) or "."
         links = [stem_to_id[l] for l in f.pop("links") if l in stem_to_id]
@@ -118,8 +136,10 @@ def main():
         e = dirs[d]
         tags = ", ".join(t for t, _ in e["tags"].most_common(5))
         kw = ", ".join(w for w, _ in e["words"].most_common(8))
+        ser = "; ".join(f"{x['pattern']} ×{x['count']} {x['first']}..{x['last']}"
+                        for x in nodes_by_id[d]["series"])
         lines.append(f"{'  ' * (depth - 1)}- **{d.split('/')[-1]}/** ({e['files']}) — {kw}"
-                     + (f" · tags: {tags}" if tags else ""))
+                     + (f" · tags: {tags}" if tags else "") + (f" · series: {ser}" if ser else ""))
     lines += ["", "## Tags (cross-directory)", ""]
     for t, ids in sorted(tag_files.items(), key=lambda kv: -len(kv[1]))[:40]:
         top = Counter(i.split("/")[0] for i in ids).most_common(4)
