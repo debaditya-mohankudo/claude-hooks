@@ -94,6 +94,14 @@ def test_record_tool_from_hook_skips_bare_bash():
     assert len(sm.get_server_memory()["events"]) == before
 
 
+def test_record_tool_from_hook_records_mac_calls_with_area_verb_and_args():
+    # task:0aa96180 — a Bash `mac` call is one event per command, named by its id.
+    sm.record_tool_from_hook({"session_id": "s1", "tool_name": "Bash", "tool_input": {
+        "command": 'cd /x && mac vault write "Notes/a b.md" hi | jq . ; grep "mac mail delete" f'}})
+    events = [e for e in sm.get_server_memory()["events"] if e.get("type") == "tool"]
+    assert [(e["content"], e.get("args")) for e in events] == [("mac vault write", "'Notes/a b.md' hi")]
+
+
 def test_record_tool_from_hook_records_edit():
     sm.record_tool_from_hook({"session_id": "s1", "tool_name": "Edit"})
     assert sm.get_server_memory()["events"][-1]["content"] == "Edit"

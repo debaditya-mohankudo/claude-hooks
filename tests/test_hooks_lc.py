@@ -197,7 +197,8 @@ class TestToolUsageLoggerLc:
             )
         with sqlite3.connect(str(tool_hints_db)) as conn:
             row = conn.execute(
-                "SELECT avg_latency_ms FROM mcp_tool_hints WHERE tool_name = 'contacts__search'"
+                # local-mac calls are learned under their `mac` command id (task:0aa96180)
+                "SELECT avg_latency_ms FROM mcp_tool_hints WHERE tool_name = 'mac contacts search'"
             ).fetchone()
         assert row[0] == 150.0
 

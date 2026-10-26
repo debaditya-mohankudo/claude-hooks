@@ -15,14 +15,17 @@ from langchain_learning.nodes._node_log import entry
 from langchain_learning.session_state import SessionState
 from src.logger import get_logger
 
-_SPLIT_RE = re.compile(r"[_\-]+")
+_SPLIT_RE = re.compile(r"[_\-\s]+")
+# `mac <area> <verb>` names all start with "mac"; as a keyword it would match any
+# prompt about the Mac (task:0aa96180 risk 86d75e5c).
+_NAME_STOPWORDS = {"mac"}
 
 _log = get_logger(__name__)
 
 _MAX_RECENT_PROMPTS = 10
 
 # Tools where a non-empty result means "found" — used by gate prereq checks
-_SEARCH_TOOLS = {"contacts__search", "mail__search", "reminders__list", "notes__list"}
+_SEARCH_TOOLS = {"mac contacts search", "mac mail search", "mac reminders list", "mac notes list"}
 
 
 def _result_found(tool_name: str, tool_result: dict) -> bool:
@@ -30,8 +33,8 @@ def _result_found(tool_name: str, tool_result: dict) -> bool:
     if not tool_result:
         return False
     if tool_name in _SEARCH_TOOLS:
-        # contacts__search returns {name, phoneNumbers, ...} — found if phoneNumbers non-empty
-        if tool_name == "contacts__search":
+        # contacts search returns {name, phoneNumbers, ...} — found if phoneNumbers non-empty
+        if tool_name == "mac contacts search":
             return bool(tool_result.get("phoneNumbers") or tool_result.get("name"))
         return bool(tool_result)
     # For other tools, any non-error result counts as found
@@ -54,7 +57,7 @@ CREATE TABLE IF NOT EXISTS mcp_tool_hints (
 def _derive_keywords(tool_name: str, domain: str, skill: str) -> str:
     """Derive structural keywords from tool name tokens + domain + skill."""
     name = re.sub(r"^mcp__[^_]+__", "", tool_name)
-    tokens = {t for t in _SPLIT_RE.split(name) if len(t) >= 3}
+    tokens = {t for t in _SPLIT_RE.split(name) if len(t) >= 3} - _NAME_STOPWORDS
     if domain:
         tokens.add(domain)
     if skill:
@@ -163,8 +166,8 @@ class LogToolUsageNode:
         skill  = infer_skill(tool_name)
         prompt = state.get("prompt", "")
         tool_result = state.get("tool_result") or {}
-        if tool_name == "contacts__search":
-            _log.debug("[log_tool_usage] contacts__search raw result: %s", json.dumps(tool_result, default=str))
+        if tool_name == "mac contacts search":
+            _log.debug("[log_tool_usage] mac contacts search raw result: %s", json.dumps(tool_result, default=str))
         found = _result_found(tool_name, tool_result)
 
         self._upsert_tool_hint(tool_name, domain, skill, duration_ms, prompt)

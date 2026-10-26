@@ -28,7 +28,9 @@ SCHEMA_VERSION = "2"
 STALE_AFTER_S = 60  # reindex_if_stale: a full mtime-gated pass at most this often
 
 # MCP vault tools that change notes, and the argument names that carry a note path.
-WRITE_TOOLS = {"vault__append", "vault__write", "vault__move", "vault__delete"}
+# `mac vault` verbs that change notes, whether run through Bash or the MCP vault tools
+# (hooks/core/mac_command.py maps both to these ids; task:0aa96180).
+WRITE_COMMANDS = {"mac vault append", "mac vault write", "mac vault move", "mac vault delete"}
 PATH_ARGS = ("path", "to")
 STOP = set("the a an of and or to in for on with is are md note notes untitled class classes".split())
 
@@ -248,14 +250,16 @@ def _note_paths(tool_input: dict, root: Path) -> list[str]:
     return out
 
 
-def reindex_for_tool(short_name: str, tool_input: dict) -> str | None:
-    """PostToolUse entry point: reindex the notes a vault write tool touched.
+def reindex_for_command(command_id: str, tool_input: dict) -> str | None:
+    """PostToolUse entry point: reindex the notes a vault write command touched.
+
+    tool_input carries `path` (and `to` for a move), as the MCP tools take them.
 
     Returns a one-line result, or None for any other tool. Never raises -- a failure
     is stored in meta.last_error so a stale index is visible, not silent. A call that
     names no .md path is left to reindex_if_stale rather than walking the vault inline.
     """
-    if short_name not in WRITE_TOOLS:
+    if command_id not in WRITE_COMMANDS:
         return None
     try:
         conn = connect()
@@ -271,7 +275,7 @@ def reindex_for_tool(short_name: str, tool_input: dict) -> str | None:
         try:
             conn = connect()
             conn.execute("INSERT OR REPLACE INTO meta VALUES ('last_error', datetime('now') || ' ' || ? || ': ' || ?)",
-                         (short_name, str(exc)))
+                         (command_id, str(exc)))
             conn.commit()
             conn.close()
         except Exception:

@@ -33,7 +33,14 @@ def strip_mcp_prefix(tool_name: str) -> str:
     return _MCP_PREFIX.sub("", tool_name)
 
 
+def _registry_key(name: str) -> str:
+    """The registry keys tools as `area__verb`; a `mac area verb` id is looked up the same way."""
+    parts = name.split(" ")
+    return f"{parts[1]}__{parts[2]}" if len(parts) == 3 and parts[0] == "mac" else name
+
+
 def infer_domain(short_name: str) -> str:
+    short_name = _registry_key(short_name)
     for prefix, domain in TOOL_DOMAIN_MAP.items():
         if short_name.startswith(prefix):
             return domain
@@ -41,4 +48,4 @@ def infer_domain(short_name: str) -> str:
 
 
 def infer_skill(short_name: str) -> str:
-    return TOOL_SKILL_MAP.get(short_name, "")
+    return TOOL_SKILL_MAP.get(_registry_key(short_name), "")

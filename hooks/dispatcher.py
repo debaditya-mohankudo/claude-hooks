@@ -295,27 +295,38 @@ def _handle_post_tool_use(hook_input: dict) -> dict | None:
         except Exception as exc:
             log.debug("tool_response content parse failed, using raw shape: %s", exc)
 
+    # The `mac <area> <verb>` commands this call ran, from a Bash command line or
+    # from an MCP tool `mac` replaces (core/mac_command.py, task:0aa96180).
+    from core.mac_command import calls_for
+    mac_calls = calls_for(tool_name, tool_input)
+
     # Before the nudge's early return, so a nudge turn never skips a vault reindex.
-    # Keeps the vault SQLite index current after MCP vault writes (src/tools/vault_index.py);
+    # Keeps the vault SQLite index current after vault writes (src/tools/vault_index.py);
     # it never raises and records failures in the index's meta table.
-    if tool_name.startswith("mcp__"):
-        from src.tools.vault_index import reindex_for_tool
-        result = reindex_for_tool(strip_mcp_prefix(tool_name), tool_input)
-        if result:
-            log.info("PTU vault reindex: %s", result)
+    if mac_calls:
+        from src.tools.vault_index import reindex_for_command
+        for call in mac_calls:
+            result = reindex_for_command(call.id, _vault_input(call))
+            if result:
+                log.info("PTU vault reindex: %s %s", call.id, result)
 
     context_nudge = _maybe_context_size_nudge(hook_input, session_id)
     if context_nudge:
         log.info("PTU context-size nudge: session=%s tool=%s", session_id[:8], tool_name)
         return context_nudge
 
-    if not tool_name or not tool_name.startswith("mcp__"):
+    if mac_calls:
+        names = [call.id for call in mac_calls]
+        if tool_name == "Bash":
+            tool_response = _bash_result(tool_response) if len(mac_calls) == 1 else {}
+    elif tool_name.startswith("mcp__"):
+        short_name = strip_mcp_prefix(tool_name) or tool_name
+        if short_name.startswith("memory__"):
+            log.info("PTU skip: memory tool=%s", short_name)
+            return None
+        names = [short_name]
+    else:
         log.info("PTU skip: non-MCP tool=%s", tool_name)
-        return None
-
-    short_name = strip_mcp_prefix(tool_name) or tool_name
-    if short_name.startswith("memory__"):
-        log.info("PTU skip: memory tool=%s", short_name)
         return None
 
     from langchain_learning.session_graph import run_post_tool, get_session_graph, _config
@@ -327,28 +338,54 @@ def _handle_post_tool_use(hook_input: dict) -> dict | None:
 
     tool_input_clean = tool_input if isinstance(tool_input, dict) else {}
 
-    t0 = time.monotonic()
-    hook_output = run_post_tool(
-        tool_name=short_name,
-        tool_input=tool_input_clean,
-        tool_result=tool_response,
-        session_id=session_id,
-        duration_ms=duration_ms,
-        prompt=prompt,
-    )
-    elapsed = (time.monotonic() - t0) * 1000
-    if hook_output:
-        log.info("PTU done: session=%s tool=%s elapsed_ms=%.0f hook_output=yes", session_id[:8], short_name, elapsed)
-    else:
-        log.info("PTU done: session=%s tool=%s elapsed_ms=%.0f", session_id[:8], short_name, elapsed)
+    hook_output = None
+    for name in names:
+        t0 = time.monotonic()
+        output = run_post_tool(
+            tool_name=name,
+            tool_input=tool_input_clean,
+            tool_result=tool_response,
+            session_id=session_id,
+            duration_ms=duration_ms / len(names),
+            prompt=prompt,
+        )
+        hook_output = hook_output or output
+        elapsed = (time.monotonic() - t0) * 1000
+        log.info("PTU done: session=%s tool=%s elapsed_ms=%.0f%s", session_id[:8], name, elapsed,
+                 " hook_output=yes" if output else "")
     return hook_output or None
+
+
+def _vault_input(call) -> dict:
+    """A `mac vault` call's arguments as the MCP vault tools take them: path, and `to` for a move."""
+    if call.params:
+        return call.params
+    from core.mac_command import positionals
+    pos = positionals(call.args)
+    out = {"path": pos[0]} if pos else {}
+    if call.verb == "move" and len(pos) > 1:
+        out["to"] = pos[1]
+    return out
+
+
+def _bash_result(tool_response: dict) -> dict:
+    """A Bash `mac` call's JSON output as a dict, so hint learning sees the result, not the shell wrapper."""
+    import json as _json
+    try:
+        parsed = _json.loads(tool_response.get("stdout") or "")
+    except (ValueError, AttributeError):
+        return tool_response
+    return parsed if isinstance(parsed, dict) else {"result": parsed}
 
 
 # ---------------------------------------------------------------------------
 # PreToolUse
 # ---------------------------------------------------------------------------
 
-_FAIL_CLOSED_TOOLS = {"imessage__send", "mail__compose"}
+# Commands that send something out: if the PreToolUse handler itself fails on a
+# call that runs one, deny rather than let it through unchecked. Matched as
+# `mac` command ids, so the Bash and MCP forms are both covered (task:0aa96180).
+_FAIL_CLOSED_COMMANDS = {"mac imessage send", "mac mail compose"}
 
 # The task-body-template gate that lived here (_check_task_body_format and its
 # supporting constants) was removed with src/tools/tasks.py (task:87ec7876).
@@ -547,9 +584,11 @@ def main():
         log.error("%s handler failed: %s", hook_event, e)
         # PreToolUse fail-closed: irreversible tools must deny on any error
         if hook_event == "PreToolUse":
-            from core.tool_registry import strip_mcp_prefix
-            short = strip_mcp_prefix(hook_input.get("tool_name", "")) if hook_input else ""
-            if short in _FAIL_CLOSED_TOOLS:
+            from core.mac_command import calls_for
+            hit = [c.id for c in calls_for(hook_input.get("tool_name", ""), hook_input.get("tool_input"))
+                   if c.id in _FAIL_CLOSED_COMMANDS] if hook_input else []
+            if hit:
+                short = hit[0]
                 write_json_to_stdout({
                     "hookSpecificOutput": {
                         "hookEventName": "PreToolUse",

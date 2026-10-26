@@ -11,18 +11,19 @@ from src.logger import get_logger
 
 _log = get_logger(__name__)
 
-_SPLIT_RE = re.compile(r"[_\-]+")
+_SPLIT_RE = re.compile(r"[_\-\s]+")
+_NAME_STOPWORDS = {"mac"}  # see log_tool_usage._NAME_STOPWORDS
 
 
 def _tool_keywords(tool_name: str, domain: str, skill: str) -> str:
     """Derive keywords from tool name tokens + domain + skill.
 
-    Strips MCP prefix (mcp__<server>__) and splits on underscores/hyphens.
+    Strips MCP prefix (mcp__<server>__), splits on underscores/hyphens/spaces, drops `mac`.
     Never uses prompt text — these are structural, tool-specific tokens.
     """
     # strip mcp__<server>__ prefix
     name = re.sub(r"^mcp__[^_]+__", "", tool_name)
-    tokens = {t for t in _SPLIT_RE.split(name) if len(t) >= 3}
+    tokens = {t for t in _SPLIT_RE.split(name) if len(t) >= 3} - _NAME_STOPWORDS
     if domain:
         tokens.add(domain)
     if skill:

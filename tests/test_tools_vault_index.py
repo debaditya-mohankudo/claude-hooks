@@ -67,39 +67,39 @@ def test_search_returns_section_not_just_file(vault, conn):
     assert hit["entry_date"] == "2026-10-17"
 
 
-def test_reindex_for_tool_updates_index_and_ignores_other_tools(vault, tmp_path, monkeypatch):
+def test_reindex_for_command_updates_index_and_ignores_other_tools(vault, tmp_path, monkeypatch):
     monkeypatch.setenv("VAULT_ROOT", str(vault))
     monkeypatch.setenv("VAULT_INDEX_DB", str(tmp_path / "hook.sqlite"))
     note = "Market/Macro/US Macro.md"
-    assert vi.reindex_for_tool("vault__read", {"path": note}) is None
-    assert f"{note}=indexed" in vi.reindex_for_tool("vault__append", {"path": note, "content": "x"})
+    assert vi.reindex_for_command("mac vault read", {"path": note}) is None
+    assert f"{note}=indexed" in vi.reindex_for_command("mac vault append", {"path": note, "content": "x"})
     conn = vi.connect()
     assert conn.execute("SELECT count(*) FROM files").fetchone() == (1,)
     (vault / note).unlink()
-    assert f"{note}=removed" in vi.reindex_for_tool("vault__delete", {"path": note})
+    assert f"{note}=removed" in vi.reindex_for_command("mac vault delete", {"path": note})
     assert conn.execute("SELECT count(*) FROM files").fetchone() == (0,)
     assert conn.execute("SELECT count(*) FROM fts").fetchone() == (0,)
-    assert "no .md path named" in vi.reindex_for_tool("vault__move", {"path": "folder", "to": "other"})
+    assert "no .md path named" in vi.reindex_for_command("mac vault move", {"path": "folder", "to": "other"})
 
 
-def test_reindex_for_tool_move_reindexes_both_paths(vault, tmp_path, monkeypatch):
+def test_reindex_for_command_move_reindexes_both_paths(vault, tmp_path, monkeypatch):
     monkeypatch.setenv("VAULT_ROOT", str(vault))
     monkeypatch.setenv("VAULT_INDEX_DB", str(tmp_path / "hook.sqlite"))
     src, dst = "Market/Macro/US Macro.md", "Market/Macro/Renamed.md"
-    vi.reindex_for_tool("vault__write", {"path": src})
+    vi.reindex_for_command("mac vault write", {"path": src})
     (vault / src).rename(vault / dst)
-    res = vi.reindex_for_tool("vault__move", {"path": src, "to": dst})
+    res = vi.reindex_for_command("mac vault move", {"path": src, "to": dst})
     assert f"{src}=removed" in res and f"{dst}=indexed" in res
 
 
-def test_reindex_for_tool_records_failure_in_meta(tmp_path, monkeypatch):
+def test_reindex_for_command_records_failure_in_meta(tmp_path, monkeypatch):
     monkeypatch.setenv("VAULT_ROOT", str(tmp_path))
     monkeypatch.setenv("VAULT_INDEX_DB", str(tmp_path / "hook.sqlite"))
     vi.connect().close()
     def boom(*a, **k):
         raise RuntimeError("disk on fire")
     monkeypatch.setattr(vi, "reindex_file", boom)
-    assert vi.reindex_for_tool("vault__append", {"path": "n.md"}) is None
+    assert vi.reindex_for_command("mac vault append", {"path": "n.md"}) is None
     assert "disk on fire" in vi.connect().execute("SELECT value FROM meta WHERE key='last_error'").fetchone()[0]
 
 

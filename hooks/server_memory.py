@@ -381,7 +381,8 @@ def record_tool_from_hook(body: dict) -> None:
 
     MCP tools: recorded with compact JSON args.
     Read/Edit/Write: recorded with file_path as args.
-    Other native tools (Bash, etc.) are skipped — name-only, too noisy.
+    Bash: `git commit` and `mac <area> <verb>` calls are recorded; other commands are skipped.
+    Other native tools are skipped — name-only, too noisy.
     tasks__set_active is skipped here — it's handled as a 'task' event by record_task_from_hook.
     All recorded cases also carry a truncated result snippet from tool_response.
     """
@@ -401,6 +402,13 @@ def record_tool_from_hook(body: dict) -> None:
             task_ids = _TASK_ID_RE.findall(cmd)
             args = ",".join(task_ids) if task_ids else None
             record_tool(body.get("session_id", ""), "git commit", args=args, result=result)
+        # `mac <area> <verb>` calls, one row each, named by command id (task:0aa96180).
+        import shlex
+        from core.mac_command import parse_bash
+        for call in parse_bash(cmd):
+            argv = " ".join(map(shlex.quote, call.args))
+            args = argv if len(argv) <= _ARGS_MAX else argv[:_ARGS_MAX] + "…"
+            record_tool(body.get("session_id", ""), call.id, args=args or None, result=result)
         return
 
     if not tool_name.startswith("mcp__"):

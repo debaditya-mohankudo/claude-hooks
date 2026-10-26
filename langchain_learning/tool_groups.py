@@ -137,12 +137,30 @@ def route_groups(hints: list[dict], graph: dict | None = None, top_groups: int =
     return routes
 
 
+def _mac_group(tool_name: str) -> dict | None:
+    """A `mac <area> <verb>` hint's group: its area, pointing at the CLI's own help (task:0aa96180).
+
+    The graph's groups describe MCP tool lists, which `mac` replaces, so a mac
+    hint is not routed into them.
+    """
+    parts = tool_name.split(" ")
+    if len(parts) != 3 or parts[0] != "mac":
+        return None
+    return {"id": f"mac:{parts[1]}", "label": f"mac {parts[1]}", "category": "mac",
+            "tools": f"run `mac {parts[1]} --help` for its verbs, or find_cli to search every mac command"}
+
+
 def _route(hints: list[dict], graph: dict, top_groups: int) -> list[dict]:
     groups, alts, by_name = _index(graph)
     hit: dict[str, list[str]] = {}
     first: dict[str, int] = {}
     for i, h in enumerate(hints):
-        gid = group_of(h.get("tool_name", ""), groups, by_name)
+        mac = _mac_group(h.get("tool_name", ""))
+        if mac:
+            groups.setdefault(mac["id"], mac)
+            gid = mac["id"]
+        else:
+            gid = group_of(h.get("tool_name", ""), groups, by_name)
         if gid:
             hit.setdefault(gid, []).append(h["tool_name"])
             first.setdefault(gid, i)
