@@ -300,6 +300,17 @@ def _handle_post_tool_use(hook_input: dict) -> dict | None:
     from core.mac_command import calls_for
     mac_calls = calls_for(tool_name, tool_input)
 
+    # find_cli hit rate (task:cf5d016d): store each lookup, link the next mac call
+    # to it. Before the nudge's early return; both calls never raise. The raw
+    # response is passed because MCP results arrive as a content-block list.
+    from src.tools import find_cli_log
+    if tool_name == find_cli_log.FIND_TOOL:
+        find_cli_log.record_query(session_id, tool_input, hook_input.get("tool_response"))
+    elif mac_calls:
+        outcome = find_cli_log.link_calls(session_id, [c.id for c in mac_calls])
+        if outcome:
+            log.info("PTU find_cli link: session=%s outcome=%s", session_id[:8], outcome)
+
     # Before the nudge's early return, so a nudge turn never skips a vault reindex.
     # Keeps the vault SQLite index current after vault writes (src/tools/vault_index.py);
     # it never raises and records failures in the index's meta table.

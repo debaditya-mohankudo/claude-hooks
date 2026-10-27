@@ -127,6 +127,26 @@ CREATE TABLE IF NOT EXISTS mcp_tool_hints (
 """
 
 
+# One row per find_cli lookup, linked to the next `mac` call in the same session
+# (task:cf5d016d). src/tools/find_cli_log.py creates it on connect from this
+# constant, so there is no second copy to keep in sync.
+FIND_CLI_QUERIES_DDL = """
+CREATE TABLE IF NOT EXISTS find_cli_queries (
+    id          INTEGER PRIMARY KEY,
+    ts          REAL    NOT NULL,          -- unix time of the find_cli call
+    session_id  TEXT    NOT NULL,
+    query       TEXT    NOT NULL,
+    seeds       TEXT    NOT NULL,          -- JSON list of command ids, best first
+    neighbours  TEXT    NOT NULL,          -- JSON list of command ids
+    chosen      TEXT,                      -- the mac command run next, or NULL
+    chosen_rank INTEGER,                   -- 1-based seed rank of chosen, NULL if not a seed
+    outcome     TEXT,                      -- seed | neighbour | miss; NULL = no mac call followed
+    linked_ts   REAL
+);
+CREATE INDEX IF NOT EXISTS find_cli_queries_session ON find_cli_queries(session_id, ts);
+"""
+
+
 def migrate_tool_hints_db(conn: sqlite3.Connection) -> None:
     """Additive migrations for tool_hints.sqlite."""
     cols = {r[1] for r in conn.execute("PRAGMA table_info(mcp_tool_hints)")}

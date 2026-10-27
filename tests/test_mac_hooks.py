@@ -76,6 +76,20 @@ def test_mcp_tools_mac_does_not_replace_keep_their_short_name(ptu):
     assert [k["tool_name"] for k in seen["learn"]] == ["tasks__get"]
 
 
+def test_find_cli_lookups_are_recorded_and_mac_calls_linked(ptu, monkeypatch):
+    """task:cf5d016d: the raw content-block response reaches record_query; mac ids reach link_calls."""
+    import src.tools.find_cli_log as fl
+    got = {"record": [], "link": []}
+    monkeypatch.setattr(fl, "record_query", lambda sid, inp, resp: got["record"].append((sid, inp, resp)))
+    monkeypatch.setattr(fl, "link_calls", lambda sid, ids: got["link"].append((sid, ids)))
+    blocks = [{"type": "text", "text": json.dumps({"query": "q", "seeds": [], "neighbours": []})}]
+    ptu("mcp__find_cli__find_cli", {"task": "q"}, blocks)
+    ptu("Bash", {"command": "mac mail read --limit 1 && mac vault write a.md x"})
+    ptu("Bash", {"command": "ls"})
+    assert got["record"] == [("pytest-x", {"task": "q"}, blocks)]
+    assert got["link"] == [("pytest-x", ["mac mail read", "mac vault write"])]
+
+
 # --- PreToolUse fail-closed ---------------------------------------------------
 
 @pytest.mark.parametrize("tool_name, tool_input", [
