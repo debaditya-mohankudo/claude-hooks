@@ -39,7 +39,7 @@ which yields `"concepts"`/`"meta"` as if they were concepts — the fix is
 its concept-store update caught here, found by chance afterward.
 
 ```python
-concepts = mcp__claude-hooks__concept__list(repo="/Users/debaditya/workspace/claude-hooks")["concepts"]
+concepts = mcp__taskfw__concept__list(repo="/Users/debaditya/workspace/claude-hooks")["concepts"]
 changed = [...]  # from git diff above
 hits = [c for c in concepts if c["module"] in changed]
 ```

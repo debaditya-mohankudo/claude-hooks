@@ -63,12 +63,12 @@ After every successful commit, refresh the code and diff indexes so search
 stays in sync with HEAD (handled automatically by `/gc`, but can be run
 manually):
 
-```python
+```bash
 # code_rag — incremental (changed files only)
-mcp__claude-hooks__code_rag__index_files(files=["path/to/changed.py"])
+mac code_rag index_files path/to/changed.py
 
 # diff_rag — last commit
-mcp__claude-hooks__diff_rag__index_commits(repo=".", since="HEAD~1", max_commits=1)
+mac diff_rag index_commits --repo . --since HEAD~1 --max-commits 1
 ```
 
 ## Checkpoint state

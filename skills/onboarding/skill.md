@@ -236,17 +236,17 @@ Tell the user:
 >
 > **Code RAG** — lets Claude find relevant files and functions by meaning, not just filename:
 > ```
-> mcp__claude-hooks__code_rag__index_files
+> mac code_rag index_files <files...>
 > ```
 > Run this once from the repo root. Re-run it whenever you make significant changes.
 >
 > **Diff RAG** — lets Claude search commit history semantically (e.g. "when was the memory loader refactored?"):
 > ```
-> mcp__claude-hooks__diff_rag__index_commits
+> mac diff_rag index_commits
 > ```
 > Run this once to index existing commits. It picks up new commits automatically on subsequent runs.
 >
-> Both indexes are stored locally and power the `smart_search` MCP tools. Skip them now and come back anytime — they're additive, not required.
+> Both indexes are stored locally and power the `mac code_rag` / `mac diff_rag` search commands. Skip them now and come back anytime — they're additive, not required.
 
 Ask if they want to run the indexes now, or skip to the next step.
 
@@ -263,7 +263,7 @@ Say:
 >
 > To check hook logs at any time:
 > ```
-> mcp__claude-hooks__hooks__read_logs_sqlite
+> mac hooks read_logs_sqlite
 > ```
 >
 > Want task tracking (epics, tasks, decision logging)? That's a separate project: [task-framework](https://github.com/debaditya-mohankudo/Lite-Task-Framework). Good luck!

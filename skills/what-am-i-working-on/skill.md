@@ -19,10 +19,10 @@ Quick cold-start orientation tool. Fetches the last 50 events from the hook serv
 
 ## How to use this skill
 
-1. Call `mcp__claude-hooks__hooks__server_memory` with `n_events=50` — event log (prompts, tool calls, task activations). No transformation needed — the tool returns a formatted markdown table.
+1. Run `mac hooks server_memory --n-events 50` — event log (prompts, tool calls, task activations). No transformation needed — it returns the same formatted markdown table, printed as a JSON-quoted string (literal `\n`), which reads fine as-is.
 
-```python
-mcp__claude-hooks__hooks__server_memory(n_events=50)
+```bash
+mac hooks server_memory --n-events 50
 ```
 
 2. Fetch live session info from the hook server's `/session/live` endpoint (OS-level `ps`-based check for running `claude` CLI processes — catches stale/forgotten sessions that the event log alone won't show):
@@ -33,7 +33,7 @@ curl -s http://127.0.0.1:8766/session/live
 
 Present it as: count of live sessions, and for each one its pid and elapsed time (`etime`).
 
-If either call fails (event log tool returns `{error: ...}`, or the curl fails/connection refused), report that the hook server is unreachable and suggest checking `launchctl list | grep claude-hooks`.
+If either call fails (the event log command returns an error, or the curl fails/connection refused), report that the hook server is unreachable and suggest checking `launchctl list | grep claude-hooks`.
 
 3. Fetch the last 10 taskfw log events (everything in taskfw's own operational log — MCP tool calls like `tasks__check_item`, skill-invocation markers, server lifecycle lines — not just task-skill invocations, since that filter was hiding most of the log):
 

@@ -222,7 +222,7 @@ The MCP server rebuilds the task semantic index (`.tasks_embeddings.tvim`) on st
 To check hook logs:
 
 ```text
-mcp__claude-hooks__hooks__read_logs_sqlite
+mac hooks read_logs_sqlite
 ```
 
 To test manually:
@@ -239,31 +239,33 @@ A successful run exits 0 and emits JSON with `additionalSystemPrompt`.
 
 ## 9. Seed initial memories (optional but recommended)
 
-The system works without any memories, but seeding a few facts immediately improves context quality. All memories — project architecture facts, cross-cutting mission notes, feedback, reference — live in the single global `MEMORY.sqlite` store, scored per-turn by the UPS retrieval pipeline and filtered by `domain`:
+The system works without any memories, but seeding a few facts immediately improves context quality. All memories — project architecture facts, cross-cutting mission notes, feedback, reference — live in the single global `MEMORY.sqlite` store, scored per-turn by the UPS retrieval pipeline:
 
-```python
-mcp__claude-hooks__memory__add(
-    name="<repo>-arch",
-    type="project",
-    domain="<domain>",
-    tags="<domain>,architecture,files,stack",
-    body="""Stack: <language, frameworks>
+```bash
+mac memory add <repo>-arch --type project \
+    --tags "<domain>,architecture,files,stack" \
+    --files "<file1>, <file2>" --body-file arch.md
+mac memory add <repo>-goals --type project \
+    --tags "<domain>,goals,mission,direction" --body-file goals.md
+```
+
+`arch.md`:
+
+```text
+Stack: <language, frameworks>
 
 Key files:
 - <file1> — <purpose>
 - <file2> — <purpose>
 
 Databases / external deps:
-- <db or service> — <purpose>""",
-    files="<file1>, <file2>",
-)
+- <db or service> — <purpose>
+```
 
-mcp__claude-hooks__memory__add(
-    name="<repo>-goals",
-    type="project",
-    domain="<domain>",
-    tags="<domain>,goals,mission,direction",
-    body="""Most important goal: <one-line mission statement>
+`goals.md`:
+
+```text
+Most important goal: <one-line mission statement>
 
 <project description, current direction, key constraints>
 
@@ -271,8 +273,7 @@ What recency pull looks like for this project — recognise and resist:
 - <distraction pattern 1>
 - <distraction pattern 2>
 
-The test: at the end of a session, did the work move the mission forward?"""
-)
+The test: at the end of a session, did the work move the mission forward?
 ```
 
 Add further memories (feedback, reference) as the project evolves.

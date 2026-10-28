@@ -2,7 +2,7 @@
 
 Extracted out of hooks/ui/deps.py (epic:a6216a10, task:050ee644) — backs the
 production /session/current endpoint in hooks/server.py, consumed by
-mcp__claude-hooks__hooks__session_id and other MCP tools. Not UI-dashboard
+`mac hooks session_id` and other callers. Not UI-dashboard
 code and must survive the /ui removal.
 
 get_active_session() (the /session/active-backing counterpart) was removed

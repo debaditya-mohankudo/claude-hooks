@@ -95,7 +95,7 @@ changed = [f for f in subprocess.check_output(
 ).decode().splitlines() if f.endswith(".md") or f.endswith(".py")]
 
 if changed:
-    mcp__claude-hooks__code_rag__index_files(files=changed)
+    mac code_rag index_files <changed files...>   # via Bash
 ```
 
 Or via shell fallback:
@@ -115,7 +115,7 @@ Run silently — only surface output if errors. This keeps `meta.commit` current
 After code_rag is updated, index the new commit into diff_rag:
 
 ```python
-mcp__claude-hooks__diff_rag__index_commits(repo=".", since="HEAD~1", max_commits=1)
+mac diff_rag index_commits --repo . --since HEAD~1 --max-commits 1
 ```
 
 This embeds the diff hunks from the just-committed HEAD and appends them to `.diff_embeddings.tvim`. Skip silently if the index doesn't exist yet (it will be built on first full run of `scripts/build_diff_embeddings.py`).
@@ -135,8 +135,8 @@ git diff --name-only HEAD~1 HEAD
 
 **Step 2 — find memories whose `files` field overlaps:**
 For each changed file path, search for memories that reference it:
-```python
-mcp__claude-hooks__memory__search(query="<changed_filename_stem>", domain="claude-hooks")
+```bash
+mac memory search "<changed_filename_stem>"
 # e.g. for "hooks/gates.py" → search "gates"
 # e.g. for "src/tools/memory.py" → search "memory tools"
 ```
