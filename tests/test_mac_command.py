@@ -88,3 +88,9 @@ def test_without_the_graph_both_forms_map_on_syntax(graph):
 
 def test_positionals_skip_flags_and_flag_values():
     assert mc.positionals(("--limit", "5", "--json", "a.md", "b.md")) == ["a.md", "b.md"]
+
+
+def test_a_regenerated_graph_is_read_without_a_restart(graph):
+    assert ids("mac memory list") == []
+    graph.write_text(json.dumps({"nodes": [{"kind": "command", "id": "mac memory list"}], "edges": []}))
+    assert ids("mac memory list") == ["mac memory list"]

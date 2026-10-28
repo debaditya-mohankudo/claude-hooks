@@ -50,14 +50,28 @@ class MacCall:
         return f"mac {self.area} {self.verb}"
 
 
-@lru_cache(maxsize=1)
 def known_ids() -> frozenset[str] | None:
-    """Command ids in the graph, or None when it cannot be read."""
+    """Command ids in the graph, or None when it cannot be read.
+
+    Re-read when the file changes: a hook server that outlives a graph
+    regeneration would otherwise never record the commands added since.
+    """
+    try:
+        return _ids_at(CLI_GRAPH_PATH.stat().st_mtime_ns)
+    except OSError:
+        return None
+
+
+@lru_cache(maxsize=1)
+def _ids_at(mtime_ns: int) -> frozenset[str] | None:
     try:
         graph = json.loads(CLI_GRAPH_PATH.read_text())
         return frozenset(n["id"] for n in graph["nodes"] if n.get("kind") == "command")
     except Exception:
         return None
+
+
+known_ids.cache_clear = _ids_at.cache_clear  # tests swap the graph file and clear it
 
 
 def is_launcher(word: str) -> bool:
