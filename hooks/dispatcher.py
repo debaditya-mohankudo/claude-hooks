@@ -327,6 +327,9 @@ def _handle_post_tool_use(hook_input: dict) -> dict | None:
         return context_nudge
 
     if mac_calls:
+        if all(call.area == "memory" for call in mac_calls):
+            log.info("PTU skip: memory command=%s", mac_calls[0].id)
+            return None
         names = [call.id for call in mac_calls]
         if tool_name == "Bash":
             tool_response = _bash_result(tool_response) if len(mac_calls) == 1 else {}
