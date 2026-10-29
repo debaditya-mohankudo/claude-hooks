@@ -98,7 +98,7 @@ async def user_prompt_submit(request: Request):
     """UserPromptSubmit hook — runs the full UPS LangGraph chain.
 
     Injects memories, tool hints, domain classification, and task context into the session
-    checkpoint. Returns hookSpecificOutput.additionalSystemPrompt for Claude to consume.
+    checkpoint. Returns hookSpecificOutput.additionalContext for Claude to consume.
     All lc.* node logs write immediately to claude_hooks.sqlite via SQLiteHandler.
     """
     from hooks.dispatcher import _handle_user_prompt_submit, _extract_prompt

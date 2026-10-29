@@ -186,8 +186,8 @@ class TestUserPromptSubmit:
         body = r.json()
         if body:
             assert "hookSpecificOutput" in body
-            assert "additionalSystemPrompt" in body["hookSpecificOutput"]
-            assert isinstance(body["hookSpecificOutput"]["additionalSystemPrompt"], str)
+            assert "additionalContext" in body["hookSpecificOutput"]
+            assert isinstance(body["hookSpecificOutput"]["additionalContext"], str)
 
     def test_empty_prompt_returns_200(self, client):
         r = client.post("/hook/UserPromptSubmit", json={
@@ -264,7 +264,7 @@ class TestTmpCwdFixedMemories:
             "prompt": "integration test fixture cwd tmp sentinel alpha beta",
         })
         assert r.status_code == 200
-        prompt = r.json().get("hookSpecificOutput", {}).get("additionalSystemPrompt", "")
+        prompt = r.json().get("hookSpecificOutput", {}).get("additionalContext", "")
         assert "### test-fixture-alpha" in prompt
         assert "### test-fixture-beta" in prompt
 

@@ -184,7 +184,7 @@ def _handle_user_prompt_submit(hook_input: dict) -> dict | None:
         return {
             "hookSpecificOutput": {
                 "hookEventName": "UserPromptSubmit",
-                "additionalSystemPrompt": system_prompt,
+                "additionalContext": system_prompt,
             }
         }
     return None
