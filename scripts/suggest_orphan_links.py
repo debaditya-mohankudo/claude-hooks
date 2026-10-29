@@ -15,7 +15,8 @@ files/docs path, (3) shared *rare* tags (document frequency under COMMON_FRAC of
 a tag on hundreds of memories is not evidence). One rare tag alone proposes nothing; two is
 "medium", three or any quote/path is "high". Candidates are never self, an existing edge, or a
 hub (degree > MAX_DEGREE: one bad link to a hub spreads to every prompt that hits it). Slugs
-that name no memory (memory_links_dangling.tsv) cannot be candidates and are never touched.
+that name no memory (dangling) cannot be candidates and are never touched; find them with
+`backfill_memory_links.py --report <tsv>`.
 
 "Reviewed standalone" lives in memory_link_reviews, created lazily here rather than in
 MEMORY_LINKS_DDL: no new memories column, no startup migration, and losing it only means an
