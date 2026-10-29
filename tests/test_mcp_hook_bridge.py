@@ -10,7 +10,7 @@ from langchain_learning.nodes.mcp_hook_bridge import McpHookBridgeNode
 # ── extract_tool_result_json ───────────────────────────────────────────────────
 
 def test_extract_mcp_content_wrapper():
-    payload = {"status": "done", "__hook__": {"additionalSystemPrompt": "hi"}}
+    payload = {"status": "done", "__hook__": {"additionalContext": "hi"}}
     tool_result = {"content": [{"text": json.dumps(payload)}]}
     assert extract_tool_result_json(tool_result) == payload
 
@@ -54,18 +54,28 @@ def _wrap(payload: dict) -> dict:
     return {"content": [{"text": json.dumps(payload)}]}
 
 
-def test_bridge_injects_additional_system_prompt():
-    hook = {"additionalSystemPrompt": "## Next step\nCall submit_report again."}
+def _ptu(context: str) -> dict:
+    return {"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": context}}
+
+
+def test_bridge_wraps_additional_context_in_documented_shape():
+    hook = {"additionalContext": "## Next step\nCall submit_report again."}
     node = McpHookBridgeNode()
     result = node(_state("some_mcp__tool", _wrap({"status": "continue", "__hook__": hook})))
-    assert result == {"pending_hook_output": hook}
+    assert result == {"pending_hook_output": _ptu("## Next step\nCall submit_report again.")}
 
 
-def test_bridge_passes_through_full_hook_dict():
-    hook = {"additionalSystemPrompt": "...", "suppressOutput": True}
+def test_bridge_passes_other_hook_keys_through_at_top_level():
+    hook = {"additionalContext": "...", "suppressOutput": True}
     node = McpHookBridgeNode()
     result = node(_state("tool_a", _wrap({"__hook__": hook})))
-    assert result["pending_hook_output"] == hook
+    assert result["pending_hook_output"] == {"suppressOutput": True, **_ptu("...")}
+
+
+def test_bridge_does_not_mutate_the_tool_payload():
+    hook = {"additionalContext": "keep me"}
+    McpHookBridgeNode()(_state("tool_a", {"__hook__": hook}))
+    assert hook == {"additionalContext": "keep me"}
 
 
 def test_bridge_returns_empty_when_no_hook():
@@ -87,15 +97,15 @@ def test_bridge_returns_empty_on_empty_tool_result():
 
 
 def test_bridge_works_with_raw_dict_result():
-    hook = {"additionalSystemPrompt": "raw dict path"}
+    hook = {"additionalContext": "raw dict path"}
     node = McpHookBridgeNode()
     result = node(_state("splunk__submit_report", {"status": "done", "__hook__": hook}))
-    assert result == {"pending_hook_output": hook}
+    assert result == {"pending_hook_output": _ptu("raw dict path")}
 
 
 def test_bridge_tool_name_agnostic():
-    hook = {"additionalSystemPrompt": "from digicert"}
+    hook = {"additionalContext": "from digicert"}
     node = McpHookBridgeNode()
     for tool in ("digicert__renew_cert", "sfmc__send_campaign", "custom__anything"):
         result = node(_state(tool, _wrap({"__hook__": hook})))
-        assert result == {"pending_hook_output": hook}, f"failed for {tool}"
+        assert result == {"pending_hook_output": _ptu("from digicert")}, f"failed for {tool}"

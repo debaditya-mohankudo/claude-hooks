@@ -1,17 +1,22 @@
 """McpHookBridgeNode — generic PostToolUse bridge for the __hook__ convention.
 
 Any MCP tool that returns a __hook__ key in its response gets automatic
-additionalSystemPrompt injection — no per-integration PostToolUse node needed.
+additionalContext injection — no per-integration PostToolUse node needed.
 
 Convention:
-    tool returns: {"__hook__": {"additionalSystemPrompt": "..."}, ...rest}
-    bridge returns: {"pending_hook_output": {"additionalSystemPrompt": "..."}}
+    tool returns: {"__hook__": {"additionalContext": "..."}, ...rest}
+    bridge returns: {"pending_hook_output": {"hookSpecificOutput": {
+        "hookEventName": "PostToolUse", "additionalContext": "..."}}}
+
+The bridge wraps additionalContext into the documented PostToolUse response
+shape; any other key in __hook__ (e.g. suppressOutput) passes through at the
+top level unchanged.
 
 This is a factory pattern: _post_tool_route checks for __hook__ presence and
-routes here. McpHookBridgeNode is the generic product — it pipes the payload
-through without caring which tool produced it.
+routes here. McpHookBridgeNode is the generic product — it does not care which
+tool produced the payload.
 
-Tags: mcp, post-tool-use, hook, bridge, generic, additionalSystemPrompt
+Tags: mcp, post-tool-use, hook, bridge, generic, additionalContext
 """
 from __future__ import annotations
 
@@ -25,7 +30,7 @@ _log = get_logger(__name__)
 
 class McpHookBridgeNode:
     """Generic PostToolUse bridge — pipes __hook__ from any MCP tool result
-    into pending_hook_output so Claude Code injects it as additionalSystemPrompt.
+    into pending_hook_output so Claude Code injects it as additionalContext.
 
     Tags: mcp, hook, bridge, generic, posttooluse
     """
@@ -48,4 +53,11 @@ class McpHookBridgeNode:
             "[mcp_hook_bridge] session=%s tool=%s — injecting hook keys=%s",
             session_id, tool_name, list(hook.keys()),
         )
-        return {"pending_hook_output": hook}
+        output = dict(hook)
+        context = output.pop("additionalContext", None)
+        if context:
+            output["hookSpecificOutput"] = {
+                "hookEventName": "PostToolUse",
+                "additionalContext": context,
+            }
+        return {"pending_hook_output": output}

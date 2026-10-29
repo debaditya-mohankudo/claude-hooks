@@ -1,7 +1,7 @@
 """Public Protocol contracts for the retrieval and gate layers.
 
 These interfaces are the joints in the memory injection pipe:
-  prompt → tokenise → MemoryRetriever → LoadMemoriesNode → additionalSystemPrompt
+  prompt → tokenise → MemoryRetriever → LoadMemoriesNode → additionalContext
 
 Concrete implementations live in nodes/ and hooks/ and import from here.
 This file must never import from nodes/ or hooks/ — the dependency arrow is:
