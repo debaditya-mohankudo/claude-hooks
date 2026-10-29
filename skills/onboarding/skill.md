@@ -216,7 +216,7 @@ echo '{"session_id":"test","prompt":"hello","cwd":"/tmp"}' | \
   uv run python3 ~/.claude/hooks/dispatcher.py UserPromptSubmit
 ```
 
-- Exit 0 + JSON containing `additionalSystemPrompt` → hooks working.
+- Exit 0 + JSON containing `additionalContext` → hooks working.
 - Any error → show the output and help debug. Common causes:
   - Server not running → run `scripts/install_server.sh` and check `curl .../health`
   - iCloud path error → set `CLAUDE_HOOKS_ICLOUD_DB_DIR` and retry

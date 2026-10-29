@@ -233,7 +233,7 @@ echo '{"session_id":"test","prompt":"test prompt","cwd":"/tmp"}' | \
   uv run python3 ~/.claude/hooks/dispatcher.py UserPromptSubmit
 ```
 
-A successful run exits 0 and emits JSON with `additionalSystemPrompt`.
+A successful run exits 0 and emits JSON with `additionalContext`.
 
 ---
 

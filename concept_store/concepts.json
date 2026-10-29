@@ -115,7 +115,7 @@
       "confidence": 0.97,
       "contracts": [
         "Reads hook payload from stdin, writes JSON to stdout",
-        "Returns additionalSystemPrompt for UserPromptSubmit",
+        "Returns additionalContext for UserPromptSubmit",
         "Returns permissionDecision=deny for blocked PreToolUse",
         "PreToolUse handlers may also return permissionDecision=allow with additionalContext to inject a non-blocking reminder into Claude's context without denying the tool call",
         "PostToolUse handlers may also return a bare hookSpecificOutput dict (hookEventName=PostToolUse, additionalContext=...) to inject a non-blocking reminder without any permission-decision field — PostToolUse has no allow/deny concept, unlike PreToolUse"
@@ -139,11 +139,11 @@
     "dispatcher-system-prompt-assembly": {
       "confidence": 0.95,
       "contracts": [
-        "_format_system_prompt(ctx) -> str — the additionalSystemPrompt body for a UserPromptSubmit turn; \"\\n\".join(lines).strip(), so an empty string when ctx carries nothing renderable",
+        "_format_system_prompt(ctx) -> str — the additionalContext body for a UserPromptSubmit turn; \"\\n\".join(lines).strip(), so an empty string when ctx carries nothing renderable",
         "All sections are markdown-formatted, emitted in a fixed order: '## Turn state', the user-context block (its own '## Dev personality' / '## Financial profile' / '## Relevant context' headings), '## Injected memories', '## Suggested tools', '## Suggested tool groups'"
       ],
       "created_at": "2026-06-29T09:47:25.284960+00:00",
-      "description": "Assembles the UserPromptSubmit additionalSystemPrompt from the SessionState-derived ctx dict into markdown sections. Rewritten task:173e6846 (2026-09-01) after the long STALE period (task:c2e36050): the pre-task:882d67fa pull-based task-context pipeline this entry used to describe (LoadRelatedTasksNode, task_body, execution_contract, activate_task.py, mid_task_decisions, '## Repo memories', new-project note) is entirely gone, and so is the task:996cc8f0 '## Active task' push block (removed task:8be768df in the prompt, cache removed task:173e6846). What remains is five small sections: turn identifiers, the rendered user-context ontology (hooks/user_context.py), scored memories, scored tool hints, and (task:750242a5) tool groups lifted from those hints via ~/.claude/mcp-tools-domain.json (langchain_learning/tool_groups.py).",
+      "description": "Assembles the UserPromptSubmit additionalContext from the SessionState-derived ctx dict into markdown sections. Rewritten task:173e6846 (2026-09-01) after the long STALE period (task:c2e36050): the pre-task:882d67fa pull-based task-context pipeline this entry used to describe (LoadRelatedTasksNode, task_body, execution_contract, activate_task.py, mid_task_decisions, '## Repo memories', new-project note) is entirely gone, and so is the task:996cc8f0 '## Active task' push block (removed task:8be768df in the prompt, cache removed task:173e6846). What remains is five small sections: turn identifiers, the rendered user-context ontology (hooks/user_context.py), scored memories, scored tool hints, and (task:750242a5) tool groups lifted from those hints via ~/.claude/mcp-tools-domain.json (langchain_learning/tool_groups.py).",
       "evidence": [
         "hooks/dispatcher.py:_format_system_prompt",
         "hooks/user_context.py:render_user_context",

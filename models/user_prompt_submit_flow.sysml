@@ -43,7 +43,7 @@ package UserPromptSubmitFlow {
             doc /* dispatcher.py trims context to fit the token/char budget. */
         }
         action formatSystemPrompt {
-            doc /* dispatcher.py assembles additionalSystemPrompt text from ctx:
+            doc /* dispatcher.py assembles additionalContext text from ctx:
                  * _format_system_prompt() renders the "## Dev personality" block
                  * (from vault_context) above "## Injected memories", then the
                  * scored memories and tool hints. */
