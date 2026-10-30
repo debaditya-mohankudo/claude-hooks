@@ -116,6 +116,9 @@ def judge(call_ids: list[str], seeds: list[str], neighbours: list[str]) -> tuple
 
 def link_calls(session_id: str, call_ids: list[str], db=None, now=None) -> str | None:
     """Link mac calls to the session's pending find_cli query. Returns the outcome, or None."""
+    # `mac cli find` is the CLI fallback for find_cli itself (task:ddc32293): running it
+    # after a query is a second lookup, not a chosen command, so it must not be judged a miss.
+    call_ids = [c for c in call_ids if not c.startswith("mac cli ")]
     if _skip(session_id) or not call_ids:
         return None
     try:

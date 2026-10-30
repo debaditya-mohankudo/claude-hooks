@@ -68,6 +68,13 @@ def test_neighbour_and_miss_outcomes(db):
     assert [r[4] for r in rows(db)] == ["neighbour", "miss"]
 
 
+def test_mac_cli_find_is_not_judged_a_miss(db):
+    fl.record_query(SESSION, {}, result(["mac reminders list"]), db=db, now=100.0)
+    assert fl.link_calls(SESSION, ["mac cli find"], db=db, now=101.0) is None
+    assert rows(db)[0][4] is None
+    assert fl.link_calls(SESSION, ["mac cli find", "mac reminders list"], db=db, now=102.0) == "seed"
+
+
 def test_several_calls_in_one_line_are_judged_by_the_best_match(db):
     fl.record_query(SESSION, {}, result(["mac reminders list"], ["mac calendar list_events"]),
                     db=db, now=100.0)
