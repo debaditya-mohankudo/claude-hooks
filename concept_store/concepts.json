@@ -171,24 +171,27 @@
       "contracts": [
         "record_query(session_id, tool_input, tool_response) accepts the find_cli result as a dict, a content-block list, {'content': [...]}, {'raw': json} or a JSON string.",
         "link_calls(session_id, call_ids) updates the session's newest row with outcome NULL and ts within WINDOW_S (15 min). Among several mac calls from one tool call, chosen is the first seed, else the first neighbour, else the first call (miss).",
-        "A query with no mac call after it keeps outcome NULL and is reported as unused, never as a miss."
+        "A query with no mac call after it keeps outcome NULL and is reported as unused, never as a miss.",
+        "label(row_id, 'no_fit') accepts only labels in LABELS and replaces only a NULL or 'miss' outcome; it raises ValueError for a seed/neighbour row (a suggested command was run, so it fit), an unknown label or a missing row. Relabelling to the same value is a no-op.",
+        "stats() reports no_fit on its own and leaves it out of 'linked', so a correct 'nothing fits' lowers no hit rate (task:9d42faae)."
       ],
       "created_at": "2026-10-27T03:28:56.484223+00:00",
-      "description": "Measures find_cli from real use. PostToolUse stores each mcp__find_cli__find_cli lookup (query, seed ids, neighbour ids) in find_cli_queries in ~/.claude/tool_hints.sqlite, then links the same session's next mac call to it as seed (with 1-based rank), neighbour or miss. `python -m src.tools.find_cli_log` prints top-1/seed/subgraph hit rates and recent misses.",
+      "description": "Measures find_cli from real use. PostToolUse stores each mcp__find_cli__find_cli lookup (query, seed ids, neighbour ids) in find_cli_queries in ~/.claude/tool_hints.sqlite, then links the same session's next mac call to it as seed (with 1-based rank), neighbour or miss. `python -m src.tools.find_cli_log` prints top-1/seed/subgraph hit rates and recent misses; `--label ROW_ID no_fit` hand-labels a query no command covers.",
       "evidence": [
         "src/tools/find_cli_log.py:record_query",
         "src/tools/find_cli_log.py:link_calls",
         "src/tools/find_cli_log.py:stats",
         "hooks/dispatcher.py:_handle_post_tool_use",
         "tests/test_find_cli_log.py",
-        "tests/test_mac_hooks.py:test_find_cli_lookups_are_recorded_and_mac_calls_linked"
+        "tests/test_mac_hooks.py:test_find_cli_lookups_are_recorded_and_mac_calls_linked",
+        "src/tools/find_cli_log.py:label"
       ],
       "invariants": [
         "dispatcher._handle_post_tool_use calls it before _maybe_context_size_nudge's early return, with the raw hook_input tool_response: dispatcher's own normalisation turns a content-block list into {'raw': str}.",
         "Test sessions (test-/pytest-/api-test- prefixes) are never written; record_query and link_calls never raise.",
         "FIND_CLI_QUERIES_DDL in src/db/schema.py is the only copy of the table's schema; connect() runs it."
       ],
-      "last_validated": "2026-10-27T03:28:56.484240+00:00",
+      "last_validated": "2026-10-30T04:47:17.158965+00:00",
       "module": "src/tools/find_cli_log.py",
       "name": "find-cli-hit-log",
       "related": []
@@ -793,6 +796,6 @@
     "commit": "5f62c6b5150a20fe7198d7bd6c155c4b3c0d3101",
     "extracted_at": "2026-07-23T05:42:23Z",
     "note": "incremental upsert (task:a2fd402d)",
-    "updated_at": "2026-10-27T03:55:31.374452+00:00"
+    "updated_at": "2026-10-30T04:47:17.159662+00:00"
   }
 }
