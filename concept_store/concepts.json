@@ -170,7 +170,7 @@
       "confidence": 0.8,
       "contracts": [
         "record_query(session_id, tool_input, tool_response) accepts the find_cli result as a dict, a content-block list, {'content': [...]}, {'raw': json} or a JSON string.",
-        "link_calls(session_id, call_ids) updates the session's newest row with outcome NULL and ts within WINDOW_S (15 min). Among several mac calls from one tool call, chosen is the first seed, else the first neighbour, else the first call (miss).",
+        "link_calls(session_id, call_ids) updates the session's newest row with outcome NULL and ts within WINDOW_S (15 min). Among several mac calls from one tool call, chosen is the first seed, else the first neighbour, else the first call (miss). Calls in the `mac cli` area (the `mac cli find` fallback lookup) are dropped first, so they never link or count as a miss (task:ddc32293).",
         "A query with no mac call after it keeps outcome NULL and is reported as unused, never as a miss.",
         "label(row_id, 'no_fit') accepts only labels in LABELS and replaces only a NULL or 'miss' outcome; it raises ValueError for a seed/neighbour row (a suggested command was run, so it fit), an unknown label or a missing row. Relabelling to the same value is a no-op.",
         "stats() reports no_fit on its own and leaves it out of 'linked', so a correct 'nothing fits' lowers no hit rate (task:9d42faae)."
