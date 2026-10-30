@@ -179,3 +179,31 @@ def test_label_is_idempotent(db):
     rid = fl.record_query(SESSION, {}, result(["mac a x"]), db=db, now=100.0)
     fl.label(rid, "no_fit", db=db)
     assert fl.label(rid, "no_fit", db=db) == "no_fit"
+
+
+# task:71dc0383: export logged queries not yet in a fixture, for hand review.
+
+def _fixture(path, *phrases):
+    path.write_text(json.dumps({"phrases": [{"phrase": p, "expect": []} for p in phrases]}))
+    return path
+
+
+def test_export_skips_phrases_in_any_fixture_and_maps_outcomes(db, tmp_path):
+    for n, (q, called) in enumerate((("Known Phrase ", "mac a x"), ("new seed", "mac a x"),
+                                     ("new miss", "mac z z"), ("new unused", None))):
+        sid = f"{SESSION}-{n}"
+        fl.record_query(sid, {}, result(["mac a x"], query=q), db=db)
+        if called:
+            fl.link_calls(sid, [called], db=db)
+    rid = fl.record_query(SESSION, {}, result([], query="nothing fits"), db=db)
+    fl.label(rid, "no_fit", db=db)
+    out = fl.export_candidates([_fixture(tmp_path / "a.json", "known phrase")], db=db)
+    assert {r["phrase"]: (r["expect"], r["outcome"]) for r in out} == {
+        "new seed": (["mac a x"], "seed"), "new miss": (["mac z z"], "miss"),
+        "new unused": ([], "unused"), "nothing fits": ([], "no_fit")}
+
+
+def test_export_collapses_repeats_of_one_query_text(db):
+    for n in range(2):
+        fl.record_query(f"{SESSION}-{n}", {}, result([], query="Same Query"), db=db)
+    assert len(fl.export_candidates([], db=db)) == 1

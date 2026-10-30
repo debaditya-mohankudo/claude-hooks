@@ -24,6 +24,14 @@ beside the per-command counts. Report and label:
 
     uv run python -m src.tools.find_cli_log [--days N] [--misses N]
     uv run python -m src.tools.find_cli_log --label ROW_ID no_fit
+
+Eval cases (task:71dc0383): `--export` prints, as JSON on stdout, the linked
+or no_fit queries whose text is in none of the `--exclude` fixture files, in
+the held-out row shape plus id/outcome/chosen. A human reviews them (scrub
+personal data, fix `expect`) before copying any into the held-out fixture.
+
+    uv run python -m src.tools.find_cli_log --export \
+        --exclude ../cli-graph/tests/eval_phrases.json --exclude ../cli-graph/tests/eval_heldout.json
 """
 from __future__ import annotations
 
@@ -206,6 +214,38 @@ def stats(db=None, days: float | None = None, misses: int = 10, now=None) -> dic
     }
 
 
+def _norm(text: str) -> str:
+    return text.strip().lower()
+
+
+def export_candidates(excludes=(), db=None) -> list[dict]:
+    """Logged queries not yet in any fixture in `excludes`, as held-out rows for hand review.
+
+    Matching is on lowercased, stripped query text, as the eval's own overlap
+    test does. Outcome maps to a draft `expect`: seed/neighbour/miss -> the
+    command the agent ran (a miss needs the most review); no_fit -> [];
+    unused (NULL) -> [] flagged, since no command ran to say what fit. Repeats
+    of one query text collapse to the newest row.
+    """
+    known = set()
+    for path in excludes:
+        with open(path) as f:
+            known.update(_norm(p["phrase"]) for p in json.load(f)["phrases"])
+    conn = connect(db)
+    try:
+        found = conn.execute(
+            "SELECT id, query, chosen, outcome FROM find_cli_queries ORDER BY ts, id").fetchall()
+    finally:
+        conn.close()
+    newest = {}
+    for rid, query, chosen, outcome in found:
+        if query and _norm(query) not in known:
+            newest[_norm(query)] = (rid, query, chosen, outcome)
+    return [{"phrase": q, "expect": [c] if c and o != "no_fit" else [], "source": "logged",
+             "id": rid, "outcome": o or "unused", "chosen": c}
+            for rid, q, c, o in newest.values()]
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="find_cli hit rate from real use")
     ap.add_argument("--days", type=float, help="only queries from the last N days")
@@ -213,7 +253,14 @@ def main(argv=None) -> int:
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--label", nargs=2, metavar=("ROW_ID", "OUTCOME"),
                     help="hand-label one query, e.g. --label 5 no_fit")
+    ap.add_argument("--export", action="store_true",
+                    help="print logged queries not in any --exclude fixture, for hand review")
+    ap.add_argument("--exclude", action="append", default=[], metavar="FIXTURE",
+                    help="fixture JSON whose phrases --export leaves out (repeatable)")
     args = ap.parse_args(argv)
+    if args.export:
+        print(json.dumps({"phrases": export_candidates(args.exclude)}, indent=2))
+        return 0
     if args.label:
         try:
             was = label(int(args.label[0]), args.label[1])
