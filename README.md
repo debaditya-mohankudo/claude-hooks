@@ -106,7 +106,7 @@ Skills are listed in the order you'd use them across a real session.
 
 | Skill | What it does                                                                        |
 | ----- | ------------------------------------------------------------------------------------ |
-| `/gc` | Commit — runs pre-commit tests, embeds the active `task:<id>` in the commit message |
+| `/commit` | Commit — runs the full suite, cites the active `task:<id>` in the message and links the commit (from task-framework) |
 
 ---
 

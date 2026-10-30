@@ -1,5 +1,5 @@
 ---
-tags: dev workflow, deploy.sh, committing, /gc, git commit, testing, deploy, RAG refresh, code embeddings, diff embeddings
+tags: dev workflow, deploy.sh, committing, /commit, git commit, testing, deploy, RAG refresh, code embeddings, diff embeddings
 ---
 # Development Workflow
 
@@ -29,7 +29,7 @@ anymore. `/deploy` restarts the server after each commit.
 uv run python -m pytest tests/ -q -m "not integration"
 
 # 3. Commit
-/gc
+/commit
 
 # 4. Restart the server + run the full suite against it
 /deploy
@@ -42,13 +42,13 @@ uv run python -m pytest tests/ -q -m "not integration"
 
 | Rule | Why |
 |------|-----|
-| `/gc` commits target the main worktree | There is no separate dev branch anymore |
+| `/commit` commits target the main worktree | There is no separate dev branch anymore |
 | `/deploy` is the way to restart the live server and confirm the full suite | Server code doesn't reload on its own — editing this repo doesn't change the running process until it restarts |
-| Include `task:<id>` in every commit | `/gc` injects it automatically when a task is active |
+| Include `task:<id>` in every commit | `/commit` cites the active task via `tasks__format_commit_message` |
 
 ## Committing
 
-Use `/gc` from any session.
+Use `/commit` from any session.
 
 ```
 feat(area): short description
@@ -60,7 +60,7 @@ epic:def456
 ## RAG index refresh after deploy
 
 After every successful commit, refresh the code and diff indexes so search
-stays in sync with HEAD (handled automatically by `/gc`, but can be run
+stays in sync with HEAD (`/commit` does not run it; run it
 manually):
 
 ```bash

@@ -1,17 +1,16 @@
 ---
-tags: skills, /gc, /pause, /onboarding, /what-am-i-working-on, skill index, slash commands, git commit skill, workflow skills
+tags: skills, /commit, /pause, /onboarding, /what-am-i-working-on, skill index, slash commands, workflow skills
 ---
 # Claude-hooks Skills
 
 Skills live in `skills/<name>` and are synced to `~/.claude/skills/<name>` after every change. Invoke with `/<name>` in any Claude session.
 
-> Task-lifecycle skills (`/task-framework`, `/task-create`, `/task-grooming`, `/task-implementation`, `/task-introspection`, `/task-log-decision`) have moved to the separate [task-framework](https://github.com/debaditya-mohankudo/Lite-Task-Framework) project.
+> Task-lifecycle skills (`/task-framework`, `/task-create`, `/task-grooming`, `/task-implementation`, `/task-introspection`, `/task-log-decision`) and `/commit` (full suite, `task:<id>` citation, commit link; it replaced `/gc`) have moved to the separate [task-framework](https://github.com/debaditya-mohankudo/Lite-Task-Framework) project.
 
 ## Skills index
 
 | Skill | Invoke | Purpose |
 | --- | --- | --- |
-| `/gc` | `/gc [task:<id>]` | Git commit with automatic task tagging, test run, and code graph refresh |
 | `/pause` | `/pause` | Finish current action, save pending intent (to the active task, if one exists), wait for user input |
 | `/onboarding` | `/onboarding` | Interactive setup guide — walks a new teammate through full claude-hooks setup step by step |
 | `/what-am-i-working-on` | `/what-am-i-working-on` | Cold-start orientation — recent prompts, tool calls, and task activations across sessions |
@@ -21,16 +20,6 @@ Skills live in `skills/<name>` and are synced to `~/.claude/skills/<name>` after
 ## Skill details
 
 Full step-by-step instructions live in each skill file — these are what Claude reads at runtime. The notes below summarise when and why to use each skill.
-
-### /gc
-
-Stages all changes, runs unit tests, commits with a derived message, and appends `task:<id>` to the commit body automatically. Also refreshes code/diff embeddings after commit. Never pushes — push is a deliberate end-of-task action.
-
-**Gate:** `GitCommitGate` blocks any commit missing a `task:<id>` in the body; `/gc` satisfies this automatically.
-
-→ `skills/gc/skill.md`
-
----
 
 ### /pause
 
