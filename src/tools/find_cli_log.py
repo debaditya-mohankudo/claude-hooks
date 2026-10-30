@@ -5,6 +5,7 @@ the next `mac <area> <verb>` command the same session runs:
 
     record_query(session_id, tool_input, tool_response)  on mcp__find_cli__find_cli
     link_calls(session_id, call_ids)                      on any mac call
+    label(row_id, "no_fit")                               hand label (task:9d42faae)
     stats(days=None)                                      the hit-rate report
 
 A mac call links to that session's newest unlinked query from the last
@@ -13,10 +14,16 @@ the first that was a seed, else the first neighbour, else the first call (a
 miss). A query no mac call follows keeps outcome NULL and counts as unused,
 not as a miss. Test sessions are skipped. The hook entry points never raise.
 
+A query no command covers (e.g. a data series no verb fetches) is hand-labelled
+no_fit after review. It replaces a NULL or miss outcome, never a seed or
+neighbour, and is counted apart from the hit rates, so a correct "nothing
+fits" is not a miss.
+
 Table find_cli_queries (src/db/schema.py) lives in ~/.claude/tool_hints.sqlite
-beside the per-command counts. Report:
+beside the per-command counts. Report and label:
 
     uv run python -m src.tools.find_cli_log [--days N] [--misses N]
+    uv run python -m src.tools.find_cli_log --label ROW_ID no_fit
 """
 from __future__ import annotations
 
@@ -31,6 +38,8 @@ from src.db.schema import FIND_CLI_QUERIES_DDL
 FIND_TOOL = "mcp__find_cli__find_cli"
 WINDOW_S = 15 * 60
 TEST_PREFIXES = ("test-", "pytest-", "api-test-")
+LABELS = ("no_fit",)
+LABELLABLE = ("miss", None)   # outcomes a hand label may replace
 
 
 def default_db() -> Path:
@@ -131,8 +140,33 @@ def link_calls(session_id: str, call_ids: list[str], db=None, now=None) -> str |
         return None
 
 
+def label(row_id: int, outcome: str, db=None, now=None) -> str:
+    """Hand-label one query. Returns the outcome it replaced (None for an unused row).
+
+    Raises ValueError for an unknown label, a missing row, or a row whose
+    outcome is seed/neighbour (the agent ran a suggested command, so it fit).
+    """
+    if outcome not in LABELS:
+        raise ValueError(f"unknown label {outcome!r}; expected one of {', '.join(LABELS)}")
+    conn = connect(db)
+    try:
+        row = conn.execute("SELECT outcome FROM find_cli_queries WHERE id = ?", (row_id,)).fetchone()
+        if row is None:
+            raise ValueError(f"no find_cli query with id {row_id}")
+        if row[0] == outcome:
+            return row[0]
+        if row[0] not in LABELLABLE:
+            raise ValueError(f"query {row_id} is a {row[0]}: a suggested command was run, so it cannot be {outcome}")
+        conn.execute("UPDATE find_cli_queries SET outcome = ?, linked_ts = ? WHERE id = ?",
+                     (outcome, now or time.time(), row_id))
+        conn.commit()
+        return row[0]
+    finally:
+        conn.close()
+
+
 def stats(db=None, days: float | None = None, misses: int = 10, now=None) -> dict:
-    """Hit rates over linked queries, plus the most recent misses."""
+    """Hit rates over linked queries, plus the most recent misses. no_fit is not linked."""
     conn = connect(db)
     try:
         since = (now or time.time()) - days * 86400 if days else 0
@@ -154,10 +188,12 @@ def stats(db=None, days: float | None = None, misses: int = 10, now=None) -> dic
     def rate(n):
         return round(n / linked, 3) if linked else None
 
+    no_fit = counts.get("no_fit", 0)
     return {
-        "queries": linked + counts.get("unused", 0),
+        "queries": linked + counts.get("unused", 0) + no_fit,
         "linked": linked,
         "unused": counts.get("unused", 0),
+        "no_fit": no_fit,
         "seed": seed, "neighbour": nbr, "miss": miss,
         "top1_rate": rate(top1),
         "seed_rate": rate(seed),
@@ -172,7 +208,17 @@ def main(argv=None) -> int:
     ap.add_argument("--days", type=float, help="only queries from the last N days")
     ap.add_argument("--misses", type=int, default=10, help="recent misses to list")
     ap.add_argument("--json", action="store_true")
+    ap.add_argument("--label", nargs=2, metavar=("ROW_ID", "OUTCOME"),
+                    help="hand-label one query, e.g. --label 5 no_fit")
     args = ap.parse_args(argv)
+    if args.label:
+        try:
+            was = label(int(args.label[0]), args.label[1])
+        except ValueError as e:
+            print(f"error: {e}")
+            return 1
+        print(f"query {args.label[0]}: {was or 'unused'} -> {args.label[1]}")
+        return 0
     s = stats(days=args.days, misses=args.misses)
     if args.json:
         print(json.dumps(s, indent=2))
@@ -181,7 +227,7 @@ def main(argv=None) -> int:
     def pct(r):
         return "-" if r is None else f"{r:.0%}"
 
-    print(f"queries {s['queries']}  linked {s['linked']}  unused {s['unused']}")
+    print(f"queries {s['queries']}  linked {s['linked']}  unused {s['unused']}  no_fit {s['no_fit']}")
     print(f"top-1 {pct(s['top1_rate'])}  seed {pct(s['seed_rate'])}  subgraph {pct(s['subgraph_rate'])}"
           f"  (seed {s['seed']}, neighbour {s['neighbour']}, miss {s['miss']})")
     for m in s["recent_misses"]:

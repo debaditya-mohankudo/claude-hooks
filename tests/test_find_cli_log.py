@@ -132,4 +132,43 @@ def test_stats_rates_unused_and_recent_misses(db):
 
 def test_stats_on_empty_db(db):
     s = fl.stats(db=db)
-    assert s["linked"] == 0 and s["seed_rate"] is None
+    assert s["linked"] == 0 and s["seed_rate"] is None and s["no_fit"] == 0
+
+
+# task:9d42faae: a correct "nothing fits" is labelled no_fit and is not a miss.
+
+def test_no_fit_label_replaces_a_miss_and_leaves_the_rates(db):
+    fl.record_query(SESSION, {}, result(["mac reminders list"]), db=db, now=100.0)
+    fl.link_calls(SESSION, ["mac reminders list"], db=db, now=101.0)              # seed
+    miss = fl.record_query(SESSION, {}, result(["mac a x"], query="fred"), db=db, now=200.0)
+    fl.link_calls(SESSION, ["mac b z"], db=db, now=201.0)                          # miss
+    assert fl.stats(db=db, now=300.0)["seed_rate"] == 0.5
+    assert fl.label(miss, "no_fit", db=db) == "miss"
+    s = fl.stats(db=db, now=300.0)
+    assert (s["queries"], s["linked"], s["no_fit"], s["miss"]) == (2, 1, 1, 0)
+    assert s["seed_rate"] == 1.0 and s["recent_misses"] == []
+
+
+def test_no_fit_label_on_an_unused_row_stops_a_later_call_linking_to_it(db):
+    rid = fl.record_query(SESSION, {}, result(["mac a x"]), db=db, now=100.0)
+    assert fl.label(rid, "no_fit", db=db) is None
+    assert fl.link_calls(SESSION, ["mac a x"], db=db, now=101.0) is None
+    assert rows(db)[0][4] == "no_fit"
+
+
+def test_label_refuses_a_seed_row_an_unknown_label_and_a_missing_row(db):
+    rid = fl.record_query(SESSION, {}, result(["mac reminders list"]), db=db, now=100.0)
+    fl.link_calls(SESSION, ["mac reminders list"], db=db, now=101.0)
+    with pytest.raises(ValueError, match="seed"):
+        fl.label(rid, "no_fit", db=db)
+    with pytest.raises(ValueError, match="unknown label"):
+        fl.label(rid, "miss", db=db)
+    with pytest.raises(ValueError, match="no find_cli query"):
+        fl.label(999, "no_fit", db=db)
+    assert rows(db)[0][4] == "seed"
+
+
+def test_label_is_idempotent(db):
+    rid = fl.record_query(SESSION, {}, result(["mac a x"]), db=db, now=100.0)
+    fl.label(rid, "no_fit", db=db)
+    assert fl.label(rid, "no_fit", db=db) == "no_fit"

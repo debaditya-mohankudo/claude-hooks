@@ -140,7 +140,7 @@ CREATE TABLE IF NOT EXISTS find_cli_queries (
     neighbours  TEXT    NOT NULL,          -- JSON list of command ids
     chosen      TEXT,                      -- the mac command run next, or NULL
     chosen_rank INTEGER,                   -- 1-based seed rank of chosen, NULL if not a seed
-    outcome     TEXT,                      -- seed | neighbour | miss; NULL = no mac call followed
+    outcome     TEXT,                      -- seed | neighbour | miss | no_fit (hand label); NULL = no mac call followed
     linked_ts   REAL
 );
 CREATE INDEX IF NOT EXISTS find_cli_queries_session ON find_cli_queries(session_id, ts);
