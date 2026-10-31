@@ -14,7 +14,8 @@ That data is what the suggestion gate is tuned on, because the 77-row fixture
 A mac call links to the session's newest unlinked prompt from the last WINDOW_S
 seconds. A prompt no mac call follows keeps chosen NULL: the agent ran no
 command, which is the expected answer to a prompt that needs none, or one the
-agent served another way. Test sessions are skipped. Prompts are personal, so
+agent served another way. Test sessions are skipped, and so are prompts no suggestion could fit: slash
+commands, pasted blocks, cross-session messages and one-word replies. Prompts are personal, so
 the table stays in the local tool_hints.sqlite and nothing is exported without
 scrubbing. Entry points never raise.
 
@@ -34,6 +35,7 @@ from src.db.schema import PROMPT_SHADOW_DDL
 WINDOW_S = 15 * 60
 MAX_PROMPT = 1000
 TEST_PREFIXES = ("test-", "pytest-", "api-test-")
+MIN_WORDS = 2   # a one-word prompt ("next?", "yes") answers the last turn; no command fits it
 
 _FINDER = None
 
@@ -66,9 +68,16 @@ def _skip(session_id: str) -> bool:
     return not session_id or session_id.startswith(TEST_PREFIXES)
 
 
+def _no_suggestion_fits(prompt: str) -> bool:
+    """A slash command, a pasted block, a cross-session message or a one-word reply."""
+    p = prompt.strip()
+    return (p.startswith(("/", "<pasted_content", "<cross-session-message"))
+            or len(p.split()) < MIN_WORDS)
+
+
 def record(session_id: str, prompt: str, db=None, now=None, answer=None) -> int | None:
     """Store find_cli's answer for one prompt. Returns the row id, or None if skipped or failed."""
-    if _skip(session_id) or not (prompt or "").strip():
+    if _skip(session_id) or not (prompt or "").strip() or _no_suggestion_fits(prompt):
         return None
     try:
         res = (answer or finder().answer)(prompt)

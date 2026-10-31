@@ -147,7 +147,9 @@ def _handle_user_prompt_submit(hook_input: dict) -> dict | None:
     # Shadow run (task:444cc036): find_cli's answer for the whole prompt is logged,
     # never shown. Never raises, so it cannot cost the turn its other context.
     from src.tools import prompt_shadow
+    t_shadow = time.monotonic()
     prompt_shadow.record(session_id, prompt)
+    shadow_ms = (time.monotonic() - t_shadow) * 1000
 
     ctx["user_context"] = render_user_context(set(ctx.get("keywords") or []))
     system_prompt = _format_system_prompt(ctx)
@@ -175,10 +177,10 @@ def _handle_user_prompt_submit(hook_input: dict) -> dict | None:
     memories_tokens = count_tokens("".join(m.get("body", "") for m in ctx.get("memories", [])))
     prompt_tokens   = count_tokens(system_prompt)
     log.info(
-        "UPS done: session=%s elapsed_ms=%.0f memories=%d tools=%d "
+        "UPS done: session=%s elapsed_ms=%.0f shadow_ms=%.0f memories=%d tools=%d "
         "ctx_chars(memories=%d) ctx_tokens(memories=%d) "
         "prompt_chars=%d prompt_tokens=%d",
-        session_id[:8], elapsed_ms,
+        session_id[:8], elapsed_ms, shadow_ms,
         len(ctx.get("memories", [])), len(ctx.get("tool_hints", [])),
         memories_chars,
         memories_tokens,
