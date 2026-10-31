@@ -188,3 +188,22 @@ def migrate_hooks_db(conn: sqlite3.Connection) -> None:
     """Additive migrations for claude_hooks.sqlite."""
     # No additive columns yet — placeholder for future migrations.
     conn.commit()
+
+
+PROMPT_SHADOW_DDL = """
+CREATE TABLE IF NOT EXISTS prompt_shadow (
+    id          INTEGER PRIMARY KEY,
+    ts          REAL    NOT NULL,          -- unix time of the prompt
+    session_id  TEXT    NOT NULL,
+    prompt      TEXT    NOT NULL,          -- the whole user prompt, cut at 1000 characters
+    top         TEXT,                      -- find_cli's best command, or NULL if nothing scored
+    seeds       TEXT    NOT NULL,          -- JSON list of command ids, best first
+    level       TEXT,                      -- find_cli confidence level: high | low | none
+    coverage    REAL,
+    gap         REAL,
+    score       REAL,                      -- the top seed's score
+    chosen      TEXT,                      -- the first mac command the session ran next, or NULL
+    linked_ts   REAL
+);
+CREATE INDEX IF NOT EXISTS prompt_shadow_session ON prompt_shadow(session_id, ts);
+"""
