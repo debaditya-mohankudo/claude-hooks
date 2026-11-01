@@ -64,10 +64,10 @@
       ],
       "invariants": [
         "MEMORY.sqlite's memories table has no domain column as of task:4c9c21e6 (2026-08-07) — domain is not a retrieval axis for score_memories() anymore, which scores tags-only across a single global batch (see memory-scoring-global-batch-limit).",
-        "tool_hints.sqlite's mcp_tool_hints table has no domain column as of task:5b15dc9b (2026-08-07) — KeywordOverlapScorer (langchain_learning/retrievers.py) scores purely on keyword overlap + usage count now. cwd_domain_map, _load_cwd_domain_map, cwd_domains_json, _CWD_DOMAIN_MAP_DEFAULT were deleted from src/config.py in the same task, and cwd_domains.json (icloud_db_dir) was deleted — nothing in this repo maps CWD to a domain string anymore.",
-        "config.tool_hints_db and config.log_db resolve under config.claude_db_dir (default ~/.claude) as of task:62ea0ea5 (2026-09-03) — they were icloud_db_dir-relative before. A hot-path SQLite file under iCloud sync caused transient read locks / EDEADLK. config.icloud_db_dir now backs only JSON stores (memory_scoring_json, and tool_registry.json via hooks/paths.py). Env overrides: CLAUDE_HOOKS_CLAUDE_DB_DIR, CLAUDE_HOOKS_ICLOUD_DB_DIR."
+        "config.tool_hints_db and config.log_db resolve under config.claude_db_dir (default ~/.claude) as of task:62ea0ea5 (2026-09-03) — they were icloud_db_dir-relative before. A hot-path SQLite file under iCloud sync caused transient read locks / EDEADLK. config.icloud_db_dir now backs only JSON stores (memory_scoring_json, and tool_registry.json via hooks/paths.py). Env overrides: CLAUDE_HOOKS_CLAUDE_DB_DIR, CLAUDE_HOOKS_ICLOUD_DB_DIR.",
+        "tool_hints.sqlite's mcp_tool_hints table has no domain column as of task:5b15dc9b (2026-08-07). It now holds usage counts only (log_tool_usage writes them, find_cli reads them); the keyword scorer that ranked hints from it was removed in task:734841bf. cwd_domain_map, _load_cwd_domain_map, cwd_domains_json, _CWD_DOMAIN_MAP_DEFAULT were deleted from src/config.py in task:5b15dc9b, and cwd_domains.json (icloud_db_dir) was deleted - nothing in this repo maps CWD to a domain string anymore."
       ],
-      "last_validated": "2026-09-03T06:18:44.697188+00:00",
+      "last_validated": "2026-11-01T05:20:07.421562+00:00",
       "module": "src/config.py",
       "name": "config-db-paths-and-domains",
       "related": []
@@ -140,28 +140,25 @@
       "confidence": 0.95,
       "contracts": [
         "_format_system_prompt(ctx) -> str — the additionalContext body for a UserPromptSubmit turn; \"\\n\".join(lines).strip(), so an empty string when ctx carries nothing renderable",
-        "All sections are markdown-formatted, emitted in a fixed order: '## Turn state', the user-context block (its own '## Dev personality' / '## Financial profile' / '## Relevant context' headings), '## Injected memories', '## Suggested tools', '## Suggested tool groups'"
+        "All sections are markdown-formatted, emitted in a fixed order: '## Turn state', the user-context block (its own '## Dev personality' / '## Financial profile' / '## Relevant context' headings), '## Injected memories'"
       ],
       "created_at": "2026-06-29T09:47:25.284960+00:00",
-      "description": "Assembles the UserPromptSubmit additionalContext from the SessionState-derived ctx dict into markdown sections. Rewritten task:173e6846 (2026-09-01) after the long STALE period (task:c2e36050): the pre-task:882d67fa pull-based task-context pipeline this entry used to describe (LoadRelatedTasksNode, task_body, execution_contract, activate_task.py, mid_task_decisions, '## Repo memories', new-project note) is entirely gone, and so is the task:996cc8f0 '## Active task' push block (removed task:8be768df in the prompt, cache removed task:173e6846). What remains is five small sections: turn identifiers, the rendered user-context ontology (hooks/user_context.py), scored memories, scored tool hints, and (task:750242a5) tool groups lifted from those hints via ~/.claude/mcp-tools-domain.json (langchain_learning/tool_groups.py).",
+      "description": "Assembles the UserPromptSubmit additionalContext from the SessionState-derived ctx dict into markdown sections. Rewritten task:173e6846 (2026-09-01) after the long STALE period (task:c2e36050): the pre-task:882d67fa pull-based task-context pipeline is entirely gone, and so is the task:996cc8f0 '## Active task' push block. The usage-ranked '## Suggested tools' / '## Suggested tool groups' blocks were removed in task:734841bf (find_cli replaced them). What remains is three small sections: turn identifiers, the rendered user-context ontology (hooks/user_context.py) and scored memories.",
       "evidence": [
         "hooks/dispatcher.py:_format_system_prompt",
         "hooks/user_context.py:render_user_context",
-        "langchain_learning/tool_groups.py:route_groups",
-        "tests/test_tool_groups.py"
+        "tests/test_dispatcher.py:test_tool_hints_are_not_injected"
       ],
       "invariants": [
-        "Each section is emitted only when its data is non-empty; a ctx with no session_id/prompt_id, empty user_context, no memories and no tool_hints yields \"\"",
         "'## Turn state' lists '- session_id: X' and/or '- prompt_id: Y', each line only when that value is present; the header is emitted if either is",
         "The user-context block is ctx['user_context'] appended verbatim (already stripped) when non-empty — _format_system_prompt owns none of its headings; render_user_context builds them from LIFE_OS/user-context-ontology.json (always_on nodes verbatim, tag-hit domain nodes as '## Relevant context'), falling back to dev_personality.md when the graph is unreadable",
         "'## Injected memories' renders each memory as '### {name} [{domain}]' followed by its stripped body; there is no token-budget trimming here (_enforce_context_budget was removed) — memories render exactly as the retriever scored/returned them",
-        "'## Suggested tools' renders each hint as '- `{tool}` (skill={skill}, used={count}x)'",
         "No active-task section in any form: _format_system_prompt has no active_task branch and the handler no longer populates ctx['active_task'] (push cache removed task:173e6846). task-framework owns the active task; it is read via tasks__context, never pushed here",
         "The one-shot node-output append is NOT done by this function — _handle_user_prompt_submit appends ctx['pending_hook_output'].hookSpecificOutput.additionalContext after calling _format_system_prompt, gated on hookEventName == 'UserPromptSubmit'. run_session() surfaces-and-clears the checkpoint copy so any such payload renders exactly once and cannot leak into the next PostToolUse response",
-        "'## Suggested tool groups' is derived from ctx['tool_hints'] by tool_groups.route_groups/format_groups (task:750242a5): emitted only when hints are non-empty and at least one hint resolves to an unambiguous group; ambiguous (code_rag lives in two servers) or unknown hints are skipped. It never alters '## Suggested tools' output.",
-        "Group routing fails open: a missing/unreadable graph, or valid JSON of the wrong shape, yields no section and never raises out of _format_system_prompt. load_graph caches only successful loads, keyed on file mtime — a failed load is retried and graph edits apply without a server restart."
+        "No tool-hint sections: '## Suggested tools' / '## Suggested tool groups' were removed (task:734841bf), so a stray ctx['tool_hints'] key is ignored. find_cli resolves a task to a command on demand; tool_hints.sqlite stays only as its usage store.",
+        "Each section is emitted only when its data is non-empty; a ctx with no session_id/prompt_id, empty user_context and no memories yields an empty string"
       ],
-      "last_validated": "2026-09-21T03:07:16.041913+00:00",
+      "last_validated": "2026-11-01T05:20:12.518128+00:00",
       "module": "hooks/dispatcher.py",
       "name": "dispatcher-system-prompt-assembly",
       "related": []
@@ -438,7 +435,7 @@
         "Ids are validated against cli-graph's graph/cli_graph.json. If the graph cannot be read, MCP names are left unmapped and Bash calls are accepted on syntax alone."
       ],
       "created_at": "2026-10-27T03:55:31.374375+00:00",
-      "description": "Maps both a Bash command line and an MCP call from a server that `mac` replaces (local-mac, astrology, wyckoff-analyzer, sysml-mcp) to one canonical `mac <area> <verb>` id. Vault reindex, the server_memory event log, hint learning, Suggested tool groups and the fail-closed PreToolUse set all key on that id instead of on MCP tool names.",
+      "description": "Maps both a Bash command line and an MCP call from a server that `mac` replaces (local-mac, astrology, wyckoff-analyzer, sysml-mcp) to one canonical `mac <area> <verb>` id. Vault reindex, the server_memory event log, hint learning (usage counts find_cli reads) and the fail-closed PreToolUse set all key on that id instead of on MCP tool names.",
       "evidence": [
         "hooks/core/mac_command.py:parse_bash",
         "hooks/core/mac_command.py:from_mcp",
@@ -451,7 +448,7 @@
         "cli-graph's graph is the source of truth for which ids exist. This module never hard-codes the command list.",
         "A hook behaves the same before and after the MCP cutover (8cd14cfe), because both call forms resolve to one id."
       ],
-      "last_validated": "2026-10-27T03:55:31.374394+00:00",
+      "last_validated": "2026-11-01T05:19:53.172064+00:00",
       "module": "hooks/core/mac_command.py",
       "name": "mac-command-id",
       "related": []
@@ -708,42 +705,6 @@
       "module": "hooks/session_state.py",
       "name": "session-state-latest-checkpoint-lookup"
     },
-    "tool-groups-routing": {
-      "confidence": 0.9,
-      "contracts": [
-        "route_groups(hints, graph=None, top_groups=3) -> list[dict] ranks groups by hit count, then best hint position; each route carries group label, category, matched tools, the group's tools string, and overlap alternatives",
-        "format_groups(routes) -> list[str] prompt lines, [] when there are no routes",
-        "group_of resolves 'grp__tool' by group name and bare names (wyckoff-analyzer) by the group's listed tools including 'prefix_*' wildcards",
-        "match_groups(prompt_keywords, graph=None) -> {group id: matched keywords}: exact-token match against each group's tokenised curated keywords; a group without keywords is unmatched, a bad graph returns {}"
-      ],
-      "created_at": "2026-09-21T03:09:05.205414+00:00",
-      "description": "Lifts ScoreToolsNode's flat tool hints to tool groups using ~/.claude/mcp-tools-domain.json, rendered as '## Suggested tool groups' by dispatcher._format_system_prompt (task:750242a5). Pure render-time post-process: scoring is unchanged. Groups also carry curated `keywords`, read only by match_groups for scripts/measure_group_routing.py; they do not feed routing (task:21353636).",
-      "evidence": [
-        "langchain_learning/tool_groups.py:route_groups",
-        "langchain_learning/tool_groups.py:load_graph",
-        "langchain_learning/tool_groups.py:group_of",
-        "tests/test_tool_groups.py",
-        "hooks/dispatcher.py:_format_system_prompt",
-        "langchain_learning/tool_groups.py:match_groups",
-        "scripts/measure_group_routing.py",
-        "scripts/measure_follow_holdout.py",
-        "scripts/mine_tool_sequences.py"
-      ],
-      "invariants": [
-        "Ambiguous group names (code_rag exists in two servers) and unknown tools resolve to no group and are skipped, never guessed",
-        "Fails open: a missing/unreadable graph, or valid JSON of the wrong shape, returns [] and never raises out of route_groups",
-        "load_graph caches only successful loads keyed on (path, mtime_ns); a failed load is retried and graph edits apply without a server restart",
-        "often_follows edges in the graph are deliberately unused here (~1 week of PTU logs, skewed to Bash/Safari)",
-        "DB hints are still the only source of '## Suggested tool groups': measurement (task:21353636) found graph keywords hit 47% vs the DB's 59%, and no prompt where the graph matched but the DB had no hints, so match_groups is not called from the dispatcher",
-        "Curated group keywords must survive tokenise() (3+ letters a-z, not a stopword); `time` and `now` did not and scored zero silently, so tests pin it",
-        "often_follows stays unused by routing, now on held-out evidence not just a small-sample guess (task:f1fb2187): follow@2 beat a most-used-groups baseline 80-87% vs 69-73% on 1065 PTU transitions, but 71% of MCP targets are taskfw workflow, and outside taskfw it tied the baseline (51% vs 51%, n=53). A follow_groups helper was tried and removed; tombstone in tool_groups.py. Re-measure with scripts/measure_follow_holdout.py at ~200 non-taskfw transitions",
-        "scripts/mine_tool_sequences.py must stay import-safe: main() is guarded by __name__, because an unguarded call regenerated the live graph on import (task:f1fb2187)"
-      ],
-      "last_validated": "2026-09-21T05:42:53.504954+00:00",
-      "module": "langchain_learning/tool_groups.py",
-      "name": "tool-groups-routing",
-      "related": []
-    },
     "toon-encoding-shared-module": {
       "confidence": 0.9,
       "contracts": [
@@ -796,6 +757,6 @@
     "commit": "5f62c6b5150a20fe7198d7bd6c155c4b3c0d3101",
     "extracted_at": "2026-07-23T05:42:23Z",
     "note": "incremental upsert (task:a2fd402d)",
-    "updated_at": "2026-10-30T04:47:17.159662+00:00"
+    "updated_at": "2026-11-01T05:20:12.518172+00:00"
   }
 }
