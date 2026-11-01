@@ -1,4 +1,4 @@
-"""Powerline tab bar (tab_bar_style custom). The active-task banner lives in window_title_bar.py."""
+"""Powerline tab bar (tab_bar_style custom)."""
 from kitty.boss import get_boss
 from kitty.fast_data_types import Screen, add_timer
 from kitty.tab_bar import (
