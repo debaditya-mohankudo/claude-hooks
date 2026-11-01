@@ -105,15 +105,10 @@ def _format_system_prompt(ctx: dict) -> str:
                 lines.append(body)
             lines.append("")
 
-    if ctx["tool_hints"]:
-        lines.append("## Suggested tools")
-        for hint in ctx["tool_hints"]:
-            tool  = hint.get("tool_name", "?")
-            skill = hint.get("skill", "")
-            count = hint.get("count", 0)
-            lines.append(f"- `{tool}` (skill={skill}, used={count}x)")
-        lines.append("")
-        lines.extend(format_groups(route_groups(ctx["tool_hints"])))
+    # The '## Suggested tools' / '## Suggested tool groups' blocks are gone: they
+    # ranked by usage count, not by the prompt, and missed the right `mac` area on
+    # the prompts checked. find_cli resolves a task to a command on demand;
+    # tool_hints.sqlite stays as its usage store (log_tool_usage still writes it).
 
     # Active task, execution contract, task decisions/memories/history, relevant
     # code, and related tasks/commits blocks are gone (task:882d67fa) — that
@@ -124,7 +119,6 @@ def _format_system_prompt(ctx: dict) -> str:
 
 
 from hooks.user_context import render_user_context
-from langchain_learning.tool_groups import format_groups, route_groups
 
 
 def _handle_user_prompt_submit(hook_input: dict) -> dict | None:
@@ -177,11 +171,11 @@ def _handle_user_prompt_submit(hook_input: dict) -> dict | None:
     memories_tokens = count_tokens("".join(m.get("body", "") for m in ctx.get("memories", [])))
     prompt_tokens   = count_tokens(system_prompt)
     log.info(
-        "UPS done: session=%s elapsed_ms=%.0f shadow_ms=%.0f memories=%d tools=%d "
+        "UPS done: session=%s elapsed_ms=%.0f shadow_ms=%.0f memories=%d "
         "ctx_chars(memories=%d) ctx_tokens(memories=%d) "
         "prompt_chars=%d prompt_tokens=%d",
         session_id[:8], elapsed_ms, shadow_ms,
-        len(ctx.get("memories", [])), len(ctx.get("tool_hints", [])),
+        len(ctx.get("memories", [])),
         memories_chars,
         memories_tokens,
         len(system_prompt), prompt_tokens,

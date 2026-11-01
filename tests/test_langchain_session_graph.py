@@ -23,12 +23,10 @@ from langchain_learning.session_graph import (
 )
 from langchain_learning.nodes.load_memories import LoadMemoriesNode
 from langchain_learning.nodes._text_utils import tokenise as _tokenise
-from langchain_learning.nodes.score_tools import ScoreToolsNode
-from langchain_learning.retrievers import NullMemoryRetriever, NullToolScorer
+from langchain_learning.retrievers import NullMemoryRetriever
 
 # Instantiate nodes for direct unit testing
 load_memories     = LoadMemoriesNode()
-score_tools       = ScoreToolsNode()
 
 # ---------------------------------------------------------------------------
 # Fixtures — temp DBs
@@ -108,7 +106,6 @@ def _base_state(**overrides) -> SessionState:
         "prompt": "", "cwd": "", "session_id": "", "turn": 0,
         "memories": [],
         "keywords": [],
-        "tool_hints": [],
         "current_state": "prompt",
         "tool_name": "", "tool_input": {}, "tool_result": {}, "prompt_id": "",
         "prompt_tools": [], "session_prompt_ids": [], "session_tools": OrderedDict(),
@@ -193,55 +190,6 @@ def test_load_memories_caps_at_top_n(hints_db):
     with patch.object(lc, "config", cfg):
         result = load_memories(_base_state(prompt="send message to contact", cwd="/workspace/claude-hooks"))
     assert len(result["memories"]) <= 10
-
-
-# ---------------------------------------------------------------------------
-# score_tools node
-# ---------------------------------------------------------------------------
-
-def test_score_tools_returns_matching_keyword(mock_cfg):
-    result = score_tools(_base_state(keywords=["nakshatra"]))
-    tool_names = [h["tool_name"] for h in result["tool_hints"]]
-    assert "panchang__today" in tool_names
-
-
-def test_score_tools_excludes_non_matching(mock_cfg):
-    result = score_tools(_base_state(keywords=["panchang"]))
-    tool_names = [h["tool_name"] for h in result["tool_hints"]]
-    assert "imessage__send" not in tool_names
-
-
-def test_score_tools_caps_at_five(mock_cfg):
-    result = score_tools(_base_state(keywords=["write", "send", "gold", "panchang"]))
-    assert len(result["tool_hints"]) <= 5
-
-
-def test_score_tools_missing_db_returns_empty():
-    node = ScoreToolsNode(scorer=NullToolScorer())
-    result = node(_base_state(keywords=["send"]))
-    assert result["tool_hints"] == []
-
-
-# ---------------------------------------------------------------------------
-# KeywordOverlapScorer — count tie-breaker (task:53c9f817)
-# ---------------------------------------------------------------------------
-
-def test_score_tools_count_breaks_ties(mock_cfg):
-    # imessage__send (count=50) and vault__write (count=40) each match exactly
-    # one of these keywords ("send" / "vault") — equal base score (kw_overlap=1),
-    # so the higher-count tool should rank first.
-    result = score_tools(_base_state(keywords=["send", "vault"]))
-    tool_names = [h["tool_name"] for h in result["tool_hints"]]
-    assert tool_names.index("imessage__send") < tool_names.index("vault__write")
-
-
-def test_score_tools_count_does_not_manufacture_relevance(mock_cfg):
-    # imessage__send has count=50 (the highest in the fixture) but its
-    # keywords don't overlap with the prompt — it must not leak into
-    # results just because of its usage count.
-    result = score_tools(_base_state(keywords=["panchang"]))
-    tool_names = [h["tool_name"] for h in result["tool_hints"]]
-    assert "imessage__send" not in tool_names
 
 
 # ---------------------------------------------------------------------------

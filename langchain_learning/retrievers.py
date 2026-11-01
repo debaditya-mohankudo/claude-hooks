@@ -47,26 +47,6 @@ class MemoryRetriever(Protocol):
 
 
 # ---------------------------------------------------------------------------
-# ToolScorer
-# ---------------------------------------------------------------------------
-
-@runtime_checkable
-class ToolScorer(Protocol):
-    """Score and return relevant tool hints for a set of prompt keywords.
-
-    Implementations:
-      KeywordOverlapScorer — wraps ScoreToolsNode inline scoring (nodes/score_tools.py)
-      NullToolScorer       — returns [] (testing / disabled)
-    """
-
-    def score(
-        self,
-        keywords: set[str],
-        top_n: int = 5,
-    ) -> list[dict]: ...
-
-
-# ---------------------------------------------------------------------------
 # GatePolicy
 # ---------------------------------------------------------------------------
 
@@ -91,13 +71,6 @@ class NullMemoryRetriever:
     def retrieve(
         self, tokens: set[str], top_n: int | None = None
     ) -> list[dict]:
-        return []
-
-
-class NullToolScorer:
-    """No-op scorer — always returns empty. Satisfies ToolScorer Protocol."""
-
-    def score(self, keywords: set[str], top_n: int = 5) -> list[dict]:
         return []
 
 
@@ -137,65 +110,6 @@ class CombinationSignalRetriever:
             return []
         finally:
             conn.close()
-
-
-class KeywordOverlapScorer:
-    """Scores tool hints via keyword overlap against tool_hints.sqlite.
-
-    Wraps the inline scoring logic from ScoreToolsNode.
-    Satisfies ToolScorer Protocol.
-    """
-
-    # task:53c9f817 — log1p saturates so a heavily-used tool (e.g.
-    # contacts__search at ~3687 calls -> log1p=8.2) gets a meaningful edge
-    # over an equally keyword-matched but rarely-used tool without
-    # letting raw call volume swamp the signal entirely (kw_overlap terms
-    # are typically 0-4). Applied only as a tie-breaker on top of an
-    # existing keyword match (see `if base > 0` below) — usage
-    # count must never manufacture relevance out of nothing, or a
-    # frequently-called unrelated tool would leak into every result set.
-    _COUNT_WEIGHT = 0.3
-
-    def score(
-        self,
-        keywords: set[str],
-        top_n: int = 5,
-    ) -> list[dict]:
-        import math
-        import sqlite3
-        from langchain_learning.config import config as _cfg
-
-        if not _cfg.tool_hints_db.exists():
-            _log.debug("[KeywordOverlapScorer] tool_hints_db not found: %s", _cfg.tool_hints_db)
-            return []
-        try:
-            conn = sqlite3.connect(f"file:{_cfg.tool_hints_db}?mode=ro", uri=True)
-            conn.row_factory = sqlite3.Row
-            rows = conn.execute(
-                "SELECT tool_name, skill, count, keywords FROM mcp_tool_hints"
-            ).fetchall()
-            conn.close()
-        except Exception as exc:
-            _log.error("[KeywordOverlapScorer] db error: %s", exc)
-            return []
-
-        scored: list[tuple[float, dict]] = []
-        for row in rows:
-            base  = sum(1 for k in keywords if k in (row["keywords"] or ""))
-            count = row["count"] or 0
-            score = base + math.log1p(count) * self._COUNT_WEIGHT if base > 0 else 0.0
-            if score > 0:
-                scored.append((score, {
-                    "tool_name": row["tool_name"],
-                    "skill":     row["skill"] or "",
-                    "count":     count,
-                }))
-
-        scored.sort(key=lambda x: -x[0])
-        result = [h for _, h in scored[:top_n]]
-        _log.debug("[KeywordOverlapScorer] returned=%d keywords=%d",
-                   len(result), len(keywords))
-        return result
 
 
 class DefaultGatePolicy:

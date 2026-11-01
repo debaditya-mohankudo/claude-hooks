@@ -9,7 +9,6 @@ from langchain_learning.nodes.backfill_memory_files import BackfillMemoryFilesNo
 from langchain_learning.nodes.mcp_hook_bridge import McpHookBridgeNode
 from langchain_learning.nodes.noop import NoopNode
 from langchain_learning.nodes.play_sound import PlaySoundNode
-from langchain_learning.nodes.score_tools import ScoreToolsNode
 from langchain_learning.nodes.set_prompt_id import SetPromptIdNode
 
 # load_active_task, load_task_code, load_related_commits, summarize_task_context,
@@ -21,7 +20,6 @@ NODE_REGISTRY: dict[str, object] = {
     "load_turn":               LoadTurnNode,
     "load_memories":           LoadMemoriesNode,
     # downstream
-    "score_tools":             ScoreToolsNode,
     "set_prompt_id":           SetPromptIdNode,
     # PreToolUse chain
     "gate_check":              GateCheckNode,

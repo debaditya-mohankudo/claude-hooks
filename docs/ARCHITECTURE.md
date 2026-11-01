@@ -42,7 +42,7 @@ Six requirements, each satisfied by a subsystem, sourced from a mix of this docu
 
 ## UserPromptSubmit sequence
 
-Ground truth: `hooks/dispatcher.py:_handle_user_prompt_submit()` and `langchain_learning/session_graph.py:build_session_graph()`. Eight ordered steps: client forwards the payload → server routes to the dispatcher → dispatcher reads existing checkpoint state → the StateGraph runs (`load_turn` → task loaders → fan-out `cwd_domain_detect`/`load_memories`/`score_tools` → `set_prompt_id` → `log_task_events`) → dispatcher adds `vault_context` → trims to the token/char budget → assembles `additionalContext` → response flows back through server → client → Claude Code.
+Ground truth: `hooks/dispatcher.py:_handle_user_prompt_submit()` and `langchain_learning/session_graph.py:build_session_graph()`. Eight ordered steps: client forwards the payload → server routes to the dispatcher → dispatcher reads existing checkpoint state → the StateGraph runs (`load_turn` → task loaders → fan-out `cwd_domain_detect`/`load_memories` → `set_prompt_id` → `log_task_events`) → dispatcher adds `vault_context` → trims to the token/char budget → assembles `additionalContext` → response flows back through server → client → Claude Code.
 
 **A prior version of this section named `hooks/memory_loader_lc.py` as an "LCEL pipeline."** That file does not exist anywhere in this repo — it belongs to a separate, global `~/.claude/` memory system unrelated to claude-hooks. The graph above (a LangGraph `StateGraph`, not LCEL — no LCEL usage exists anywhere in this repo) is the real mechanism.
 
@@ -96,9 +96,8 @@ flowchart TD
         ST --> PAR[Parallel branch]
         PAR --> LM[load_memories\nCombinationSignalRetriever]
         PAR --> LT[load_related_tasks\ndiff RAG + code RAG]
-        PAR --> SC[score_tools\nKeywordOverlapScorer]
         PAR --> CD[cwd_domain_detect]
-        LM & LT & SC & CD --> SP[build additionalContext]
+        LM & LT & CD --> SP[build additionalContext]
         SP --> LE[log_task_events]
     end
 
@@ -112,10 +111,10 @@ flowchart TD
         PTU_post --> LU[log_tool_usage\nlatency + keywords]
     end
 
-    SP -->|## Injected memories\n## Suggested tools\n## Task history| CC
+    SP -->|## Injected memories\n## Task history| CC
 
     LM -.->|BM25 scoring| MEMDB[(MEMORY.sqlite)]
-    SC -.->|keyword overlap| THDB[(tool_hints.sqlite)]
+    LU -.->|usage counts| THDB[(tool_hints.sqlite)]
     LT -.->|task graph| TASKDB[(proj_tasks.db)]
     LU -.->|update hints| THDB
     FS -.->|structured logs| LOGDB[(claude_hooks.sqlite)]

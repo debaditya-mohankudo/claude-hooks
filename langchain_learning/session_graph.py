@@ -7,7 +7,7 @@ in a single graph topology.
 Graph shape:
 
     START → route_event (conditional)
-      ├── user_prompt_submit → load_turn → load_memories / score_tools → set_prompt_id → END
+      ├── user_prompt_submit → load_turn → load_memories → set_prompt_id → END
       ├── pre_tool_use       → gate_check → END
       ├── post_tool_use      → log_tool_usage → (__hook__ result → mcp_hook_bridge | *) → END
       └── stop               → noop → play_sound → END
@@ -68,7 +68,7 @@ def build_session_graph(checkpointer=None):
     for name in [
         "noop",
         "load_turn", "load_memories",
-        "score_tools", "set_prompt_id",
+        "set_prompt_id",
         "gate_check",
         "log_tool_usage",
         "mcp_hook_bridge",
@@ -108,10 +108,8 @@ def build_session_graph(checkpointer=None):
     # above, and the same fix: task-framework owns active-task context and is
     # asked via tasks__context, not announced by a parallel pipeline here.
     builder.add_edge("load_turn", "load_memories")
-    builder.add_edge("load_turn", "score_tools")
-    # fan-in: both converge at set_prompt_id
+    # score_tools is gone: it fed the "Suggested tools" injection, which find_cli replaced.
     builder.add_edge("load_memories",         "set_prompt_id")
-    builder.add_edge("score_tools",           "set_prompt_id")
     # log_task_events is gone with the rest of the task pipeline: it wrote a
     # task_event row per turn and stamped open_tasks.updated_at, both into a
     # store this repo no longer owns. Its introspection nudge is gone with
@@ -212,7 +210,7 @@ def _fresh_state(session_id: str) -> SessionState:
         event_type="", prompt="", cwd="", session_id=session_id,
         turn=0,
         memories=[],
-        keywords=[], tool_hints=[],
+        keywords=[],
         current_state="prompt",
         tool_name="", tool_input={}, prompt_id="", prompt_tools=[],
         session_prompt_ids=[], session_tools=OrderedDict(), session_prompt_texts={},

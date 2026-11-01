@@ -105,24 +105,12 @@ def test_conflicting_memory_is_marked():
     assert "> conflicts with: counter, other" in result
 
 
-def test_includes_tool_hints():
+def test_tool_hints_are_not_injected():
+    # find_cli replaced the usage-ranked '## Suggested tools' blocks; a stray
+    # tool_hints key in ctx must not bring them back.
     hint = {"tool_name": "tasks__create", "skill": "task-framework", "count": 5}
     result = _format_system_prompt(_base_ctx(tool_hints=[hint]))
-    assert "## Suggested tools" in result
-    assert "tasks__create" in result
-
-
-def test_tool_hints_add_suggested_tool_groups_section():
-    hint = {"tool_name": "vault__read", "skill": "", "count": 3}
-    result = _format_system_prompt(_base_ctx(tool_hints=[hint]))
-    assert "## Suggested tool groups" in result
-    assert "local-mac/vault" in result
-
-
-def test_no_group_section_when_hints_have_no_known_group():
-    hint = {"tool_name": "nonesuch__thing", "skill": "", "count": 1}
-    result = _format_system_prompt(_base_ctx(tool_hints=[hint]))
-    assert "## Suggested tools" in result
+    assert "## Suggested tools" not in result
     assert "## Suggested tool groups" not in result
 
 

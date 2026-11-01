@@ -117,14 +117,6 @@ def test_mac_hint_keywords_split_on_spaces_and_drop_mac():
         assert "mac" not in kw and {"vault", "section", "search"} <= set(kw)
 
 
-def test_mac_hints_group_by_area_and_point_at_the_cli():
-    from langchain_learning.tool_groups import format_groups, route_groups
-    routes = route_groups([{"tool_name": "mac mail read"}, {"tool_name": "mac mail search"}],
-                          graph={"nodes": [], "edges": []})
-    assert [(r["group"], r["matched"]) for r in routes] == [("mac mail", ["mac mail read", "mac mail search"])]
-    assert "mac mail --help" in format_groups(routes)[1]
-
-
 # --- hint migration -------------------------------------------------------------
 
 def _migration():
