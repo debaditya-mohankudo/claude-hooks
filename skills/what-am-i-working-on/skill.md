@@ -2,14 +2,15 @@
 name: what-am-i-working-on
 description: Show recent activity from server memory — prompts, tool calls, and task activations across sessions. Use when asked "what was I working on?" or invoked as /what-am-i-working-on.
 user-invocable: true
-updated: 2026-08-17
+updated: 2026-11-03
 model: haiku
 ---
 
 Canonical home: this repo (claude-hooks), because the skill is primarily about
 claude-hooks' own systems — server_memory.sqlite and the /session/live
-endpoint (both owned by hooks/server.py) — with taskfw logs as one
-secondary section. ~/.claude/skills/what-am-i-working-on/ is a deployed
+endpoint (both owned by hooks/server.py). taskfw logs are deliberately
+not fetched: tasks are driven by skills, whose activity already appears in
+the event log. ~/.claude/skills/what-am-i-working-on/ is a deployed
 copy, not a second source of truth; edit here and re-copy, not the other
 way round. Do not fork a copy into task-framework or any other repo.
 
@@ -34,11 +35,3 @@ curl -s http://127.0.0.1:8766/session/live
 Present it as: count of live sessions, and for each one its pid and elapsed time (`etime`).
 
 If either call fails (the event log command returns an error, or the curl fails/connection refused), report that the hook server is unreachable and suggest checking `launchctl list | grep claude-hooks`.
-
-3. Fetch the last 10 taskfw log events (everything in taskfw's own operational log — MCP tool calls like `tasks__check_item`, skill-invocation markers, server lifecycle lines — not just task-skill invocations, since that filter was hiding most of the log):
-
-```python
-mcp__taskfw__tasks__logs(limit=10)
-```
-
-No client-side filtering — present all 10 rows as-is: timestamp / logger / message. If the `mcp__taskfw__*` tools aren't available in this session, skip this section silently rather than failing the whole summary.
