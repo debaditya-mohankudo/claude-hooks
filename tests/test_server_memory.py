@@ -102,9 +102,10 @@ def test_record_tool_from_hook_records_mac_calls_with_area_verb_and_args():
     assert [(e["content"], e.get("args")) for e in events] == [("mac vault write", "'Notes/a b.md' hi")]
 
 
-def test_record_tool_from_hook_records_edit():
-    sm.record_tool_from_hook({"session_id": "s1", "tool_name": "Edit"})
-    assert sm.get_server_memory()["events"][-1]["content"] == "Edit"
+def test_record_tool_from_hook_skips_read_edit_write():
+    for name in ("Read", "Edit", "Write"):
+        sm.record_tool_from_hook({"session_id": "s1", "tool_name": name, "tool_input": {"file_path": "/a"}})
+    assert [e for e in sm.get_server_memory()["events"] if e.get("type") == "tool"] == []
 
 
 # ── result snippets ───────────────────────────────────────────────────────────
@@ -137,14 +138,14 @@ def test_result_snippet_unwraps_mcp_content_envelope():
 
 
 def test_result_snippet_falls_back_for_non_mcp_shape():
-    body = {"session_id": "s1", "tool_name": "Edit", "tool_response": {"filePath": "/a/b.py"}}
+    body = {"session_id": "s1", "tool_name": "mcp__claude-hooks__vault__read", "tool_response": {"filePath": "/a/b.py"}}
     sm.record_tool_from_hook(body)
     result = sm.get_server_memory()["events"][-1]["result"]
     assert result and "filePath" in result
 
 
 def test_no_result_when_response_missing():
-    sm.record_tool_from_hook({"session_id": "s1", "tool_name": "Edit"})
+    sm.record_tool_from_hook({"session_id": "s1", "tool_name": "mcp__claude-hooks__vault__read"})
     assert sm.get_server_memory()["events"][-1]["result"] is None
 
 

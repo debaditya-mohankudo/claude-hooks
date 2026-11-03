@@ -346,7 +346,6 @@ def _title_from_response(tresp) -> str:
 _ARGS_MAX = 300  # truncation limit for tool_input JSON in server memory
 _RESULT_MAX = 100  # truncation limit for tool_response snippets in server memory
 
-_NATIVE_FILE_TOOLS = {"Read", "Edit", "Write"}
 
 
 def _result_snippet(tresp) -> str | None:
@@ -380,20 +379,14 @@ def record_tool_from_hook(body: dict) -> None:
     """Record a tool call from a raw PostToolUse hook payload.
 
     MCP tools: recorded with compact JSON args.
-    Read/Edit/Write: recorded with file_path as args.
     Bash: `git commit` and `mac <area> <verb>` calls are recorded; other commands are skipped.
-    Other native tools are skipped — name-only, too noisy.
+    Native tools (Read/Edit/Write and the rest) are skipped — routine, too noisy.
     tasks__set_active is skipped here — it's handled as a 'task' event by record_task_from_hook.
     All recorded cases also carry a truncated result snippet from tool_response.
     """
     tool_name = body.get("tool_name", "")
     tin = body.get("tool_input") or {}
     result = _result_snippet(body.get("tool_response"))
-
-    if tool_name in _NATIVE_FILE_TOOLS:
-        path = tin.get("file_path", "")
-        record_tool(body.get("session_id", ""), tool_name, args=path or None, result=result)
-        return
 
     if tool_name == "Bash":
         cmd = tin.get("command", "")
