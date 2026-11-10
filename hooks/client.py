@@ -43,6 +43,8 @@ try:
     dashboard_plan.update(EVENT, payload)
     import dashboard_turn
     dashboard_turn.update(EVENT, payload)
+    import last_response
+    last_response.update(EVENT, payload)
     if EVENT in KITTY_ONLY_EVENTS:
         print("{}")
         sys.exit(0)
