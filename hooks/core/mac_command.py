@@ -27,7 +27,7 @@ from functools import lru_cache
 from hooks.paths import CLI_GRAPH_PATH
 
 # MCP server -> mac area. local-mac's tools are `<area>__<verb>`, so it maps per tool.
-SERVER_AREA = {"local-mac": None, "astrology": "astrology", "wyckoff-analyzer": "wyckoff", "sysml-mcp": "sysml"}
+SERVER_AREA = {"local-mac": None, "astrology": "astrology", "wyckoff-analyzer": "stock", "sysml-mcp": "sysml"}
 
 _SEPARATORS = {"&&", "||", ";", "|", "|&", "&", "\n", "(", ")", ";;"}
 _REDIRECTS = {">", ">>", "<", "<<<", ">&", "<&", "&>", "&>>", ">|", "<>"}

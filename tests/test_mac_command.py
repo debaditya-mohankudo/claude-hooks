@@ -6,7 +6,7 @@ import pytest
 from core import mac_command as mc
 
 IDS = ["mac mail read", "mac mail delete", "mac vault write", "mac vault move", "mac vault append",
-       "mac imessage send", "mac astrology aq_planets", "mac astrology d9", "mac wyckoff db_init_state",
+       "mac imessage send", "mac astrology aq_planets", "mac astrology d9", "mac stock db_init_state",
        "mac sysml get_complexity"]
 
 
@@ -65,7 +65,7 @@ def test_a_command_after_a_heredoc_is_still_found():
     ("mcp__local-mac__vault__write", "mac vault write"),
     ("mcp__astrology__aq__planets", "mac astrology aq_planets"),
     ("mcp__astrology__astrology__d9", "mac astrology d9"),
-    ("mcp__wyckoff-analyzer__db_init_state", "mac wyckoff db_init_state"),
+    ("mcp__wyckoff-analyzer__db_init_state", "mac stock db_init_state"),
     ("mcp__sysml-mcp__getComplexity", "mac sysml get_complexity"),
     ("mcp__local-mac__ollama_agent__chat", None),   # not a mac command
     ("mcp__taskfw__tasks__get", None),               # stays MCP

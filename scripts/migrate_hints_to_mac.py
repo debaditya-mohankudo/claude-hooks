@@ -36,7 +36,7 @@ def candidates(name: str) -> set[str]:
         area, verb = name.split("__", 1)
         out.add(f"mac {area} {verb}")
     flat = _snake(name.removeprefix("astrology__").replace("__", "_").replace("-", "_"))
-    out |= {f"mac astrology {flat}", f"mac wyckoff {flat}", f"mac sysml {flat}"}
+    out |= {f"mac astrology {flat}", f"mac stock {flat}", f"mac sysml {flat}"}
     return out
 
 

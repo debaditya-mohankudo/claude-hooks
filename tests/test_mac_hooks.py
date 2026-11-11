@@ -11,7 +11,7 @@ from core import mac_command as mc
 
 ROOT = Path(__file__).resolve().parents[1]
 IDS = ["mac vault write", "mac vault move", "mac mail read", "mac imessage send",
-       "mac wyckoff db_init_state", "mac astrology aq_planets", "mac sysml get_complexity"]
+       "mac stock db_init_state", "mac astrology aq_planets", "mac sysml get_complexity"]
 
 
 @pytest.fixture(autouse=True)
@@ -131,7 +131,7 @@ def test_migration_maps_short_names_by_server_convention():
     ids = mc.known_ids()
     assert m.mac_id("vault__write", ids) == "mac vault write"
     assert m.mac_id("aq__planets", ids) == "mac astrology aq_planets"
-    assert m.mac_id("db_init_state", ids) == "mac wyckoff db_init_state"
+    assert m.mac_id("db_init_state", ids) == "mac stock db_init_state"
     assert m.mac_id("getComplexity", ids) == "mac sysml get_complexity"
     assert m.mac_id("tasks__get", ids) is None
     assert m.mac_id("navigate", ids) is None
