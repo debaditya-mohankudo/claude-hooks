@@ -26,6 +26,7 @@ dependencies = [
     "markdown>=3.10.2",
     "tiktoken>=0.8.0",
     "uvloop>=0.22.1",
+    "apsw-sqlite3mc>=3.54.0.0",
 ]
 
 [project.optional-dependencies]
