@@ -38,6 +38,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from backfill_memory_links import DEFAULT_DB, snapshot  # noqa: E402
+from src.encdb import open_db  # noqa: E402
 
 MAX_PER_ORPHAN = 3
 COMMON_FRAC = 0.05   # a tag on more than this fraction of memories is not evidence
@@ -136,7 +137,7 @@ def propose(con: sqlite3.Connection) -> dict:
 
 def apply(db: Path, approved: list[dict]) -> dict:
     """Write approved links / standalone marks. Refuses the whole file on any stale entry."""
-    with sqlite3.connect(db) as con:
+    with open_db(db) as con:
         report = propose(con)
         orphans_before = len(orphan_ids(con))
     current = {(o["memory"], p["neighbour"]) for o in report["orphans"] for p in o["proposals"]}
@@ -153,7 +154,7 @@ def apply(db: Path, approved: list[dict]) -> dict:
         raise ValueError(f"not a current proposal (already applied, reviewed, or never proposed): {bad}")
     snap = snapshot(db)
     linked = standalone = 0
-    with sqlite3.connect(db) as con:
+    with open_db(db) as con:
         con.execute("PRAGMA foreign_keys = ON")
         con.execute(REVIEWS_DDL)
         for a in approved:
@@ -180,7 +181,7 @@ def recall_moves(before_db: Path, after_db: Path, n_prompts: int, top_n: int) ->
         prompts = cmr.recent_prompts(n_prompts)
         tops = []
         for db in (before_db, after_db):
-            conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+            conn = open_db(db, readonly=True)
             conn.row_factory = sqlite3.Row
             tops.append([[m["name"] for m in cmr.recall(conn, set(tokenise(p.lower())), "links", top_n)]
                          for p in prompts])
@@ -221,7 +222,7 @@ def main() -> None:
         out["recall_moved"] = recall_moves(Path(out["snapshot"]), args.db, args.prompts, args.top_n)
         print(json.dumps(out, indent=2))
         return
-    with sqlite3.connect(f"file:{args.db}?mode=ro", uri=True) as con:
+    with open_db(args.db, readonly=True) as con:
         report = propose(con)
     print(json.dumps(report, indent=2) if args.json else render(report))
 
