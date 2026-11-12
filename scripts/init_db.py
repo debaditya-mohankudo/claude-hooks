@@ -9,7 +9,12 @@ check PRAGMA table_info before altering.
 from __future__ import annotations
 
 import sqlite3
+import sys as _sys
+from pathlib import Path as _P
 
+_sys.path.insert(0, str(_P(__file__).resolve().parents[1]))
+
+from src.encdb import open_db  # noqa: E402
 from src.config import config as _cfg
 from src.db.schema import (
     MEMORIES_DDL,
@@ -24,7 +29,7 @@ from src.db.schema import (
 
 def init_memory_db() -> None:
     _cfg.memory_db.parent.mkdir(parents=True, exist_ok=True)
-    with sqlite3.connect(str(_cfg.memory_db)) as conn:
+    with open_db(_cfg.memory_db) as conn:
         conn.executescript(MEMORIES_DDL)
         migrate_memory_db(conn)
     print(f"  ✓ {_cfg.memory_db}")

@@ -1,6 +1,10 @@
 """One-time script: populate related column in MEMORY.sqlite for claude-hooks memories."""
 import sqlite3
 from pathlib import Path
+import sys as _sys
+from pathlib import Path as _P
+_sys.path.insert(0, str(_P(__file__).resolve().parents[1]))
+from src.encdb import open_db  # noqa: E402
 
 MEMORY_DB = Path.home() / ".claude" / "MEMORY.sqlite"
 
@@ -102,7 +106,7 @@ RELATED: dict[str, str] = {
 
 
 def main() -> None:
-    con = sqlite3.connect(str(MEMORY_DB))
+    con = open_db(MEMORY_DB)
     updated = 0
     for name, related in RELATED.items():
         cur = con.execute(

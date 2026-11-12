@@ -289,9 +289,10 @@ def record_memory_hits(names: list[str]) -> None:
     if not names:
         return
     from src.config import config as _src_cfg
+    from src.encdb import open_db
 
     try:
-        conn = sqlite3.connect(_src_cfg.memory_db)
+        conn = open_db(_src_cfg.memory_db)
         conn.executemany(
             "UPDATE memories SET hit_count = COALESCE(hit_count, 0) + 1, "
             "last_hit = CURRENT_TIMESTAMP WHERE name = ?",

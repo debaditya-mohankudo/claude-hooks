@@ -1,6 +1,7 @@
 import json
 import re
 import sqlite3
+from src.encdb import open_db
 import sys
 from pathlib import Path
 
@@ -41,7 +42,7 @@ def _ensure_schema(con: sqlite3.Connection) -> None:
 
 def _connect() -> sqlite3.Connection:
     """Connection with FK enforcement on (per-connection in SQLite) and the links schema present."""
-    con = sqlite3.connect(MEMORY_DB)
+    con = open_db(MEMORY_DB)
     con.execute("PRAGMA foreign_keys = ON")
     return con
 
@@ -337,7 +338,7 @@ def handle_search(query: str, type: str = "", detail: str = "slim") -> dict:
     """
     if detail not in ("slim", "full"):
         return {"error": f"detail must be 'slim' or 'full', got {detail!r}"}
-    with sqlite3.connect(MEMORY_DB) as con:
+    with open_db(MEMORY_DB) as con:
         con.row_factory = sqlite3.Row
         rows = _search_rows(query, type, con)
 
@@ -361,7 +362,7 @@ def handle_search(query: str, type: str = "", detail: str = "slim") -> dict:
     else:
         results = [dict(r) for r in rows]
         if results:
-            with sqlite3.connect(MEMORY_DB) as con:
+            with open_db(MEMORY_DB) as con:
                 try:
                     for r in results:
                         r["links"] = _links_for(con, r["id"])
@@ -390,7 +391,7 @@ def handle_list(type: str = "") -> dict:
 
     sql += " ORDER BY updated DESC"
 
-    with sqlite3.connect(MEMORY_DB) as con:
+    with open_db(MEMORY_DB) as con:
         con.row_factory = sqlite3.Row
         rows = con.execute(sql, params).fetchall()
 
@@ -406,7 +407,7 @@ def handle_get(name: str) -> dict:
     Args:
         name: The memory slug (exact match).
     """
-    with sqlite3.connect(MEMORY_DB) as con:
+    with open_db(MEMORY_DB) as con:
         con.row_factory = sqlite3.Row
         row = con.execute(
             "SELECT * FROM memories WHERE name = ?", (name,)
@@ -417,7 +418,7 @@ def handle_get(name: str) -> dict:
         return {"error": f"No memory found with name '{name}'"}
     _log.debug("handle_get: fetched name='%s'", name)
     result = dict(row)
-    with sqlite3.connect(MEMORY_DB) as con:
+    with open_db(MEMORY_DB) as con:
         try:
             result["links"] = _links_for(con, result["id"])
         except sqlite3.OperationalError:
@@ -534,7 +535,7 @@ def handle_stale(
         where += " AND type = ?"
         params.append(type)
 
-    with sqlite3.connect(MEMORY_DB) as con:
+    with open_db(MEMORY_DB) as con:
         con.row_factory = sqlite3.Row
         _ensure_schema(con)
         total = con.execute(f"SELECT COUNT(*) FROM memories WHERE {where}", params).fetchone()[0]
@@ -559,7 +560,7 @@ def handle_validate(names: list[str]) -> dict:
         names: Memory slugs to re-validate.
     """
     validated, missing = [], []
-    with sqlite3.connect(MEMORY_DB) as con:
+    with open_db(MEMORY_DB) as con:
         _ensure_schema(con)
         for name in names:
             cur = con.execute(

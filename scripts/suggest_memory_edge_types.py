@@ -25,6 +25,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from src.encdb import open_db  # noqa: E402
 from backfill_memory_links import DEFAULT_DB, snapshot  # noqa: E402
 
 WINDOW = 80  # chars either side of a quoted slug in which a phrase must fall
@@ -114,14 +115,14 @@ def stale_references(con: sqlite3.Connection, props: list[dict]) -> list[dict]:
 
 def apply(db: Path, approved: list[dict]) -> dict:
     """Retype approved edges. Snapshot first; refuses anything not a current proposal."""
-    with sqlite3.connect(db) as con:
+    with open_db(db) as con:
         current = {(p["src"], p["dst"], p["type"]) for p in propose(con)}
     bad = [a for a in approved if (a["src"], a["dst"], a["type"]) not in current]
     if bad:
         raise ValueError(f"not a current proposal (already applied or never proposed): {bad}")
     snap = snapshot(db)
     changed = 0
-    with sqlite3.connect(db) as con:
+    with open_db(db) as con:
         con.execute("PRAGMA foreign_keys = ON")
         for a in approved:
             ids = {n: i for i, n in con.execute(
@@ -148,7 +149,7 @@ def main() -> None:
     if args.apply:
         print(json.dumps(apply(args.db, json.loads(args.apply.read_text())), indent=2))
         return
-    with sqlite3.connect(f"file:{args.db}?mode=ro", uri=True) as con:
+    with open_db(args.db, readonly=True) as con:
         props = propose(con)
         stale = stale_references(con, props)
     if args.json:

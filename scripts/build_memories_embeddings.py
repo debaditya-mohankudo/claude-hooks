@@ -22,6 +22,10 @@ import sys
 from pathlib import Path
 
 import numpy as np
+import sys as _sys
+from pathlib import Path as _P
+_sys.path.insert(0, str(_P(__file__).resolve().parents[1]))
+from src.encdb import open_db  # noqa: E402
 
 REPO_ROOT  = Path(__file__).resolve().parent.parent
 ICLOUD_DB  = Path.home() / "Library" / "Mobile Documents" / "com~apple~CloudDocs" / "Databases"
@@ -73,7 +77,7 @@ def _save_index(index, meta: dict) -> None:
 # ---------------------------------------------------------------------------
 
 def _fetch_all() -> list[dict]:
-    conn = sqlite3.connect(f"file:{MEMORY_DB}?mode=ro", uri=True)
+    conn = open_db(MEMORY_DB, readonly=True)
     conn.row_factory = sqlite3.Row
     rows = conn.execute(
         "SELECT name, type, domain, tags, body FROM memories ORDER BY name"
@@ -83,7 +87,7 @@ def _fetch_all() -> list[dict]:
 
 
 def _fetch_by_names(names: list[str]) -> list[dict]:
-    conn = sqlite3.connect(f"file:{MEMORY_DB}?mode=ro", uri=True)
+    conn = open_db(MEMORY_DB, readonly=True)
     conn.row_factory = sqlite3.Row
     placeholders = ",".join("?" * len(names))
     rows = conn.execute(

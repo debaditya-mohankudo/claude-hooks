@@ -48,7 +48,8 @@ class Config(BaseSettings):
     @property
     def valid_domains(self) -> frozenset:
         try:
-            with sqlite3.connect(self.memory_db) as conn:
+            from src.encdb import open_db
+            with open_db(self.memory_db, readonly=True) as conn:
                 rows = conn.execute("SELECT DISTINCT domain FROM memories WHERE domain IS NOT NULL").fetchall()
         except Exception as exc:
             _log.warning("Failed to load valid_domains from MEMORY.sqlite: %s", exc)

@@ -14,6 +14,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from src.encdb import open_db  # noqa: E402
 from langchain_learning.nodes import _memory_scoring as ms  # noqa: E402
 from langchain_learning.nodes._text_utils import tokenise  # noqa: E402
 
@@ -41,7 +42,7 @@ if __name__ == "__main__":
     ap.add_argument("--top-n", type=int, default=3)
     ap.add_argument("--show-same", action="store_true")
     a = ap.parse_args()
-    conn = sqlite3.connect(f"file:{MEMORY_DB}?mode=ro", uri=True)
+    conn = open_db(MEMORY_DB, readonly=True)
     conn.row_factory = sqlite3.Row
     changed = overlap = total = conflicts = 0
     for p in recent_prompts(a.prompts):

@@ -19,6 +19,10 @@ from __future__ import annotations
 import argparse
 import sqlite3
 from pathlib import Path
+import sys as _sys
+from pathlib import Path as _P
+_sys.path.insert(0, str(_P(__file__).resolve().parents[1]))
+from src.encdb import open_db  # noqa: E402
 
 DEFAULT_DB = Path.home() / ".claude" / "MEMORY.sqlite"
 
@@ -79,7 +83,7 @@ def main() -> None:
     if not args.db.exists():
         raise SystemExit(f"no such db: {args.db}")
 
-    conn = sqlite3.connect(args.db)
+    conn = open_db(args.db)
     try:
         folded = fold_domain_into_tags(conn, args.dry_run)
         print(f"{'would fold' if args.dry_run else 'folded'} domain into tags for {folded} row(s)")

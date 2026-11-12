@@ -94,11 +94,12 @@ class CombinationSignalRetriever:
         import sqlite3
         from langchain_learning.config import config as _cfg
         from langchain_learning.nodes._memory_scoring import score_memories
+        from src.encdb import open_db
 
         if not _cfg.memory_db.exists():
             _log.debug("[CombinationSignalRetriever] memory_db not found: %s", _cfg.memory_db)
             return []
-        conn = sqlite3.connect(f"file:{_cfg.memory_db}?mode=ro", uri=True)
+        conn = open_db(_cfg.memory_db, readonly=True)
         conn.row_factory = sqlite3.Row
         try:
             results = score_memories(tokens, conn, top_n=top_n)

@@ -17,6 +17,7 @@ from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from src.encdb import open_db  # noqa: E402
 from src.db.schema import migrate_memory_db  # noqa: E402
 
 DEFAULT_DB = Path.home() / ".claude" / "MEMORY.sqlite"
@@ -24,9 +25,9 @@ DEFAULT_DB = Path.home() / ".claude" / "MEMORY.sqlite"
 
 def snapshot(db: Path) -> Path:
     dest = db.with_name(f"{db.name}.pre-links.{datetime.now():%Y%m%dT%H%M%S}")
-    with sqlite3.connect(db) as con:
+    with open_db(db) as con:
         con.execute("VACUUM INTO ?", (str(dest),))
-    with sqlite3.connect(dest) as snap:
+    with open_db(dest) as snap:
         verdict = snap.execute("PRAGMA integrity_check").fetchone()[0]
     if verdict != "ok":
         raise RuntimeError(f"snapshot {dest} failed integrity_check: {verdict}")
@@ -34,7 +35,7 @@ def snapshot(db: Path) -> Path:
 
 
 def backfill(db: Path, report: Path | None = None, dry_run: bool = False) -> dict:
-    con = sqlite3.connect(db)
+    con = open_db(db)
     con.execute("PRAGMA foreign_keys = ON")
     migrate_memory_db(con)
     ids = dict(con.execute("SELECT name, id FROM memories"))

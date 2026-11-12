@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import re
 import sqlite3
+from src.encdb import open_db
 
 from langchain_learning.config import config as _cfg
 from langchain_learning.nodes._node_log import entry
@@ -70,7 +71,7 @@ def _run_backfill(domain: str, file_paths: list[str]) -> int:
     files_value = ", ".join(file_paths)
 
     try:
-        with sqlite3.connect(str(_cfg.memory_db), timeout=5) as conn:
+        with open_db(_cfg.memory_db, timeout=5) as conn:
             rows = conn.execute(
                 """
                 SELECT name, tags FROM memories
