@@ -125,6 +125,19 @@ def _links_for(con: sqlite3.Connection, memory_id: int) -> list[dict]:
     ]
 
 
+def _keep_skill_tags(con: sqlite3.Connection, name: str, tags: str) -> str:
+    """`tags` plus any skill-* tag the stored row has and `tags` lacks (task:85801ef4).
+
+    Only skill-* tags are carried over, so other tags stay replaceable on re-add.
+    """
+    row = con.execute("SELECT tags FROM memories WHERE name = ?", (name,)).fetchone()
+    if not row or not row[0]:
+        return tags
+    have = {t.strip().lower() for t in re.split(r"[,\s]+", tags or "")}
+    extra = [t for t in re.split(r"[,\s]+", row[0]) if t.lower().startswith("skill-") and t.lower() not in have]
+    return ", ".join(x for x in [tags, *extra] if x)
+
+
 def handle_add(
     name: str,
     type: str,
@@ -168,6 +181,7 @@ def handle_add(
         if err:
             _log.warning("handle_add rejected links for name='%s': %s", name, err)
             return {"error": err}
+        tags = _keep_skill_tags(con, name, tags)
         con.execute(
             """
             INSERT INTO memories (name, type, tags, body, files, docs, related, updated, last_validated)
@@ -235,6 +249,7 @@ def handle_add_batch(memories: list[dict]) -> dict:
             if err:
                 results.append({"name": name, "error": err})
                 continue
+            tags = _keep_skill_tags(con, name, tags)
             con.execute(
                 """
                 INSERT INTO memories (name, type, tags, body, files, docs, related, updated, last_validated)

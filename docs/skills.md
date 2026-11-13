@@ -57,4 +57,13 @@ The repo is the source of truth — `~/.claude/skills/` is the deployed copy.
 
 ---
 
+## Skill-tagged memories
+
+Tag a memory `skill-<name>` (e.g. `skill-stock-tracker`) and it is injected, by exact tag match, when the
+Skill tool runs `<name>` (max 3, newest first, superseded ones dropped). A skill that saves memories should say
+in its SKILL.md to pass that tag in `--tags`. Saving a memory after a skill ran without a `skill-*` tag draws a
+reminder; re-adding a slug keeps its stored `skill-*` tags. Plugin prefixes are dropped (`plugin:pdf` -> `skill-pdf`).
+
+---
+
 ← [Architecture](ARCHITECTURE.md) · [Setup](setup.md)

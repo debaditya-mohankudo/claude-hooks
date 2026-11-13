@@ -79,6 +79,11 @@ class LoadMemoriesNode:
 
         names_out = [m.get("name", "?") for m in memories]
         try:
+            from langchain_learning.nodes._skill_memories import note_prompt_injected
+            note_prompt_injected(session_id, names_out)
+        except Exception as exc:
+            _log.warning("skill memories prompt tracking failed: %s", exc)
+        try:
             from langchain_learning.nodes._memory_scoring import area_tokens
             self._remember_areas(session_id, area_tokens(memories))
         except Exception as exc:

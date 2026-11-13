@@ -330,6 +330,17 @@ def _handle_post_tool_use(hook_input: dict) -> dict | None:
         log.info("PTU context-size nudge: session=%s tool=%s", session_id[:8], tool_name)
         return context_nudge
 
+    # Skill-tagged memories (task:85801ef4): before the non-MCP skip below.
+    from langchain_learning.nodes import _skill_memories
+    if tool_name == "Skill":
+        return _skill_memories.inject_for_skill(
+            session_id, (tool_input or {}).get("skill", "") if isinstance(tool_input, dict) else "")
+    if tool_name == "Bash" and mac_calls and isinstance(tool_input, dict):
+        nudge = _skill_memories.tag_nudge(session_id, [c.id for c in mac_calls], tool_input.get("command", ""))
+        if nudge:
+            log.info("PTU skill-tag nudge: session=%s", session_id[:8])
+            return nudge
+
     if mac_calls:
         if all(call.area == "memory" for call in mac_calls):
             log.info("PTU skip: memory command=%s", mac_calls[0].id)
