@@ -595,3 +595,44 @@ def handle_delete(name: str) -> dict:
     except Exception as exc:
         _log.warning("memory vector remove failed for '%s': %s", name, exc)
     return {"ok": True, "deleted": name}
+
+
+def handle_audit(
+    action: str = "list",
+    n: int = 10,
+    unmarked: bool = False,
+    id: int = 0,
+    useful: str = "",
+    noise: str = "",
+) -> dict:
+    """Review the memory-injection audit log (~/.claude/memory_audit.sqlite).
+
+    One row is logged per prompt: the candidates scored and the memories injected.
+    Mark each injected memory useful or noise, then read the report for precision
+    per memory and the matched terms behind the noise.
+
+    Args:
+        action:   "list" (newest rows), "mark" (set verdicts on row `id`) or "report".
+        n:        list: how many rows.
+        unmarked: list: only rows with no verdict yet.
+        id:       mark: the audit row id.
+        useful:   mark: comma-separated injected memory names that were useful.
+        noise:    mark: comma-separated injected memory names that were noise.
+    """
+    from langchain_learning.nodes import _memory_audit as audit
+
+    if action == "list":
+        return {"rows": audit.recent(int(n), unmarked_only=bool(unmarked))}
+    if action == "report":
+        return audit.report()
+    if action == "mark":
+        verdicts = {s.strip(): kind for kind, names in (("useful", useful), ("noise", noise))
+                    for s in names.split(",") if s.strip()}
+        if not id or not verdicts:
+            return {"error": "mark needs an audit id and at least one of useful / noise"}
+        try:
+            audit.mark(int(id), verdicts)
+        except (KeyError, ValueError) as exc:
+            return {"error": str(exc.args[0] if exc.args else exc)}
+        return {"ok": True, "id": int(id), "marked": verdicts}
+    return {"error": f"unknown action {action!r}; use list, mark or report"}
