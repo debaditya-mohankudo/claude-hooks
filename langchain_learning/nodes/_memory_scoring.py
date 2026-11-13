@@ -11,6 +11,11 @@ cached at module level and rebuilt only when the (id, updated, tags) signature
 of the table changes, so a prompt does not re-tokenise the corpus.
 A row with no tag match scores 0 and is dropped by min_keyword_score.
 
+Match filter: a memory only scores when the prompt hits at least
+`min_distinct_terms` (2) distinct tag/slug terms of it, or hits one term that
+appears in at most `rare_term_df` (8) memories. A lone common word ("check",
+"idea") no longer pulls in an unrelated memory. A one-word prompt needs one hit.
+
 Config loaded from memory_scoring.json (iCloud), mtime-cached.
 """
 from __future__ import annotations
@@ -18,6 +23,7 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
+from collections import Counter
 from datetime import datetime, timezone
 
 from rank_bm25 import BM25Plus
@@ -52,6 +58,8 @@ def _defaults_from_config() -> dict:
         "related_source":          "links",   # "links" = memory_links edges; "related" = legacy column
         "related_target_cap":      0.5,       # a target's summed boost <= this x the top seed score
         "supersedes_penalty":      0.3,       # multiplier on a memory whose superseder is also a candidate
+        "min_distinct_terms":      2,         # distinct prompt terms a memory must hit ...
+        "rare_term_df":            8,         # ... unless one hit term is in <= this many memories
     }
 
 
@@ -98,11 +106,14 @@ def _tag_terms(tags: str | None) -> list[str]:
     return [t for t in re.findall(r"[a-z]{3,}", (tags or "").lower()) if t not in _STOP_WORDS]
 
 
-_bm25_cache: dict = {"sig": None, "bm25": None, "pos": {}}
+_bm25_cache: dict = {"sig": None, "bm25": None, "pos": {}, "terms": [], "df": Counter()}
 
 
 def _bm25_index(conn: sqlite3.Connection) -> tuple[BM25Plus | None, dict[int, int]]:
-    """Return (index, id -> position), rebuilt only when the table's tags/updated change."""
+    """Return (index, id -> position), rebuilt only when the table's tags/updated change.
+
+    The cache also holds each document's term set and the term -> document-frequency
+    counter that `bm25_scores` uses for the match filter."""
     rows = conn.execute("SELECT id, tags, updated, name FROM memories ORDER BY id").fetchall()
     sig = hash(tuple((r[0], r[1], r[2], r[3]) for r in rows))
     if _bm25_cache["sig"] != sig:
@@ -113,20 +124,38 @@ def _bm25_index(conn: sqlite3.Connection) -> tuple[BM25Plus | None, dict[int, in
             # a doc that lacks the term at exactly 0 (Okapi's idf hits 0/negative).
             bm25=BM25Plus(corpus, delta=0) if corpus else None,
             pos={r[0]: i for i, r in enumerate(rows)},
+            terms=[set(d) - {"_"} for d in corpus],
+            df=Counter(t for d in corpus for t in set(d) if t != "_"),
         )
         _log.info("[memory_scoring] BM25 index rebuilt docs=%d", len(rows))
     return _bm25_cache["bm25"], _bm25_cache["pos"]
 
 
+def _passes_match_filter(hits: set[str], n_tokens: int, df: Counter, cfg: dict) -> bool:
+    """True when `hits` (query terms found in one memory) are enough to score it."""
+    need = min(cfg.get("min_distinct_terms", 2), n_tokens)
+    if len(hits) >= need:
+        return True
+    rare = cfg.get("rare_term_df", 8)
+    return any(df[t] <= rare for t in hits)
+
+
 def bm25_scores(conn: sqlite3.Connection, tokens: set[str]) -> dict[int, float]:
-    """BM25 score of the query tokens against every memory's tags, keyed by memory id."""
+    """BM25 score of the query tokens against every memory's tags and slug, keyed by memory id.
+
+    A memory that fails the match filter (see module docstring) scores 0."""
     if not tokens:
         return {}
     bm25, pos = _bm25_index(conn)
     if bm25 is None:
         return {}
+    cfg = load_scoring_cfg()
+    terms, df = _bm25_cache["terms"], _bm25_cache["df"]
     raw = bm25.get_scores(sorted(tokens))
-    return {mid: float(raw[i]) for mid, i in pos.items()}
+    return {
+        mid: float(raw[i]) if _passes_match_filter(terms[i] & tokens, len(tokens), df, cfg) else 0.0
+        for mid, i in pos.items()
+    }
 
 
 def combination_score(row: sqlite3.Row, scores: dict[int, float], cfg: dict) -> float:

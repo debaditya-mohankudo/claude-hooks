@@ -382,3 +382,45 @@ def test_index_rebuilds_only_when_tags_change(mem_conn):
     mem_conn.commit()
     assert _names(mem_conn, {"epsilon"}) == ["b"]   # tag edit -> index rebuilt and searchable
     assert ms._bm25_cache["bm25"] is not first
+
+
+# --- match filter: 2 distinct terms, or 1 rare term ---------------------------
+
+def _filter_corpus(con, n_common=10):
+    """`check` is common (n_common memories); `harness` appears in one."""
+    for i in range(n_common):
+        _insert(con, f"common-{i}", tags=f"check topic{i}")
+    _insert(con, "replay-harness", tags="harness replay")
+    _insert(con, "check-and-replay", tags="check replay")
+
+
+def test_lone_common_word_does_not_match(mem_conn):
+    _filter_corpus(mem_conn)
+    names = {m["name"] for m in score_memories({"check", "zzzunrelated"}, mem_conn, top_n=20)}
+    assert not names & {f"common-{i}" for i in range(10)}
+
+
+def test_two_distinct_terms_match_even_if_common(mem_conn):
+    _filter_corpus(mem_conn)
+    names = {m["name"] for m in score_memories({"check", "replay"}, mem_conn, top_n=20)}
+    assert "check-and-replay" in names
+
+
+def test_single_rare_term_matches(mem_conn):
+    _filter_corpus(mem_conn)
+    names = {m["name"] for m in score_memories({"harness", "zzzunrelated"}, mem_conn, top_n=20)}
+    assert "replay-harness" in names
+
+
+def test_one_word_prompt_needs_only_one_hit(mem_conn):
+    _filter_corpus(mem_conn)
+    names = {m["name"] for m in score_memories({"check"}, mem_conn, top_n=20)}
+    assert "common-0" in names
+
+
+def test_rare_term_df_is_configurable(mem_conn):
+    _filter_corpus(mem_conn)
+    cfg = {**_CFG, "rare_term_df": 20}
+    with patch("langchain_learning.nodes._memory_scoring.load_scoring_cfg", return_value=cfg):
+        names = {m["name"] for m in score_memories({"check", "zzzunrelated"}, mem_conn, top_n=20)}
+    assert "common-0" in names
