@@ -158,6 +158,15 @@ def bm25_scores(conn: sqlite3.Connection, tokens: set[str]) -> dict[int, float]:
     }
 
 
+def area_tokens(memories: list[dict]) -> list[str]:
+    """`mac-<area>` tag areas of the given memories, most frequent first (order-stable)."""
+    counts: Counter = Counter()
+    for m in memories:
+        for area in re.findall(r"\bmac-([a-z]{3,})", (m.get("tags") or "").lower()):
+            counts[area] += 1
+    return [a for a, _ in counts.most_common()]
+
+
 def combination_score(row: sqlite3.Row, scores: dict[int, float], cfg: dict) -> float:
     """Final score for one memory: BM25(tags) × tag_weight × recency, or 0 below the floor."""
     s = scores.get(row["id"], 0.0) * cfg.get("tag_weight", 3.0)
@@ -280,8 +289,12 @@ def score_memories(
     tokens: set[str],
     conn: sqlite3.Connection,
     top_n: int | None = None,
+    trace: list | None = None,
 ) -> list[dict]:
     """Score all candidate memories and return top-N by combination signal.
+
+    When `trace` is a list it receives one dict per top candidate
+    ({name, score, hits}) for the audit log; it never changes the result.
 
     After the initial keyword scoring pass, applies a graph-neighbour
     boost: each high-scoring memory lifts its memory_links neighbours by
@@ -328,9 +341,20 @@ def score_memories(
 
     all_scored = sorted(scored.values(), key=lambda x: -x[0])
     top = [m for _, m in all_scored[:n]]
+    if trace is not None:
+        _fill_trace(trace, all_scored[: n * 2], tokens)
     if graph_ok:
         _mark_conflicts(conn, top)
     return top
+
+
+def _fill_trace(trace: list, ranked: list[tuple[float, dict]], tokens: set[str]) -> None:
+    """Append {name, score, hits} for each ranked candidate (hits = query terms in its tags/slug)."""
+    terms, pos = _bm25_cache["terms"], _bm25_cache["pos"]
+    for score, m in ranked:
+        i = pos.get(m.get("id"))
+        hits = sorted(terms[i] & tokens) if i is not None and i < len(terms) else []
+        trace.append({"name": m["name"], "score": round(score, 3), "hits": hits})
 
 
 def record_memory_hits(names: list[str]) -> None:

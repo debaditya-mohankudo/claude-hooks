@@ -84,7 +84,12 @@ class CombinationSignalRetriever:
     Wraps score_memories() from nodes/_memory_scoring.py.
     Opens and closes its own SQLite connection per retrieve() call.
     Satisfies MemoryRetriever Protocol.
+
+    `last_trace` holds the top candidates (name, score, hits) of the latest
+    retrieve() call, for the memory audit log.
     """
+
+    last_trace: list[dict] = []
 
     def retrieve(
         self,
@@ -102,7 +107,9 @@ class CombinationSignalRetriever:
         conn = open_db(_cfg.memory_db, readonly=True)
         conn.row_factory = sqlite3.Row
         try:
-            results = score_memories(tokens, conn, top_n=top_n)
+            trace: list[dict] = []
+            results = score_memories(tokens, conn, top_n=top_n, trace=trace)
+            self.last_trace = trace
             _log.debug("[CombinationSignalRetriever] scored=%d tokens=%d",
                        len(results), len(tokens))
             return results

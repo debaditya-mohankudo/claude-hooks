@@ -1,0 +1,125 @@
+"""Tests for the memory audit log and the mac-area carry-over in LoadMemoriesNode."""
+import pytest
+
+from langchain_learning.nodes import _memory_audit as audit
+from langchain_learning.nodes._memory_scoring import area_tokens
+from langchain_learning.nodes.load_memories import LoadMemoriesNode
+
+
+class _Stub:
+    """Retriever stub: returns canned memories and records the tokens it was asked for."""
+    def __init__(self, memories, trace=None):
+        self.memories, self.last_trace, self.seen = memories, trace or [], []
+
+    def retrieve(self, tokens, top_n=None):
+        self.seen.append(set(tokens))
+        return self.memories
+
+
+def _mem(name, tags=""):
+    return {"name": name, "tags": tags}
+
+
+def _run(node, prompt, session="s1"):
+    return node({"prompt": prompt, "session_id": session})
+
+
+def test_area_tokens_from_mac_tags_most_frequent_first():
+    mems = [_mem("a", "x mac-calendar calendar"), _mem("b", "mac-reminders"), _mem("c", "mac-calendar")]
+    assert area_tokens(mems) == ["calendar", "reminders"]
+
+
+def test_area_tokens_ignores_untagged():
+    assert area_tokens([_mem("a", "plain tags")]) == []
+
+
+def test_thin_prompt_borrows_previous_area():
+    stub = _Stub([_mem("m", "mac-calendar")])
+    node = LoadMemoriesNode(retriever=stub)
+    _run(node, "calendar event reminder tomorrow morning")   # 5 tokens: not thin, no carry
+    _run(node, "yes go ahead")                                # thin: carries 'calendar'
+    assert "calendar" not in stub.seen[0] or "mac" not in stub.seen[0]
+    assert "calendar" in stub.seen[1]
+
+
+def test_substantive_prompt_does_not_borrow():
+    stub = _Stub([_mem("m", "mac-calendar")])
+    node = LoadMemoriesNode(retriever=stub)
+    _run(node, "first prompt about something")
+    _run(node, "completely different long prompt about astrology charts today")
+    assert "calendar" not in stub.seen[1]
+
+
+def test_carry_is_per_session():
+    stub = _Stub([_mem("m", "mac-calendar")])
+    node = LoadMemoriesNode(retriever=stub)
+    _run(node, "first prompt about something", session="a")
+    _run(node, "yes", session="b")
+    assert "calendar" not in stub.seen[1]
+
+
+def test_carry_window_forgets_old_prompts():
+    stub = _Stub([_mem("m", "mac-calendar")])
+    node = LoadMemoriesNode(retriever=stub)
+    _run(node, "first prompt about something")
+    stub.memories = [_mem("n", "plain")]
+    for _ in range(3):
+        _run(node, "other long prompt about unrelated matters entirely")
+    _run(node, "yes")
+    assert "calendar" not in stub.seen[-1]
+
+
+def test_audit_row_written_with_carried_and_candidates(tmp_path):
+    stub = _Stub([_mem("m", "mac-calendar")], trace=[{"name": "m", "score": 1.0, "hits": ["calendar"]}])
+    node = LoadMemoriesNode(retriever=stub)
+    _run(node, "calendar event reminder tomorrow morning")
+    _run(node, "yes")
+    rows = audit.recent()
+    assert len(rows) == 2
+    assert rows[0]["carried"] == ["calendar"] and rows[0]["injected"] == ["m"]
+    assert rows[0]["candidates"][0]["hits"] == ["calendar"]
+
+
+def test_audit_skips_empty_session_id():
+    LoadMemoriesNode(retriever=_Stub([_mem("m")]))({"prompt": "hello there world"})
+    assert audit.recent() == []
+
+
+def test_audit_failure_never_breaks_retrieval(monkeypatch):
+    monkeypatch.setattr(audit, "AUDIT_DB", audit.Path("/nonexistent-dir/x/audit.sqlite"))
+    out = _run(LoadMemoriesNode(retriever=_Stub([_mem("m")])), "hello there world")
+    assert [m["name"] for m in out["memories"]] == ["m"]
+
+
+def test_mark_merges_and_validates():
+    audit.record("s", "p", {"t"}, [], [], ["a", "b"])
+    rid = audit.recent()[0]["id"]
+    audit.mark(rid, {"a": "useful"})
+    audit.mark(rid, {"b": "noise"})
+    assert audit.recent()[0]["verdict"] == {"a": "useful", "b": "noise"}
+    with pytest.raises(ValueError):
+        audit.mark(rid, {"a": "maybe"})
+    with pytest.raises(ValueError):
+        audit.mark(rid, {"zzz": "noise"})
+    with pytest.raises(KeyError):
+        audit.mark(9999, {"a": "noise"})
+
+
+def test_report_precision_and_noise_terms():
+    cand = [{"name": "a", "score": 1, "hits": ["idea"]}, {"name": "b", "score": 1, "hits": ["idea", "state"]}]
+    audit.record("s", "p1", {"idea"}, ["calendar"], cand, ["a", "b"])
+    audit.record("s", "p2", {"idea"}, [], cand, ["a"])
+    rows = audit.recent()
+    audit.mark(rows[1]["id"], {"a": "noise", "b": "useful"})
+    audit.mark(rows[0]["id"], {"a": "useful"})
+    r = audit.report()
+    assert r["memories"]["a"] == {"useful": 1, "noise": 1, "precision": 0.5}
+    assert r["noise_terms"][0] == ("idea", 1)
+    assert r["carried_noise_rate"] == 0.5   # carried row p1: 1 noise of 2 verdicts
+
+
+def test_recent_unmarked_only():
+    audit.record("s", "p1", {"t"}, [], [], ["a"])
+    audit.record("s", "p2", {"t"}, [], [], ["a"])
+    audit.mark(audit.recent()[0]["id"], {"a": "useful"})
+    assert [r["prompt"] for r in audit.recent(unmarked_only=True)] == ["p1"]

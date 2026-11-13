@@ -424,3 +424,12 @@ def test_rare_term_df_is_configurable(mem_conn):
     with patch("langchain_learning.nodes._memory_scoring.load_scoring_cfg", return_value=cfg):
         names = {m["name"] for m in score_memories({"check", "zzzunrelated"}, mem_conn, top_n=20)}
     assert "common-0" in names
+
+
+def test_trace_lists_candidates_with_matched_terms(mem_conn):
+    _insert(mem_conn, "replay-harness", tags="harness replay")
+    _insert(mem_conn, "other-mem", tags="unrelated")
+    trace: list = []
+    score_memories({"harness", "replay"}, mem_conn, top_n=3, trace=trace)
+    assert trace[0]["name"] == "replay-harness"
+    assert trace[0]["hits"] == ["harness", "replay"] and trace[0]["score"] > 0

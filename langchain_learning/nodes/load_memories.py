@@ -10,6 +10,8 @@ Tuning: improve tags on memories that surface incorrectly (visible in sqlite log
 """
 from __future__ import annotations
 
+from collections import OrderedDict, deque
+
 from langchain_learning.nodes._node_log import entry
 from langchain_learning.nodes._text_utils import tokenise
 from langchain_learning.retrievers import CombinationSignalRetriever, MemoryRetriever
@@ -17,6 +19,13 @@ from langchain_learning.session_state import SessionState
 from src.logger import get_logger
 
 _log = get_logger(__name__)
+
+# Area carry-over: a prompt with <= _THIN_TOKENS own tokens ("yes, go ahead") borrows the
+# mac areas of the last _CARRY_PROMPTS prompts' injected memories as extra query tokens.
+_THIN_TOKENS = 2
+_CARRY_PROMPTS = 3
+_CARRY_AREAS = 2
+_MAX_SESSIONS = 50
 
 
 class LoadMemoriesNode:
@@ -35,12 +44,32 @@ class LoadMemoriesNode:
 
     def __init__(self, retriever: MemoryRetriever | None = None) -> None:
         self._retriever: MemoryRetriever = retriever if retriever is not None else CombinationSignalRetriever()
+        self._areas: OrderedDict[str, deque] = OrderedDict()   # session_id -> recent per-prompt area lists
+
+    def _carried_areas(self, session_id: str) -> list[str]:
+        """Up to _CARRY_AREAS distinct areas from the last prompts, newest prompt first."""
+        out: list[str] = []
+        for areas in reversed(self._areas.get(session_id, ())):
+            for a in areas:
+                if a not in out:
+                    out.append(a)
+        return out[:_CARRY_AREAS]
+
+    def _remember_areas(self, session_id: str, areas: list[str]) -> None:
+        dq = self._areas.setdefault(session_id, deque(maxlen=_CARRY_PROMPTS))
+        dq.append(areas)
+        self._areas.move_to_end(session_id)
+        while len(self._areas) > _MAX_SESSIONS:
+            self._areas.popitem(last=False)
 
     def __call__(self, state: SessionState) -> dict:
         entry("load_memories", state, prompt_len=len(state.get("prompt", "")))
 
         prompt = state["prompt"]
         tokens = set(tokenise(prompt.lower()))
+        session_id = state.get("session_id", "")
+        carried = self._carried_areas(session_id) if len(tokens) <= _THIN_TOKENS else []
+        tokens |= set(carried)
 
         try:
             memories = self._retriever.retrieve(tokens)
@@ -49,6 +78,17 @@ class LoadMemoriesNode:
             return {"memories": [], "keywords": list(tokens)}
 
         names_out = [m.get("name", "?") for m in memories]
+        try:
+            from langchain_learning.nodes._memory_scoring import area_tokens
+            self._remember_areas(session_id, area_tokens(memories))
+        except Exception as exc:
+            _log.warning("area carry-over update failed: %s", exc)
+        try:
+            from langchain_learning.nodes import _memory_audit
+            _memory_audit.record(session_id, prompt, tokens, carried,
+                                 getattr(self._retriever, "last_trace", []), names_out)
+        except Exception as exc:
+            _log.warning("memory audit failed: %s", exc)
         _log.info(
             "[load_memories] mode=combination returned=%d keywords=%d names=%s",
             len(memories), len(tokens), names_out,
