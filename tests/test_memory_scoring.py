@@ -332,3 +332,53 @@ def test_record_memory_hits_never_raises_on_db_error(tmp_path):
     bad_path = tmp_path / "does" / "not" / "exist" / "MEMORY.sqlite"
     with patch("src.config.config", memory_db=bad_path):
         record_memory_hits(["alpha"])  # should not raise
+
+
+# ---------------------------------------------------------------------------
+# BM25 over tags (task:c48b4190)
+# ---------------------------------------------------------------------------
+
+def _names(con, tokens, n=5):
+    return [m["name"] for m in score_memories(tokens, con, top_n=n)]
+
+
+def test_rare_tag_outranks_common_tag(mem_conn):
+    """IDF: matching a term few memories carry beats matching one most carry."""
+    for i in range(6):
+        _insert(mem_conn, f"filler-{i}", tags="stocks, tracker, notes")
+    _insert(mem_conn, "rare", tags="sqlcipher, notes")
+    _insert(mem_conn, "common", tags="tracker, notes")
+    assert _names(mem_conn, {"sqlcipher", "tracker"})[0] == "rare"
+
+
+def test_many_tags_not_penalised_vs_few(mem_conn):
+    """A well-tagged memory must not lose to a sparsely tagged one for the same match."""
+    _insert(mem_conn, "sparse", tags="gate")
+    _insert(mem_conn, "rich", tags="gate, commit, hook, memory, retrieval, scoring, tuning")
+    for i in range(4):
+        _insert(mem_conn, f"other-{i}", tags="unrelated, topic, words")
+    top = _names(mem_conn, {"gate"}, n=2)
+    assert set(top) == {"sparse", "rich"}
+    scores = {m["name"]: m for m in score_memories({"gate"}, mem_conn, top_n=2)}
+    assert scores["rich"] and scores["sparse"]
+
+
+def test_no_tag_match_scores_nothing(mem_conn):
+    _insert(mem_conn, "a", tags="alpha, beta")
+    _insert(mem_conn, "b", tags="gamma, delta")
+    assert _names(mem_conn, {"zzzz"}) == []
+
+
+def test_index_rebuilds_only_when_tags_change(mem_conn):
+    from langchain_learning.nodes import _memory_scoring as ms
+    _insert(mem_conn, "a", tags="alpha, beta")
+    _insert(mem_conn, "b", tags="gamma, delta")
+    ms._bm25_cache.update(sig=None)
+    score_memories({"alpha"}, mem_conn, top_n=3)
+    first = ms._bm25_cache["bm25"]
+    score_memories({"gamma"}, mem_conn, top_n=3)
+    assert ms._bm25_cache["bm25"] is first          # unchanged table -> cached index reused
+    mem_conn.execute("UPDATE memories SET tags='alpha, epsilon' WHERE name='b'")
+    mem_conn.commit()
+    assert _names(mem_conn, {"epsilon"}) == ["b"]   # tag edit -> index rebuilt and searchable
+    assert ms._bm25_cache["bm25"] is not first

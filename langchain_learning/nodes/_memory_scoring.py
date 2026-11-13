@@ -1,24 +1,28 @@
-"""Shared combination-signal scorer for memory retrieval.
+"""Shared BM25 scorer for memory retrieval.
 
 Used by LoadMemoriesNode (prompt → memories) and ActivateTaskNode (task → memories).
 
 Signals per row:
-  1. tag_overlap    — Jaccard(tokens ∩ tags) × tag_weight
-  2. body_overlap   — Jaccard(tokens ∩ body) × body_weight
-  3. recency        — multiplier based on updated timestamp
+  1. BM25 over the memory's tags (IDF + length normalisation) × tag_weight
+  2. recency — multiplier based on updated timestamp
 
-A row with zero tag/body overlap scores 0 and is dropped by min_keyword_score —
-there is no baseline weight keeping it eligible (domain used to provide one).
+The BM25 index covers every memory so IDF reflects the whole corpus. It is
+cached at module level and rebuilt only when the (id, updated, tags) signature
+of the table changes, so a prompt does not re-tokenise the corpus.
+A row with no tag match scores 0 and is dropped by min_keyword_score.
 
 Config loaded from memory_scoring.json (iCloud), mtime-cached.
 """
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 from datetime import datetime, timezone
 
-from langchain_learning.nodes._text_utils import tokenise
+from rank_bm25 import BM25Plus
+
+from langchain_learning.nodes._text_utils import _STOP_WORDS
 from src.config import config as _src_cfg
 from src.logger import get_logger
 
@@ -89,25 +93,48 @@ def recency_multiplier(updated_str: str | None, cfg: dict) -> float:
         return 1.0
 
 
-def combination_score(
-    row: sqlite3.Row,
-    tokens: set[str],
-    cfg: dict,
-) -> float:
-    """Score one memory row against a token set using tag/body overlap + recency."""
+def _tag_terms(tags: str | None) -> list[str]:
+    """Tag tokens as a list (duplicates kept so BM25 sees term frequency and length)."""
+    return [t for t in re.findall(r"[a-z]{3,}", (tags or "").lower()) if t not in _STOP_WORDS]
+
+
+_bm25_cache: dict = {"sig": None, "bm25": None, "pos": {}}
+
+
+def _bm25_index(conn: sqlite3.Connection) -> tuple[BM25Plus | None, dict[int, int]]:
+    """Return (index, id -> position), rebuilt only when the table's tags/updated change."""
+    rows = conn.execute("SELECT id, tags, updated, name FROM memories ORDER BY id").fetchall()
+    sig = hash(tuple((r[0], r[1], r[2], r[3]) for r in rows))
+    if _bm25_cache["sig"] != sig:
+        corpus = [(_tag_terms(r[1]) + _tag_terms(re.sub(r"[-_]", " ", r[3] or ""))) or ["_"] for r in rows]  # BM25 needs non-empty docs
+        _bm25_cache.update(
+            sig=sig,
+            # BM25Plus idf=log((N+1)/n) stays > 0 on tiny corpora; delta=0 keeps
+            # a doc that lacks the term at exactly 0 (Okapi's idf hits 0/negative).
+            bm25=BM25Plus(corpus, delta=0) if corpus else None,
+            pos={r[0]: i for i, r in enumerate(rows)},
+        )
+        _log.info("[memory_scoring] BM25 index rebuilt docs=%d", len(rows))
+    return _bm25_cache["bm25"], _bm25_cache["pos"]
+
+
+def bm25_scores(conn: sqlite3.Connection, tokens: set[str]) -> dict[int, float]:
+    """BM25 score of the query tokens against every memory's tags, keyed by memory id."""
     if not tokens:
+        return {}
+    bm25, pos = _bm25_index(conn)
+    if bm25 is None:
+        return {}
+    raw = bm25.get_scores(sorted(tokens))
+    return {mid: float(raw[i]) for mid, i in pos.items()}
+
+
+def combination_score(row: sqlite3.Row, scores: dict[int, float], cfg: dict) -> float:
+    """Final score for one memory: BM25(tags) × tag_weight × recency, or 0 below the floor."""
+    s = scores.get(row["id"], 0.0) * cfg.get("tag_weight", 3.0)
+    if s <= 0 or s < cfg.get("min_keyword_score", 0.0):
         return 0.0
-
-    tag_tokens  = set(tokenise((row["tags"]  or "").lower()))
-    body_tokens = set(tokenise((row["body"]  or "").lower()))
-
-    tag_score  = (len(tokens & tag_tokens)  / max(len(tag_tokens),  1)) * cfg.get("tag_weight", 3.0)
-    body_score = (len(tokens & body_tokens) / max(len(tokens), 1))      * cfg.get("body_weight", 1.0)
-
-    if (tag_score + body_score) < cfg.get("min_keyword_score", 0.0):
-        return 0.0
-
-    return (tag_score + body_score) * recency_multiplier(row["updated"], cfg)
+    return s * recency_multiplier(row["updated"], cfg)
 
 
 _NEIGHBOUR_COLS = "id, name, type, tags, body, related, updated"
@@ -132,7 +159,7 @@ def _related_column_boosts(cfg: dict, seed_pool, rows_by_name) -> dict:
     return out
 
 
-def _link_boosts(conn, cfg: dict, tokens, seed_pool, rows_by_name) -> dict | None:
+def _link_boosts(conn, cfg: dict, scores, seed_pool, rows_by_name) -> dict | None:
     """Boost graph neighbours from memory_links. None if the table is unusable.
 
     Neighbours are fetched by id, so they need not be inside the batch_limit window.
@@ -167,7 +194,7 @@ def _link_boosts(conn, cfg: dict, tokens, seed_pool, rows_by_name) -> dict | Non
         _log.warning("[memory_scoring] memory_links unusable, using related column: %s", exc)
         return None
 
-    direct = {oid: combination_score(r, tokens, cfg) for oid, r in rows.items()}
+    direct = {oid: combination_score(r, scores, cfg) for oid, r in rows.items()}
     factor = cfg.get("related_boost_factor", 0.15)
     max_n = cfg.get("related_max_neighbours", 2)
     cap = cfg.get("related_target_cap", 0.5) * max(seed_ids.values())
@@ -243,10 +270,11 @@ def score_memories(
     ).fetchall()
 
     rows_by_name: dict[str, sqlite3.Row] = {row["name"]: row for row in rows}
+    scores_by_id = bm25_scores(conn, tokens)
 
     scored: dict[str, tuple[float, dict]] = {}
     for row in rows:
-        s = combination_score(row, tokens, cfg)
+        s = combination_score(row, scores_by_id, cfg)
         if s > 0:
             scored[row["name"]] = (s, dict(row))
 
@@ -255,7 +283,7 @@ def score_memories(
 
     boosts = None
     if cfg.get("related_source", "links") == "links":
-        boosts = _link_boosts(conn, cfg, tokens, seed_pool, rows_by_name)
+        boosts = _link_boosts(conn, cfg, scores_by_id, seed_pool, rows_by_name)
     graph_ok = boosts is not None
     if boosts is None:  # legacy source, or memory_links unusable
         boosts = _related_column_boosts(cfg, seed_pool, rows_by_name)

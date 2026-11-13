@@ -22,15 +22,15 @@ _log = get_logger(__name__)
 class LoadMemoriesNode:
     """Retrieve top-N memories for the current prompt via combination signal scoring.
 
-    Scores every row in MEMORY.sqlite by tag overlap + body overlap + recency.
-    No embeddings, no external services, no domain scoping — a memory competes
-    purely on keyword relevance.
+    Scores every row in MEMORY.sqlite with BM25 over tags + slug words, times a
+    recency factor. No embeddings, no external services, no domain scoping — a
+    memory competes purely on keyword relevance.
 
     Accepts an optional MemoryRetriever at construction time; defaults to
     CombinationSignalRetriever (production backend). Pass NullMemoryRetriever or a
     custom stub in tests to avoid requiring a real SQLite fixture.
 
-    Tags: memory, memory-injection, combination-signal, bm25, tag-overlap, prompt-context, MEMORY.sqlite
+    Tags: memory, memory-injection, bm25, tag-overlap, prompt-context, MEMORY.sqlite
     """
 
     def __init__(self, retriever: MemoryRetriever | None = None) -> None:
