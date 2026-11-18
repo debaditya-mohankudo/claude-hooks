@@ -325,6 +325,13 @@ def _handle_post_tool_use(hook_input: dict) -> dict | None:
             if result:
                 log.info("PTU vault reindex: %s %s", call.id, result)
 
+    # Edits `reindex_for_command` cannot see: Edit/Write on a vault note, or a Bash command
+    # (sed -i, a redirect) naming one. Unchanged notes cost one stat; never raises.
+    from src.tools.vault_index import reindex_for_tool
+    result = reindex_for_tool(tool_name, tool_input, hook_input.get("cwd", ""))
+    if result:
+        log.info("PTU vault reindex (tool): %s %s", tool_name, result)
+
     context_nudge = _maybe_context_size_nudge(hook_input, session_id)
     if context_nudge:
         log.info("PTU context-size nudge: session=%s tool=%s", session_id[:8], tool_name)

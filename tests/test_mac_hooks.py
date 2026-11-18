@@ -32,14 +32,16 @@ def ptu(monkeypatch):
     import hooks.dispatcher as d
     import langchain_learning.session_graph as sg
     import src.tools.vault_index as vi
-    seen = {"reindex": [], "learn": []}
+    seen = {"reindex": [], "learn": [], "tool_reindex": []}
     monkeypatch.setattr(vi, "reindex_for_command", lambda cid, inp: seen["reindex"].append((cid, inp)))
+    monkeypatch.setattr(vi, "reindex_for_tool",
+                        lambda name, inp, cwd="": seen["tool_reindex"].append((name, inp, cwd)))
     monkeypatch.setattr(sg, "run_post_tool", lambda **kw: seen["learn"].append(kw) or None)
     monkeypatch.setattr(d, "_maybe_context_size_nudge", lambda *a: None)
 
-    def run(tool_name, tool_input, tool_response=None):
+    def run(tool_name, tool_input, tool_response=None, cwd=""):
         d._handle_post_tool_use({"tool_name": tool_name, "tool_input": tool_input, "session_id": "pytest-x",
-                                 "tool_response": tool_response or {}})
+                                 "tool_response": tool_response or {}, "cwd": cwd})
         return seen
     return run
 
@@ -54,6 +56,13 @@ def test_a_bash_vault_move_reindexes_both_paths(ptu):
     assert seen["reindex"] == [("mac vault move", {"path": "a.md", "to": "b/c.md"})]
 
 
+def test_edit_write_and_bash_calls_reach_reindex_for_tool_with_the_cwd(ptu):
+    seen = ptu("Edit", {"file_path": "/v/a.md"}, cwd="/v")
+    assert seen["tool_reindex"] == [("Edit", {"file_path": "/v/a.md"}, "/v")]
+    seen = ptu("Bash", {"command": "sed -i s/a/b/ a.md"}, cwd="/v")
+    assert seen["tool_reindex"][-1] == ("Bash", {"command": "sed -i s/a/b/ a.md"}, "/v")
+
+
 def test_an_mcp_vault_write_reaches_the_same_reindex(ptu):
     seen = ptu("mcp__local-mac__vault__write", {"path": "x.md", "content": "y"})
     assert seen["reindex"] == [("mac vault write", {"path": "x.md", "content": "y"})]
@@ -61,7 +70,7 @@ def test_an_mcp_vault_write_reaches_the_same_reindex(ptu):
 
 def test_text_naming_a_vault_verb_triggers_nothing(ptu):
     seen = ptu("Bash", {"command": 'grep -rn "mac vault write" hooks/'})
-    assert seen == {"reindex": [], "learn": []}
+    assert seen["reindex"] == [] and seen["learn"] == []
 
 
 def test_hints_learn_mac_ids_from_both_forms_with_the_parsed_result(ptu):

@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import os
 import re
+import shlex
 import sqlite3
 from pathlib import Path
 
@@ -32,6 +33,9 @@ STALE_AFTER_S = 60  # reindex_if_stale: a full mtime-gated pass at most this oft
 # (hooks/core/mac_command.py maps both to these ids; task:0aa96180).
 WRITE_COMMANDS = {"mac vault append", "mac vault write", "mac vault move", "mac vault delete"}
 PATH_ARGS = ("path", "to")
+# Claude Code's own file-editing tools (arg `file_path`); a Bash command is scanned for note paths instead.
+EDIT_TOOLS = {"Edit", "Write", "MultiEdit"}
+MAX_BASH_PATHS = 20
 STOP = set("the a an of and or to in for on with is are md note notes untitled class classes".split())
 
 WIKI = re.compile(r"\[\[([^\]|#]+)")
@@ -272,14 +276,114 @@ def reindex_for_command(command_id: str, tool_input: dict) -> str | None:
             conn.close()
         return result
     except Exception as exc:
+        _record_error(command_id, exc)
+        return None
+
+
+def _record_error(label: str, exc: Exception) -> None:
+    """Store a reindex failure in meta.last_error so a stale index is visible, never raise."""
+    try:
+        conn = connect()
+        conn.execute("INSERT OR REPLACE INTO meta VALUES ('last_error', datetime('now') || ' ' || ? || ': ' || ?)",
+                     (label, str(exc)))
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+
+def _indexable(rel: str) -> bool:
+    parts = Path(rel).parts
+    return (rel.endswith(".md") and parts[-1] not in SKIP_FILES
+            and not any(x in SKIP_DIRS or x.startswith(".") for x in parts[:-1]))
+
+
+def _rel_in_vault(raw: str, root: Path, cwd: str) -> str | None:
+    """A path word as a vault-relative note path, or None when it is not under the vault.
+
+    Absolute and ~ paths stand alone; a relative one is tried against the call's cwd, then
+    the vault root. The first candidate that is an existing file wins; failing that, the
+    first one that lies under the vault (a deleted note still needs dropping from the index).
+    """
+    p = Path(raw).expanduser()
+    bases = [None] if p.is_absolute() else [Path(cwd) if cwd else None, root]
+    first = None
+    for base in bases:
+        cand = p if base is None else base / p
         try:
-            conn = connect()
-            conn.execute("INSERT OR REPLACE INTO meta VALUES ('last_error', datetime('now') || ' ' || ? || ': ' || ?)",
-                         (command_id, str(exc)))
-            conn.commit()
+            rel = str(Path(os.path.normpath(cand)).relative_to(root))
+        except ValueError:
+            continue
+        if not _indexable(rel):
+            continue
+        if (root / rel).is_file():
+            return rel
+        first = first or rel
+    return first
+
+
+def _bash_note_paths(command: str, root: Path, cwd: str) -> list[str]:
+    """Vault note paths named in a shell command (`sed -i ... "Market/x.md"`, `f="a/b.md"`, `>> a/b.md`)."""
+    try:
+        words = shlex.split(command, posix=True)
+    except ValueError:
+        words = command.split()
+    out: list[str] = []
+    for w in words:
+        w = w.split("=")[-1].lstrip("<>")  # f="a/b.md" and >>a/b.md
+        if not w.endswith(".md"):
+            continue
+        rel = _rel_in_vault(w, root, cwd)
+        if rel and rel not in out:
+            out.append(rel)
+    return out[:MAX_BASH_PATHS]
+
+
+def reindex_for_tool(tool_name: str, tool_input: dict, cwd: str = "") -> str | None:
+    """PostToolUse entry point for edits `reindex_for_command` cannot see.
+
+    Edit/Write/MultiEdit name the note in `file_path`; a Bash command is scanned for .md words
+    that resolve under the vault (sed -i, redirects, python one-liners naming the file). Only a
+    note whose mtime differs from the indexed one, or that is gone, is re-parsed, so a command
+    that merely reads a note costs one stat. Edits made inside scripts, by Obsidian or from
+    another device are left to reindex_if_stale and the vault_log scan.
+
+    Returns a one-line result, or None when nothing under the vault was named. Never raises.
+    """
+    try:
+        root = vault_root()
+        if tool_name in EDIT_TOOLS:
+            fp = tool_input.get("file_path") if isinstance(tool_input, dict) else None
+            rel = _rel_in_vault(fp, root, cwd) if isinstance(fp, str) and fp.endswith(".md") else None
+            rels = [rel] if rel else []
+        elif tool_name == "Bash" and isinstance(tool_input, dict) and isinstance(tool_input.get("command"), str):
+            rels = _bash_note_paths(tool_input["command"], root, cwd)
+        else:
+            return None
+        if not rels:
+            return None
+        conn = connect()
+        try:
+            done = []
+            for rel in rels:
+                try:
+                    mtime = (root / rel).stat().st_mtime
+                except OSError:
+                    mtime = None
+                row = conn.execute("SELECT mtime, unreadable FROM files WHERE path = ?", (rel,)).fetchone()
+                if row is None and mtime is None:
+                    continue  # named but never existed and never indexed
+                if row and mtime is not None and row[0] == mtime and not row[1]:
+                    continue  # already current
+                done.append(f"{rel}={reindex_file(conn, root, rel)}")
+            if done:
+                conn.execute("INSERT OR REPLACE INTO meta VALUES ('last_error', '')")
+                conn.commit()
+        finally:
             conn.close()
-        except Exception:
-            pass
+        return ", ".join(done) or None
+    except Exception as exc:
+        _record_error(tool_name, exc)
         return None
 
 

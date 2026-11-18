@@ -115,7 +115,8 @@ def test_unreadable_note_gets_a_stub_row(vault, conn):
     assert vi.reindex_all(conn, vault)["indexed"] >= 1  # retried and parsed once readable
 
 
-def test_reindex_if_stale_respects_ttl(vault, conn):
+def test_reindex_if_stale_respects_ttl(vault, conn, monkeypatch):
+    monkeypatch.setenv("VAULT_ROOT", str(vault))  # reindex_if_stale takes no root: never walk the real vault
     assert vi.reindex_if_stale(conn, ttl_s=60) is True  # never built
     assert vi.reindex_if_stale(conn, ttl_s=60) is False  # just built
     assert vi.reindex_if_stale(conn, ttl_s=0) is True
@@ -132,3 +133,87 @@ def test_old_schema_version_is_rebuilt(vault, tmp_path):
     assert conn.execute("SELECT count(*) FROM files").fetchone() == (0,)
     assert vi.reindex_all(conn, vault)["indexed"] == 2
     assert vi.search(conn, "Warsh")
+
+
+# --- reindex_for_tool: Edit/Write and Bash commands naming vault notes (task:0bad60ec) ---
+
+@pytest.fixture
+def hook_env(vault, tmp_path, monkeypatch):
+    monkeypatch.setenv("VAULT_ROOT", str(vault))
+    monkeypatch.setenv("VAULT_INDEX_DB", str(tmp_path / "hook.sqlite"))
+    return vault
+
+
+def _tags(path):
+    return {r[0] for r in vi.connect().execute("SELECT tag FROM tags WHERE path = ?", (path,))}
+
+
+def test_reindex_for_tool_edit_and_write_inside_vault(hook_env):
+    note = hook_env / "Market/Macro/US Macro.md"
+    res = vi.reindex_for_tool("Write", {"file_path": str(note)})
+    assert "Market/Macro/US Macro.md=indexed" in res
+    note.write_text("---\ntags: [new-tag]\n---\n# US Macro\n")
+    os.utime(note, (note.stat().st_atime, note.stat().st_mtime + 5))
+    assert "indexed" in vi.reindex_for_tool("Edit", {"file_path": str(note)})
+    assert _tags("Market/Macro/US Macro.md") == {"new-tag"}
+
+
+def test_reindex_for_tool_ignores_outside_non_md_and_other_tools(hook_env, tmp_path):
+    outside = tmp_path / "elsewhere.md"
+    outside.write_text("# x")
+    assert vi.reindex_for_tool("Edit", {"file_path": str(outside)}) is None
+    assert vi.reindex_for_tool("Edit", {"file_path": str(hook_env / "Market/notes.txt")}) is None
+    assert vi.reindex_for_tool("Edit", {"file_path": str(hook_env / ".obsidian/x.md")}) is None
+    assert vi.reindex_for_tool("Read", {"file_path": str(hook_env / "Market/Macro/US Macro.md")}) is None
+    assert vi.reindex_for_tool("Edit", {}) is None
+    assert vi.connect().execute("SELECT count(*) FROM files").fetchone() == (0,)
+
+
+def test_reindex_for_tool_bash_sed_relative_to_vault_and_cwd(hook_env):
+    rel = "Market/Macro/US Macro.md"
+    assert f"{rel}=indexed" in vi.reindex_for_tool("Bash", {"command": f"sed -i 's/a/b/' '{rel}'"}, cwd=str(hook_env))
+    note = hook_env / rel
+    note.write_text("---\ntags: [from-sed]\n---\n# US Macro\n")
+    os.utime(note, (note.stat().st_atime, note.stat().st_mtime + 5))
+    # relative to the cwd, a variable assignment, quoting with spaces
+    cmd = f'cd Market/Macro && f="US Macro.md" && sed -i s/x/y/ "US Macro.md"'
+    assert f"{rel}=indexed" in vi.reindex_for_tool("Bash", {"command": cmd}, cwd=str(hook_env / "Market/Macro"))
+    assert _tags(rel) == {"from-sed"}
+
+
+def test_reindex_for_tool_bash_absolute_and_redirect(hook_env):
+    new = hook_env / "Market/New Note.md"
+    new.write_text("# New\n")
+    res = vi.reindex_for_tool("Bash", {"command": f'echo hi >> "{new}"'})
+    assert "Market/New Note.md=indexed" in res
+
+
+def test_reindex_for_tool_bash_read_costs_nothing_once_indexed(hook_env):
+    rel = "Market/Macro/US Macro.md"
+    assert vi.reindex_for_tool("Bash", {"command": f"cat '{rel}'"}, cwd=str(hook_env))
+    assert vi.reindex_for_tool("Bash", {"command": f"cat '{rel}'"}, cwd=str(hook_env)) is None
+
+
+def test_reindex_for_tool_bash_unknown_or_missing_paths(hook_env):
+    assert vi.reindex_for_tool("Bash", {"command": "ls -la"}) is None
+    assert vi.reindex_for_tool("Bash", {"command": "cat Market/never/existed.md"}, cwd=str(hook_env)) is None
+    assert vi.reindex_for_tool("Bash", {"command": "cat /etc/notes.md"}) is None
+    assert vi.reindex_for_tool("Bash", {"command": "echo 'unbalanced quote .md"}) is None  # shlex ValueError
+
+
+def test_reindex_for_tool_bash_rm_drops_indexed_note(hook_env):
+    rel = "Market/Macro/US Macro.md"
+    vi.reindex_for_tool("Bash", {"command": f"touch '{rel}'"}, cwd=str(hook_env))
+    (hook_env / rel).unlink()
+    assert f"{rel}=removed" in vi.reindex_for_tool("Bash", {"command": f"rm '{rel}'"}, cwd=str(hook_env))
+    assert vi.connect().execute("SELECT count(*) FROM files").fetchone() == (0,)
+
+
+def test_reindex_for_tool_failure_recorded_not_raised(hook_env, monkeypatch):
+    vi.connect().close()
+    def boom(*a, **k):
+        raise RuntimeError("disk on fire")
+    monkeypatch.setattr(vi, "reindex_file", boom)
+    note = hook_env / "Market/Macro/US Macro.md"
+    assert vi.reindex_for_tool("Write", {"file_path": str(note)}) is None
+    assert "disk on fire" in vi.connect().execute("SELECT value FROM meta WHERE key='last_error'").fetchone()[0]
