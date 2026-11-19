@@ -282,6 +282,10 @@ def _handle_post_tool_use(hook_input: dict) -> dict | None:
 
     log.info("PTU enter: session=%s tool=%s duration_ms=%.0f", session_id[:8], tool_name, duration_ms)
     log.debug("tool_response raw: %r", tool_response)
+    if tool_name == "WebSearch":
+        from src.tools import web_search_cache
+        if web_search_cache.record_hook(session_id, tool_input, hook_input.get("tool_response")):
+            log.info("PTU websearch cached: session=%s", session_id[:8])
     if not isinstance(tool_response, dict):
         tool_response = {"raw": str(tool_response)}
 
@@ -512,6 +516,21 @@ def _handle_pre_tool_use(hook_input: dict) -> dict | None:
             return None
     elif tool_name in ("Edit", "Write", "MultiEdit"):
         short_name = tool_name
+    elif tool_name == "WebSearch":
+        # Serve a fresh cached result instead of searching again
+        # (src/tools/web_search_cache.py). A miss falls through to the real search.
+        from src.tools import web_search_cache
+        cached = web_search_cache.cached_reason(session_id, hook_input.get("tool_input") or {})
+        if cached:
+            log.info("PreTU websearch cache hit: session=%s", session_id[:8])
+            return {
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "deny",
+                    "permissionDecisionReason": cached,
+                }
+            }
+        return None
     else:
         return None
 
