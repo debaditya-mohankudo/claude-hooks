@@ -17,7 +17,7 @@ uname -s
 ```
 
 - If `Darwin` → macOS. Continue — this repo is macOS-only.
-- If anything else → tell the user: "claude-hooks currently only supports macOS. The hooks, launchd config, and iCloud paths are all macOS-specific. You'll need a Mac to continue."  Then stop.
+- If anything else → tell the user: "claude-hooks currently only supports macOS. The hooks and launchd config are macOS-specific. You'll need a Mac to continue."  Then stop.
 
 ---
 
@@ -87,32 +87,7 @@ Show output. Confirm it exits 0 before proceeding.
 
 ---
 
-## Step 4 — iCloud databases directory
-
-Check if iCloud Databases path exists:
-
-```bash
-ls ~/Library/Mobile\ Documents/com~apple~CloudDocs/Databases 2>/dev/null && echo "exists" || echo "missing"
-```
-
-- If exists: [x] iCloud Databases directory — already there.
-- If missing: run:
-
-```bash
-mkdir -p ~/Library/Mobile\ Documents/com~apple~CloudDocs/Databases
-```
-
-If iCloud Drive is not available on their machine, tell them to set the override instead:
-```bash
-export CLAUDE_HOOKS_ICLOUD_DB_DIR=~/.claude/databases
-mkdir -p ~/.claude/databases
-```
-
-> **Reference:** `docs/setup.md` — Section 2
-
----
-
-## Step 5 — Start the hook server
+## Step 4 — Start the hook server
 
 The hooks now communicate with a persistent FastAPI server rather than spawning a subprocess per hook. The server must be running before Claude Code fires any hooks.
 
@@ -142,11 +117,11 @@ If it fails, help debug:
 - Check logs: `log show --predicate 'subsystem == "hooks.server"' --last 1m`
 - Manual fallback: `cd <repo_dir> && uv run uvicorn hooks.server:app --host 127.0.0.1 --port 8766`
 
-> **Reference:** `docs/setup.md` — Section 4
+> **Reference:** `docs/setup.md` — Section 3
 
 ---
 
-## Step 6 — Register hooks in settings.json
+## Step 5 — Register hooks in settings.json
 
 Show them the exact JSON block to add to `~/.claude/settings.json` with their real paths filled in:
 
@@ -165,11 +140,11 @@ Show them the exact JSON block to add to `~/.claude/settings.json` with their re
 
 Tell them: "Open `~/.claude/settings.json` and merge this into the `hooks` key. If the file doesn't exist yet, create it with this content. Let me know when done."
 
-> **Reference:** `docs/setup.md` — Section 5
+> **Reference:** `docs/setup.md` — Section 4
 
 ---
 
-## Step 7 — Register the MCP server
+## Step 6 — Register the MCP server
 
 Show them the MCP server entry to add to `~/.claude/claude_desktop_config.json` (real paths filled in):
 
@@ -194,11 +169,10 @@ Tell them: "Merge this into `~/.claude/claude_desktop_config.json`. Then restart
 On restart, the MCP server will:
 - Auto-start Ollama if it isn't running
 
-> **Reference:** `docs/setup.md` — Section 4
 
 ---
 
-## Step 8 — Verify
+## Step 7 — Verify
 
 Run the smoke test against the live server:
 
@@ -219,16 +193,15 @@ echo '{"session_id":"test","prompt":"hello","cwd":"/tmp"}' | \
 - Exit 0 + JSON containing `additionalContext` → hooks working.
 - Any error → show the output and help debug. Common causes:
   - Server not running → run `scripts/install_server.sh` and check `curl .../health`
-  - iCloud path error → set `CLAUDE_HOOKS_ICLOUD_DB_DIR` and retry
   - Import error → run `uv sync` again inside `<repo_dir>`
 
 Then ask them to open a fresh Claude Code session and check that `## Injected memories` appears in the system prompt.
 
-> **Reference:** `docs/setup.md` — Section 7
+> **Reference:** `docs/setup.md` — Section 6
 
 ---
 
-## Step 9 — Optional: Index code and commit history for RAG
+## Step 8 — Optional: Index code and commit history for RAG
 
 Tell the user:
 
@@ -252,7 +225,7 @@ Ask if they want to run the indexes now, or skip to the next step.
 
 ---
 
-## Step 10 — Done
+## Step 9 — Done
 
 Say:
 

@@ -48,7 +48,7 @@ Runs the concept audit, commits to `main`, then `scripts/deploy.sh`: unit gate �
 
 ### /onboarding
 
-Interactive setup guide for a new teammate. Steps: OS detection → prerequisites → clone/deps → iCloud databases → hook registration → MCP server → smoke test. Goes one step at a time waiting for confirmation.
+Interactive setup guide for a new teammate. Steps: OS detection → prerequisites → clone/deps → hook registration → MCP server → smoke test. Goes one step at a time waiting for confirmation.
 
 → `skills/onboarding/skill.md` · reference: `docs/setup.md`
 

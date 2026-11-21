@@ -1,5 +1,5 @@
 ---
-tags: project setup, installation, dependencies, uv, venv, iCloud Databases, hook registration, settings.json, FastAPI server, environment variables, prerequisites, first-time setup, clone, install
+tags: project setup, installation, dependencies, uv, venv, hook registration, settings.json, FastAPI server, environment variables, prerequisites, first-time setup, clone, install
 ---
 # Project Setup Guide
 
@@ -19,7 +19,6 @@ How to get claude-hooks running from scratch on a new machine or when sharing th
   ```
 
   Ollama powers semantic search (code RAG, diff RAG). Without it the MCP server starts but the `code_rag__*` / `diff_rag__*` tools will not work; memory injection (BM25) does not need it.
-- iCloud Drive enabled (the LIFE_OS vault and two JSON config files live there — see below)
 
 ---
 
@@ -33,32 +32,7 @@ uv sync
 
 ---
 
-## 2. Create the iCloud Databases directory
-
-The SQLite databases all live under `~/.claude` (created automatically). iCloud
-still holds two JSON config files (`memory_scoring.json`, `tool_registry.json`)
-so scoring tunables and tool mappings sync across machines:
-
-```bash
-mkdir -p ~/Library/Mobile\ Documents/com~apple~CloudDocs/Databases
-```
-
-If iCloud is not available, set the override env var (see [Environment variables](#6-environment-variables)):
-
-```bash
-export CLAUDE_HOOKS_ICLOUD_DB_DIR=~/.claude/databases
-mkdir -p ~/.claude/databases
-```
-
-> `tool_hints.sqlite` and `claude_hooks.sqlite` used to live in iCloud too;
-> task:62ea0ea5 moved them to `~/.claude` — an iCloud-synced SQLite file on
-> the hook write path caused transient read locks / `EDEADLK`. Override their
-> directory with `CLAUDE_HOOKS_CLAUDE_DB_DIR` if `~/.claude` is not where you
-> want them.
-
----
-
-## 3. Create the databases
+## 2. Create the databases
 
 All databases are auto-created on first use — nothing to create manually.
 
@@ -72,11 +46,11 @@ All databases are auto-created on first use — nothing to create manually.
 
 ### Configuring your projects
 
-There is nothing to register per repo. CWD→domain mapping (`CWD_DOMAIN_MAP`, `cwd_domains.json`) and the `cwd_domain_detect` node were removed, and memories no longer carry a domain column — scoping is by `tags` and slug words (BM25). To make a memory surface for a project, give it tags that match how you talk about that project (see §8).
+There is nothing to register per repo. CWD→domain mapping (`CWD_DOMAIN_MAP`, `cwd_domains.json`) and the `cwd_domain_detect` node were removed, and memories no longer carry a domain column — scoping is by `tags` and slug words (BM25). To make a memory surface for a project, give it tags that match how you talk about that project (see §7).
 
 ---
 
-## 4. Start the FastAPI hook server
+## 3. Start the FastAPI hook server
 
 The hook server is a persistent FastAPI process that handles the hook events (`UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop`, and `SessionStart`/`SessionEnd`). It must be running before Claude Code fires any hooks.
 
@@ -106,7 +80,7 @@ curl http://127.0.0.1:8766/health
 
 ---
 
-## 5. Register the hooks in `~/.claude/settings.json`
+## 4. Register the hooks in `~/.claude/settings.json`
 
 Hooks now call `client.py` — a thin HTTP wrapper (stdlib urllib, no curl/jq needed) that posts to the FastAPI server. Add the following to your global Claude Code settings (the server also handles `SessionStart` and `SessionEnd`; register them the same way if you want them) (`~/.claude/settings.json`). Replace the path if you cloned to a different location.
 
@@ -161,21 +135,20 @@ Hooks now call `client.py` — a thin HTTP wrapper (stdlib urllib, no curl/jq ne
 
 ---
 
-## 6. Environment variables
+## 5. Environment variables
 
 All variables are optional. Set them in `~/.claude/.env` or export in your shell.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `CLAUDE_HOOKS_CLAUDE_DB_DIR` | `~/.claude` | Override the dir holding `tool_hints.sqlite` + `claude_hooks.sqlite` |
-| `CLAUDE_HOOKS_ICLOUD_DB_DIR` | `~/Library/Mobile Documents/.../Databases` | Override iCloud path — now only the JSON config files (`memory_scoring.json`, `tool_registry.json`) |
+| `CLAUDE_HOOKS_CLAUDE_DB_DIR` | `~/.claude` | Override the dir holding `tool_hints.sqlite` + `claude_hooks.sqlite` (default `~/.claude`) |
 | `CLAUDE_HOOKS_MEMORY_DB` | `~/.claude/MEMORY.sqlite` | Override memory DB path |
 | `LC_DEV_MODE` | `false` | Set `true` to surface hook errors inline in Claude Code (exit 2 on exception). Use during development only. |
 | `LC_TOP_K` | `7` | Max number of scored memories returned per prompt |
 
 ---
 
-## 7. Verify the setup
+## 6. Verify the setup
 
 Start a new Claude Code session and check the system prompt for `## Injected memories`. If the block appears, the `UserPromptSubmit` hook is running correctly.
 
@@ -197,7 +170,7 @@ A successful run exits 0 and emits JSON with `additionalContext`.
 
 ---
 
-## 8. Seed initial memories (optional but recommended)
+## 7. Seed initial memories (optional but recommended)
 
 The system works without any memories, but seeding a few facts immediately improves context quality. All memories — project architecture facts, cross-cutting mission notes, feedback, reference — live in the single global `MEMORY.sqlite` store, scored per-turn by BM25 over each memory's tags and slug words:
 
@@ -243,8 +216,6 @@ Add further memories (feedback, reference) as the project evolves.
 ## Troubleshooting
 
 **Hooks not firing** — check that `~/.claude/settings.json` has the correct absolute path to the repo and that `uv` is on PATH (`which uv`). Use the full path `/Users/<you>/.local/bin/uv` if needed.
-
-**iCloud path errors** — the SQLite DBs are under `~/.claude` and don't need iCloud; for the JSON config files set `CLAUDE_HOOKS_ICLOUD_DB_DIR` to a local directory and restart. Override the SQLite DB dir with `CLAUDE_HOOKS_CLAUDE_DB_DIR`.
 
 **Silent failures** — set `LC_DEV_MODE=true` in `~/.claude/.env` to make hook errors surface inline in Claude Code.
 
