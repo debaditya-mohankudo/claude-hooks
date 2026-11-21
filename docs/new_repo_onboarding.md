@@ -1,8 +1,8 @@
 ---
-tags: new repo onboarding, CWD_DOMAIN_MAP, domain setup, MEMORY.sqlite seeding
+tags: new repo onboarding, MEMORY.sqlite seeding
 ---
 # Onboarding a New Repo
 
-Domain registration and memory seeding steps have been consolidated into [setup.md](setup.md) — see **§3 "Configuring your projects"** and **§8 "Seed initial memories"**.
+There is no per-repo domain registration any more (`CWD_DOMAIN_MAP` was removed). Seed memories for a new repo as described in [setup.md](setup.md) **§8 "Seed initial memories"**.
 
 ← [Setup Guide](setup.md)

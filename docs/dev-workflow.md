@@ -36,7 +36,7 @@ uv run python -m pytest tests/ -q -m "not integration"
 ```
 
 `/deploy` runs: unit tests → restart the server via launchctl → wait for
-`/health` → run the full suite (unit + integration) against the live server.
+`/health` → run the unit suite, then the integration suite, against the live server (two separate runs; the script refuses a false-green if no integration tests ran).
 
 ## Key rules
 

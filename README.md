@@ -1,6 +1,6 @@
 # claude-hooks
 
-A small FastAPI server that intercepts Claude Code's hook events — persistent memory injection, tool-use gates, and observability across sessions.
+A small FastAPI server that intercepts Claude Code's hook events — persistent memory injection, a commit-traceability gate, and observability across sessions.
 
 > **macOS only** — requires Claude Code, uv, Ollama, and iCloud Drive. See [setup](docs/setup.md) for prerequisites.
 
@@ -28,7 +28,7 @@ Gates are the one part of this system that isn't a suggestion. They sit in `PreT
 
 The gates for `imessage__send` and `mail__delete` have moved to [LocalMacMCP](https://github.com/debaditya-mohankudo/LocalMacMCP) — they live alongside the MCP tools they guard now, not here.
 
-The one gate this repo still owns is the git-commit gate: it requires every commit to reference an active task, rather than trusting Claude's own claim that one exists.
+The gates this repo still owns are the git-commit gates (one for Bash `git commit`, one for the `git__commit` MCP tool): they require every commit to reference a task, rather than trusting Claude's own claim that one exists.
 
 ```text
 Bash(git commit -m "fix: ... task:27a9c6ed")
@@ -52,7 +52,7 @@ It needs database access to resolve active tasks, so it stays as a small Python 
 
 ## claude-hooks, briefly
 
-Underneath the gates is a small FastAPI server that intercepts all four Claude Code hook events (`UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop`) and runs them through one LangGraph pipeline. It injects relevant memories into every prompt and tracks which MCP tools get used so it can recommend the right one next time. Memories and tool-usage stats are persisted in SQLite stores under `~/.claude`, durable across restarts; per-session graph state is held in-process (MemorySaver) and rebuilt from the live server on demand. Either way, nothing above (gates, memory) depends on Claude's own context window to stay coherent.
+Underneath the gates is a small FastAPI server that handles Claude Code's hook events (`UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop`, plus `SessionStart`/`SessionEnd`) and runs them through one LangGraph pipeline. It injects relevant memories into every prompt and tracks which MCP tools get used so it can recommend the right one next time. Memories and tool-usage stats are persisted in SQLite stores under `~/.claude`, durable across restarts; per-session graph state is held in-process (MemorySaver) and rebuilt from the live server on demand. Either way, nothing above (gates, memory) depends on Claude's own context window to stay coherent.
 
 **The full architecture** — components, design decisions, database inventory, the graph topology itself: [Architecture](docs/ARCHITECTURE.md).
 
@@ -106,7 +106,8 @@ Skills are listed in the order you'd use them across a real session.
 
 | Skill | What it does                                                                        |
 | ----- | ------------------------------------------------------------------------------------ |
-| `/commit` | Commit — runs the full suite, cites the active `task:<id>` in the message and links the commit (from task-framework) |
+| `/commit` | Commit — a global skill (`~/.claude/skills/commit`), not shipped here; cites the active `task:<id>` in the message |
+| `/deploy` | Land the commit on `main`, restart the hook server via launchd, and run the full suite against it |
 
 ---
 
@@ -115,3 +116,4 @@ Skills are listed in the order you'd use them across a real session.
 - [Architecture](docs/ARCHITECTURE.md) — how the pipeline is structured and why
 - [Setup](docs/setup.md) — installation and configuration
 - [Skills](docs/skills.md) — full skill reference
+- [Development workflow](docs/dev-workflow.md) and [Testing](docs/testing.md)

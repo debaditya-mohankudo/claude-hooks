@@ -1,17 +1,18 @@
 ---
-tags: skills, /commit, /pause, /onboarding, /what-am-i-working-on, skill index, slash commands, workflow skills
+tags: skills, /commit, /deploy, /pause, /onboarding, /what-am-i-working-on, skill index, slash commands, workflow skills
 ---
 # Claude-hooks Skills
 
 Skills live in `skills/<name>` and are synced to `~/.claude/skills/<name>` after every change. Invoke with `/<name>` in any Claude session.
 
-> Task-lifecycle skills (`/task-framework`, `/task-create`, `/task-grooming`, `/task-implementation`, `/task-introspection`, `/task-log-decision`) and `/commit` (full suite, `task:<id>` citation, commit link; it replaced `/gc`) have moved to the separate [task-framework](https://github.com/debaditya-mohankudo/Lite-Task-Framework) project.
+> Task-lifecycle skills (`/task-framework`, `/task-create`, `/task-grooming`, `/task-implementation`, `/task-introspection`, `/task-log-decision`) have moved to the separate [task-framework](https://github.com/debaditya-mohankudo/Lite-Task-Framework) project. `/commit` is a global skill in `~/.claude/skills/commit`, not shipped from this repo.
 
 ## Skills index
 
 | Skill | Invoke | Purpose |
 | --- | --- | --- |
 | `/pause` | `/pause` | Finish current action, save pending intent (to the active task, if one exists), wait for user input |
+| `/deploy` | `/deploy` | Run the unit gate, restart the hook server via launchd, run the full suite against it |
 | `/onboarding` | `/onboarding` | Interactive setup guide — walks a new teammate through full claude-hooks setup step by step |
 | `/what-am-i-working-on` | `/what-am-i-working-on` | Cold-start orientation — recent prompts, tool calls, and task activations across sessions |
 
@@ -34,6 +35,14 @@ Finishes any in-flight tool call, saves pending intent (to the active task via `
 Calls `hooks__server_memory(n_events=50)` and presents the returned timeline — recent prompts, tool calls, and task activations across sessions. Use at the start of a fresh session for quick orientation.
 
 → `skills/what-am-i-working-on/skill.md`
+
+---
+
+### /deploy
+
+Runs the concept audit, commits to `main`, then `scripts/deploy.sh`: unit gate → launchctl restart → `/health` → unit then integration suites against the live server.
+
+→ `skills/deploy/skill.md` · `scripts/deploy.sh`
 
 ---
 

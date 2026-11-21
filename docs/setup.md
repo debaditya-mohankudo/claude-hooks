@@ -18,7 +18,7 @@ How to get claude-hooks running from scratch on a new machine or when sharing th
   ollama pull nomic-embed-text
   ```
 
-  Ollama powers semantic search (task neighbors, code RAG, vault RAG). Without it the MCP server starts but context injection and `tasks__neighbors` will not work.
+  Ollama powers semantic search (code RAG, diff RAG). Without it the MCP server starts but the `code_rag__*` / `diff_rag__*` tools will not work; memory injection (BM25) does not need it.
 - iCloud Drive enabled (the LIFE_OS vault and two JSON config files live there — see below)
 
 ---
@@ -43,7 +43,7 @@ so scoring tunables and tool mappings sync across machines:
 mkdir -p ~/Library/Mobile\ Documents/com~apple~CloudDocs/Databases
 ```
 
-If iCloud is not available, set the override env var (see [Environment variables](#7-environment-variables)):
+If iCloud is not available, set the override env var (see [Environment variables](#6-environment-variables)):
 
 ```bash
 export CLAUDE_HOOKS_ICLOUD_DB_DIR=~/.claude/databases
@@ -65,43 +65,20 @@ All databases are auto-created on first use — nothing to create manually.
 | Database | Location | Created by |
 | --- | --- | --- |
 | `MEMORY.sqlite` | `~/.claude/MEMORY.sqlite` | First `memory__add` MCP call |
-| `proj_tasks.db` | `~/.claude/proj_tasks.db` | First `tasks__create` MCP call |
 | `tool_hints.sqlite` | `~/.claude/tool_hints.sqlite` | First `post_tool_use` hook run |
 | `claude_hooks.sqlite` | `~/.claude/claude_hooks.sqlite` | First hook run |
-| `.tasks_embeddings.tvim` | repo root | MCP server startup (auto-rebuilt if missing) |
+| `server_memory.sqlite` | `~/.claude/server_memory.sqlite` | First hook run (rolling cross-session event log) |
+| `.code_embeddings.tvim`, `.diff_embeddings.tvim` | repo root of each indexed repo | `mac code_rag index_files` / `mac diff_rag index_commits` |
 
 ### Configuring your projects
 
-CWD→domain mappings are declared in `CWD_DOMAIN_MAP` in `src/config.py` — no external file needed. Each key is a CWD substring matched case-insensitively; first match wins. Add an entry for each repo you want claude-hooks to recognise:
-
-```python
-# src/config.py
-CWD_DOMAIN_MAP: dict[str, str] = {
-    "claude-hooks": "claude-hooks",
-    "vault":        "vault",
-    "market-intel": "market-intel",
-    "<repo-dirname>": "<domain-name>",  # ← add your repo here
-}
-```
-
-If the domain is new, also add it to `VALID_DOMAINS` in the same file. The change takes effect on the next hook run — no restart needed.
-
-Without an entry, prompts from that repo fall back to `global` domain and memories won't be project-scoped.
-
-**Worked example (claude-hooks itself):**
-
-| Config | Value |
-| --- | --- |
-| `CWD_DOMAIN_MAP` key | `claude-hooks` |
-| domain | `claude-hooks` |
-| Goals memory | `claude-hooks-goals` (priority 1) |
-| Arch memory | `claude-hooks-arch` (priority 10) |
+There is nothing to register per repo. CWD→domain mapping (`CWD_DOMAIN_MAP`, `cwd_domains.json`) and the `cwd_domain_detect` node were removed, and memories no longer carry a domain column — scoping is by `tags` and slug words (BM25). To make a memory surface for a project, give it tags that match how you talk about that project (see §8).
 
 ---
 
 ## 4. Start the FastAPI hook server
 
-The hook server is a persistent FastAPI process that handles all four hook events. It must be running before Claude Code fires any hooks.
+The hook server is a persistent FastAPI process that handles the hook events (`UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop`, and `SessionStart`/`SessionEnd`). It must be running before Claude Code fires any hooks.
 
 ```bash
 cd ~/workspace/claude-hooks
@@ -117,36 +94,21 @@ uv run uvicorn hooks.server:app --host 127.0.0.1 --port 8766
 ```
 
 > Do not use `--reload` — it restarts the worker on every file save, wiping the
-> in-process MemorySaver checkpoint (active task + session context). The deploy
-> workflow handles restarts explicitly via `pkill` + relaunch.
+> in-process MemorySaver checkpoint (session context). `scripts/deploy.sh` restarts
+> the server explicitly via launchctl.
 
 **Verify the server is up:**
 
 ```bash
 curl http://127.0.0.1:8766/health
-# → {"status":"ok","sessions":0}
+# → {"status":"ok"}
 ```
 
 ---
 
-## 5. Optional: Copilot-compatible bridge
+## 5. Register the hooks in `~/.claude/settings.json`
 
-Copilot does not expose the same native hook event surface as Claude Code, so this repo now includes a small bridge script that forwards simple prompt/tool events to the same FastAPI hook server.
-
-```bash
-cd ~/workspace/claude-hooks
-python3 hooks/copilot_client.py prompt --prompt "summarize this repo" --session-id copilot-demo
-python3 hooks/copilot_client.py pre-tool --tool-name imessage__send --session-id copilot-demo --tool-args '{"recipient":"+1-555-0100"}'
-python3 hooks/copilot_client.py post-tool --tool-name imessage__send --session-id copilot-demo --tool-args '{"recipient":"+1-555-0100"}'
-```
-
-The bridge maps these to the equivalent `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, and `Stop` endpoint calls so the existing gates and context pipeline can be exercised from Copilot-style workflows.
-
----
-
-## 6. Register the hooks in `~/.claude/settings.json`
-
-Hooks now call `client.py` — a thin HTTP wrapper (stdlib urllib, no curl/jq needed) that posts to the FastAPI server. Add the following to your global Claude Code settings (`~/.claude/settings.json`). Replace the path if you cloned to a different location.
+Hooks now call `client.py` — a thin HTTP wrapper (stdlib urllib, no curl/jq needed) that posts to the FastAPI server. Add the following to your global Claude Code settings (the server also handles `SessionStart` and `SessionEnd`; register them the same way if you want them) (`~/.claude/settings.json`). Replace the path if you cloned to a different location.
 
 ```json
 {
@@ -199,7 +161,7 @@ Hooks now call `client.py` — a thin HTTP wrapper (stdlib urllib, no curl/jq ne
 
 ---
 
-## 7. Environment variables
+## 6. Environment variables
 
 All variables are optional. Set them in `~/.claude/.env` or export in your shell.
 
@@ -213,11 +175,9 @@ All variables are optional. Set them in `~/.claude/.env` or export in your shell
 
 ---
 
-## 8. Verify the setup
+## 7. Verify the setup
 
 Start a new Claude Code session and check the system prompt for `## Injected memories`. If the block appears, the `UserPromptSubmit` hook is running correctly.
-
-The MCP server rebuilds the task semantic index (`.tasks_embeddings.tvim`) on startup if it is missing. This requires Ollama with `nomic-embed-text` running locally. If Ollama is unavailable at startup the server still starts — the index is built lazily on the first `tasks__neighbors` call instead.
 
 To check hook logs:
 
@@ -230,23 +190,23 @@ To test manually:
 ```bash
 cd ~/workspace/claude-hooks
 echo '{"session_id":"test","prompt":"test prompt","cwd":"/tmp"}' | \
-  uv run python3 ~/.claude/hooks/dispatcher.py UserPromptSubmit
+  uv run python3 hooks/dispatcher.py UserPromptSubmit
 ```
 
 A successful run exits 0 and emits JSON with `additionalContext`.
 
 ---
 
-## 9. Seed initial memories (optional but recommended)
+## 8. Seed initial memories (optional but recommended)
 
-The system works without any memories, but seeding a few facts immediately improves context quality. All memories — project architecture facts, cross-cutting mission notes, feedback, reference — live in the single global `MEMORY.sqlite` store, scored per-turn by the UPS retrieval pipeline:
+The system works without any memories, but seeding a few facts immediately improves context quality. All memories — project architecture facts, cross-cutting mission notes, feedback, reference — live in the single global `MEMORY.sqlite` store, scored per-turn by BM25 over each memory's tags and slug words:
 
 ```bash
 mac memory add <repo>-arch --type project \
-    --tags "<domain>,architecture,files,stack" \
+    --tags "<repo>,architecture,files,stack" \
     --files "<file1>, <file2>" --body-file arch.md
 mac memory add <repo>-goals --type project \
-    --tags "<domain>,goals,mission,direction" --body-file goals.md
+    --tags "<repo>,goals,mission,direction" --body-file goals.md
 ```
 
 `arch.md`:

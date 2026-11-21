@@ -59,15 +59,9 @@ Then ask the user:
 > "This deploy touches N modules with stored concepts (listed above). Does the change respect, extend, or intentionally break any of these invariants/contracts?"
 
 - **Respect** → proceed
-- **Extend** → delegate the update to `/update-concept-store` rather than inlining a JSON-edit script:
-  ```
-  Skill(skill="update-concept-store", args="repo=~/workspace/claude-hooks touched_files=<changed files above> context=<what the change does and why, e.g. task:<id> resolution>")
-  ```
-  It updates the matched concept(s) in place and reports what changed. Fold the
+- **Extend** → update the matched concept(s) with the `concept__upsert` MCP tool (never a hand-written JSON edit). Fold the
   resulting `concepts.json` into the same commit as the code change (so the
-  commit's own `tests/test_concepts.py` stays green — see Splitting below). Full
-  reseed (`scripts/extract_concepts.py`) only if multiple modules changed
-  substantially.
+  concept-store drift tests stay green — see Splitting below).
 - **Intentionally break** → user must confirm explicitly; note the broken invariant in the commit message
 
 Skip silently if `concepts.json` does not exist or no changed files match any concept.
@@ -153,7 +147,7 @@ was carried past.
 
 ## Splitting
 
-Prefer one commit per idea. But `tests/test_concepts.py` binds each module to a
+Prefer one commit per idea. But the concept-store tests bind each module to a
 concept entry, so a split that separates a new module from its concept produces
 a commit whose own tests fail. A green intermediate commit beats a tidy split —
 commit the coupled work together and say in the body why.

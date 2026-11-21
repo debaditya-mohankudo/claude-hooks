@@ -1,5 +1,5 @@
 ---
-tags: testing strategy, pytest, unit tests, API tests, integration tests, replay harness, test suite, mock, fixtures, test_langchain_session_graph, test_replay_harness, uv run pytest, SqliteSaver, MemorySaver, test isolation
+tags: testing strategy, pytest, unit tests, API tests, integration tests, replay harness, test suite, mock, fixtures, test_langchain_session_graph, test_replay_harness, uv run pytest, MemorySaver, test isolation
 ---
 # Testing Strategy
 
@@ -12,16 +12,16 @@ Integration tests → live server contracts and end-to-end flows
 Replay harness    → graph stability against real production traffic
 ```
 
-Run unit + API tests (default CI):
+Run unit + API tests (default — `pyproject.toml` sets `addopts = "-m 'not integration'"`):
 
 ```bash
 uv run python -m pytest tests/ -v
 ```
 
-Run everything including integration tests (requires server on :8766):
+Run the integration tests (requires server on :8766) as a separate run — `scripts/deploy.sh` does unit then integration sequentially, because a combined `-m "integration or not integration"` run oversubscribes `-n auto` and flakes a timing-sensitive perf test:
 
 ```bash
-uv run python -m pytest tests/ -v -m "integration or not integration"
+uv run python -m pytest tests/ -v -m integration
 ```
 
 ---
@@ -34,9 +34,9 @@ uv run python -m pytest tests/ -v -m "integration or not integration"
 
 **Key files:**
 - `tests/test_gates.py` — gate allow/deny logic for all gated tools
-- `tests/test_session_graph.py` — LangGraph node execution and routing
+- `tests/test_langchain_session_graph.py` — LangGraph node execution and routing
 - `tests/test_logger.py` — prod schema contract and `emit()` behavior
-- `tests/test_session_tools.py` — MCP task/memory tool handlers
+- `tests/test_memory_tools.py`, `tests/test_tools_hooks.py` — MCP memory/hooks tool handlers
 
 **How they work:**
 
@@ -47,14 +47,10 @@ Unit tests call nodes and graph functions directly, bypassing HTTP. Log output i
 ```bash
 # After a run, query test_logs.db directly
 sqlite3 tests/test_logs.db "SELECT logger, message FROM hook_logs ORDER BY id DESC LIMIT 20"
-
-# Or use the skill
-/analyze-test-logs
 ```
 
 **Invariants enforced:**
-- Every ALLOW-path `imessage__send` test must have `found_in_recent=True` in gate logs
-- Every DENY-path test must produce exactly 1 DENY log row
+- Every DENY-path gate test must produce exactly 1 DENY log row
 - `hook_logs` schema must never contain `run_id` column in prod path
 
 ---
@@ -67,7 +63,7 @@ sqlite3 tests/test_logs.db "SELECT logger, message FROM hook_logs ORDER BY id DE
 
 **How they work:**
 
-Uses FastAPI `TestClient` (Starlette) — runs the full ASGI app in-process with no port binding. Lifespan fires so the MemorySaver graph is built once per module. All 4 hook routes plus `/health` and `/session` are exercised.
+Uses FastAPI `TestClient` (Starlette) — runs the full ASGI app in-process with no port binding. Lifespan fires so the MemorySaver graph is built once per module. The hook routes plus `/health` and `/session*` are exercised.
 
 ```python
 @pytest.fixture(scope="module")
@@ -89,7 +85,7 @@ All test session IDs must start with `api-test-`. This prevents `LogToolUsageNod
 | `GET /health` | `TestHealth` | 200, `status=ok`, `sessions` is int |
 | `GET /session` | `TestSession` | 200, `count` matches list length |
 | `POST /hook/UserPromptSubmit` | `TestUserPromptSubmit` | 200, valid prompt returns `hookSpecificOutput`, empty prompt returns `{}` |
-| `POST /hook/PreToolUse` | `TestPreToolUse` | ungated tool → `{}`, gated without prereq → `permissionDecision=deny` |
+| `POST /hook/PreToolUse` | `TestPreToolUse` | ungated tool → `{}`, `git commit` without a `task:<id>` → `permissionDecision=deny` |
 | `POST /hook/PostToolUse` | `TestPostToolUse` | always returns `{}` |
 | `POST /hook/Stop` | `TestStop` | always returns `{}` |
 
@@ -103,30 +99,23 @@ uv run python -m pytest tests/test_server_api.py -v
 
 ## 3. Integration Tests
 
-**What they cover:** End-to-end contracts against the live hook server on `:8766`. Tests the full request path including LangGraph graph execution, SqliteSaver checkpoints, and task state transitions.
+**What they cover:** End-to-end contracts against the live hook server on `:8766`. Tests the full request path including LangGraph graph execution, MemorySaver checkpoints, and the session APIs.
 
-**File:** `tests/test_review_lifecycle_integration.py`
+**Files:** `tests/test_checkpoint_query_integration.py`, `tests/test_session_apis_integration.py`, and the `integration`-marked cases in `tests/test_server_api.py`.
 
 **Requirements:** Server must be running (`~/workspace/claude-hooks` main branch, port 8766). Tests are skipped automatically when the server is unreachable.
 
-**Key scenarios:**
-
-- `TaskDoneGate` — done blocked/allowed based on task state and review runs
-- Manual approval bypass (non-empty reason required)
-- Review-tag guard: `review:<template>` tags only valid in review state
-- Auto-review transition: UPS `"task:<id> done"` signal moves task to review state
-
-**Isolation:** Each test uses a unique session ID suffix so each `PreToolUse` call gets a fresh LangGraph thread (avoids stale SqliteSaver checkpoints). All test tasks are tagged `test:integration` and cleaned up after each test.
+**Isolation:** Test traffic uses `TEST_SESSION_PREFIX`'d session ids, which `session_graph.get_session_graph()` routes to an isolated test graph, so it never lands in the production checkpointer. `test_session_apis_integration.py` proves that: posting test traffic must not change what `/session/current` reports.
 
 ```bash
-uv run python -m pytest tests/test_review_lifecycle_integration.py -v
+uv run python -m pytest tests/test_session_apis_integration.py tests/test_checkpoint_query_integration.py -v -m integration
 ```
 
 ---
 
 ## 4. Replay Harness
 
-**What it covers:** Graph output stability against real production UPS events. Detects regressions in memory injection, tool scoring, domain detection, and related-task resolution when the graph changes.
+**What it covers:** Graph output stability against real production UPS events. Detects regressions in memory injection when the graph changes.
 
 **Files:** `tests/replay_harness.py`, `tests/test_replay_harness.py`, `tests/replay_baseline.json`
 
@@ -135,7 +124,7 @@ uv run python -m pytest tests/test_review_lifecycle_integration.py -v
 **How it works:**
 
 1. **Capture** — load prod UPS events, replay through current graph, save output as `replay_baseline.json`
-2. **Replay** — load same prod events, replay again, diff against baseline on `domains`, `memories_count`, `tools_count`, `related`, `rag_chunks`
+2. **Replay** — load same prod events, replay again, diff against baseline on the fields in `_DONE_FIELDS` in `tests/replay_harness.py` (`memories_count` is the meaningful one now; the task-era fields such as `related` and `rag_chunks` no longer exist in the graph)
 3. Any deviation = regression
 
 ```bash
@@ -157,7 +146,7 @@ uv run python -m pytest tests/test_replay_harness.py -v
 
 Skips automatically if `~/.claude/claude_hooks.sqlite` is not present or if no baseline exists. The `test_diff_runs_no_regressions` test compares the last two pytest run_ids in `test_logs.db`.
 
-**When to run:** Before and after any change to LangGraph nodes, memory retrieval, tool scoring, or domain detection. Not part of routine CI — run manually as a smoke test.
+**When to run:** Before and after any change to LangGraph nodes, or memory retrieval. Not part of routine CI — run manually as a smoke test.
 
 ---
 
@@ -166,10 +155,10 @@ Skips automatically if `~/.claude/claude_hooks.sqlite` is not present or if no b
 Tests run in this order within a single `pytest` session (enforced by `pytest_collection_modifyitems` in `conftest.py`):
 
 ```
-api tests → unit tests → integration tests → harness
+api tests → unit tests → harness
 ```
 
-API tests run first so a broken server is caught immediately. Integration tests follow unit tests. The harness runs last because `test_diff_runs_no_regressions` depends on the current run's logs being written to `test_logs.db`, which happens at session teardown after unit tests complete.
+API tests run first so a broken server is caught immediately. Integration tests are deselected by default and, when selected, sort with the unit tests. The harness runs last because `test_diff_runs_no_regressions` depends on the current run's logs being written to `test_logs.db`, which happens at session teardown after unit tests complete.
 
 ---
 
@@ -184,4 +173,4 @@ hook_logs  (id, logger, level, message, ts, run_id)
 test_runs  (run_id, ts, n_tests, n_passed, n_failed)
 ```
 
-Use `/analyze-test-logs` to query and interpret the log DB after a run.
+
