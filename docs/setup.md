@@ -12,7 +12,7 @@ How to get claude-hooks running from scratch on a new machine or when sharing th
 - macOS with [Claude Code](https://claude.ai/code) installed
 - [uv](https://docs.astral.sh/uv/) installed (`curl -LsSf https://astral.sh/uv/install.sh | sh`)
 
-Memory injection is BM25 and needs nothing else. (Ollama was dropped as a prerequisite: the server no longer starts it. The standalone `scripts/build_*_embeddings.py` still import it if you run them by hand.)
+Memory injection is BM25 and needs nothing else. (Ollama and the embedding scripts were removed: task:b336fc90, task:c239f888.)
 
 ---
 
@@ -36,7 +36,6 @@ All databases are auto-created on first use — nothing to create manually.
 | `tool_hints.sqlite` | `~/.claude/tool_hints.sqlite` | First `post_tool_use` hook run |
 | `claude_hooks.sqlite` | `~/.claude/claude_hooks.sqlite` | First hook run |
 | `server_memory.sqlite` | `~/.claude/server_memory.sqlite` | First hook run (rolling cross-session event log) |
-| `.code_embeddings.tvim`, `.diff_embeddings.tvim` | repo root of each indexed repo | `mac code_rag index_files` / `mac diff_rag index_commits` |
 
 ### Configuring your projects
 

@@ -57,7 +57,7 @@ def test_load_module_loads_tools_memory():
 def test_domain_map_has_required_domains():
     assert "memory" in DOMAIN_MAP
     assert "hooks" in DOMAIN_MAP
-    assert "code_rag" in DOMAIN_MAP
+    assert "scratch" in DOMAIN_MAP
 
 
 def test_domain_map_has_no_tasks_entry():

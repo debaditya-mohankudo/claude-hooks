@@ -46,8 +46,9 @@ DOMAIN_MAP: dict[str, tuple[str, list[str]]] = {
     # "tasks" removed here (task:87ec7876), along with tools/tasks.py — the whole
     # tasks__* surface (create, set_active, finish, ...) belonged to it. Task
     # storage and its MCP tools live in task-framework now.
-    "code_rag": ("tools.code_rag", ["query", "smart_search", "index_files"]),
-    "diff_rag": ("tools.diff_rag", ["query", "smart_search", "index_commits"]),
+    # "code_rag"/"diff_rag" removed (task:c239f888), with tools/code_rag.py,
+    # diff_rag.py and rag_core.py: the TurboVec indexes needed an Ollama embedder
+    # that is no longer bootstrapped. Restore from git history if semantic search returns.
     "think":    ("tools.think",    ["think"]),
     "scratch":  ("tools.scratch",  ["set", "get", "list", "delete", "clear"]),
     "vault_map": ("tools.vault_map", ["overview", "node", "tag", "find"]),

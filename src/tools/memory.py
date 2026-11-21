@@ -2,18 +2,15 @@ import json
 import re
 import sqlite3
 from src.encdb import open_db
-import sys
 from pathlib import Path
 
 from config import config
 from src.db.schema import MEMORY_LINKS_DDL
 from src.logger import get_logger
 
-# Ensure repo root is on path so scripts.build_memories_embeddings resolves
-_REPO_ROOT = Path(__file__).resolve().parents[2]
-if str(_REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(_REPO_ROOT))
-
+# task:c239f888 — the per-write vector upsert/remove (scripts.build_memories_embeddings)
+# is gone with the Ollama embedding stack: injection is BM25 only, and with no
+# Ollama daemon every memory write was attempting a failing embed.
 _log = get_logger(__name__)
 
 # All user-supplied values (name, type, domain, tags, body, query) are passed via
@@ -203,11 +200,6 @@ def handle_add(
     if unresolved:
         _log.warning("memory '%s': related slugs not mirrored (no such memory): %s", name, unresolved)
     _log.info("memory upserted: name='%s' type=%s links=%d", name, type, len(parsed))
-    try:
-        from scripts.build_memories_embeddings import upsert_memories
-        upsert_memories([name])
-    except Exception as exc:
-        _log.warning("memory vector upsert failed for '%s': %s", name, exc)
     result = {"ok": True, "name": name, "action": "upserted"}
     if unresolved:
         result["unresolved_related"] = unresolved
@@ -223,7 +215,6 @@ def handle_add_batch(memories: list[dict]) -> dict:
                   targets may be other memories in the same batch).
     """
     results = []
-    names_to_embed = []
     batch_names = {m.get("name", "") for m in memories}
     pending_links: list[tuple[str, list[tuple[str, str]]]] = []
     pending_related: list[tuple[str, str]] = []
@@ -269,7 +260,6 @@ def handle_add_batch(memories: list[dict]) -> dict:
             pending_links.append((name, parsed))
             pending_related.append((name, related))
             results.append({"name": name, "action": "upserted"})
-            names_to_embed.append(name)
             _log.info("memory upserted: name='%s' type=%s", name, mtype)
 
         # After all upserts, so a link may target a memory added earlier in the same batch.
@@ -290,13 +280,6 @@ def handle_add_batch(memories: list[dict]) -> dict:
                 for r in results:
                     if r["name"] == name:
                         r["unresolved_related"] = unresolved
-
-    if names_to_embed:
-        try:
-            from scripts.build_memories_embeddings import upsert_memories
-            upsert_memories(names_to_embed)
-        except Exception as exc:
-            _log.warning("memory vector upsert failed for batch: %s", exc)
 
     ok_count = sum(1 for r in results if "action" in r)
     return {"ok": True, "count": ok_count, "results": results}
@@ -604,11 +587,6 @@ def handle_delete(name: str) -> dict:
         _log.warning("handle_delete: no memory found with name='%s'", name)
         return {"error": f"No memory found with name '{name}'"}
     _log.info("memory deleted: name='%s'", name)
-    try:
-        from scripts.build_memories_embeddings import remove_memory
-        remove_memory(name)
-    except Exception as exc:
-        _log.warning("memory vector remove failed for '%s': %s", name, exc)
     return {"ok": True, "deleted": name}
 
 

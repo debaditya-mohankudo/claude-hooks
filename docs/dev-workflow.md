@@ -57,20 +57,6 @@ task:abc123
 epic:def456
 ```
 
-## RAG index refresh after deploy
-
-After every successful commit, refresh the code and diff indexes so search
-stays in sync with HEAD (`/commit` does not run it; run it
-manually):
-
-```bash
-# code_rag — incremental (changed files only)
-mac code_rag index_files path/to/changed.py
-
-# diff_rag — last commit
-mac diff_rag index_commits --repo . --since HEAD~1 --max-commits 1
-```
-
 ## Checkpoint state
 
 The server uses `MemorySaver` (in-process, in-memory). State does NOT persist

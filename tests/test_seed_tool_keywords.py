@@ -47,9 +47,9 @@ def test_seed_all_tool_keywords_inserts_every_registered_tool(empty_hints_db):
     assert seeded == len(rows)
     assert "scratch__set" in tool_names
     # concept__upsert (task:756c14db, this repo's own duplicate of
-    # task-framework's concept__* tools) is gone; code_rag__query is another
-    # surviving domain's tool, same purpose here.
-    assert "code_rag__query" in tool_names
+    # task-framework's concept__* tools) is gone; code_rag (task:c239f888) too;
+    # vault_map__overview is a surviving domain's tool, same purpose here.
+    assert "vault_map__overview" in tool_names
     # every seeded row has non-empty keywords and count=0 (never invoked yet)
     for r in rows:
         assert r["count"] == 0

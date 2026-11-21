@@ -23,9 +23,8 @@ package ClaudeHooksSystem {
     }
 
     part def MCPTools {
-        doc /* FastMCP dispatcher (src/dispatcher.py), 7 domains / 30 actions
-             * (hooks 4, memory 10, code_rag 3, diff_rag 3, think 1, scratch 5,
-             * vault_map 4).
+        doc /* FastMCP dispatcher (src/dispatcher.py), 5 domains / 24 actions
+             * (hooks 4, memory 10, think 1, scratch 5, vault_map 4).
              *
              * The count is asserted against DOMAIN_MAP by tests/test_models.py
              * rather than left as prose: it read "9 domains / 56 actions" for a
@@ -37,8 +36,8 @@ package ClaudeHooksSystem {
         doc /* Three distinct persistent stores: the memory store
              * (MEMORY.sqlite, BM25-scored, injected per turn), the concept
              * store (concept_store/concepts.json, architectural knowledge,
-             * drift-checked on edit), and the RAG stores (code_rag, diff_rag,
-             * over a shared TurboVec core).
+             * drift-checked on edit). The code_rag/diff_rag stores were removed
+             * by task:c239f888.
              *
              * A fourth, repo_memory, was split out by task:850ddd65 and is
              * gone: task:a7ddc132 removed its per-turn injection, and the
