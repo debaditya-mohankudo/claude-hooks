@@ -9,7 +9,7 @@ Graph shape:
     START → route_event (conditional)
       ├── user_prompt_submit → load_turn → load_memories → set_prompt_id → END
       ├── pre_tool_use       → gate_check → END
-      ├── post_tool_use      → log_tool_usage → (__hook__ result → mcp_hook_bridge | *) → END
+      ├── post_tool_use      → log_tool_usage → END
       └── stop               → noop → play_sound → END
 
 State persistence: the FastAPI hook server (hooks/server.py) opens a MemorySaver
@@ -71,7 +71,6 @@ def build_session_graph(checkpointer=None):
         "set_prompt_id",
         "gate_check",
         "log_tool_usage",
-        "mcp_hook_bridge",
         "play_sound",
     ]:
         builder.add_node(name, get_node(name))
@@ -121,34 +120,17 @@ def build_session_graph(checkpointer=None):
     builder.add_edge("gate_check", END)
 
     # PostToolUse chain
-    def _post_tool_route(state: SessionState) -> str:
-        tool = state.get("tool_name", "")
-        # tasks__set_active/pop_active no longer route anywhere (task:d6ddb40f),
-        # and tasks__clear_active/finish/add_decision no longer route to
-        # deactivate_task/decision_task (task:882d67fa) — those nodes only
-        # ever mirrored checkpoint state that task-framework now owns outright
-        # and is asked via tasks__context, not announced by a parallel pipeline
-        # here.
-        #
-        # Generic: any MCP tool returning __hook__ gets bridge injection
-        from langchain_learning.nodes._json_utils import extract_tool_result_json
-        result = extract_tool_result_json(state.get("tool_result") or {})
-        if result.get("__hook__"):
-            return "mcp_hook_bridge"
-        return END
-
-    builder.add_conditional_edges(
-        "log_tool_usage",
-        _post_tool_route,
-        {"mcp_hook_bridge": "mcp_hook_bridge", END: END},
-    )
+    # task:b336fc90 — the generic __hook__ bridge (McpHookBridgeNode, with its
+    # conditional edge here) was removed: no MCP server in this stack ever returned
+    # a __hook__ payload, so the branch could not fire. PostToolUse now ends after
+    # log_tool_usage. Re-adding a tool-result-to-context pipe means a producer first.
+    builder.add_edge("log_tool_usage", END)
     # The backfill slot is unwired, not deleted. It ran after activate_task and
     # fired only when that node had populated task_files from the task store, so
     # with activate_task gone nothing can ever reach it — leaving it registered
     # would be a node the graph can never enter. backfill_memory_files.py itself
     # stays on disk: the BackfillNodeProtocol contract is still the documented
     # extension point, and whoever wires a new feeder needs the implementation.
-    builder.add_edge("mcp_hook_bridge",   END)
 
     # Fallback / Stop chain
     builder.add_edge("noop",            "play_sound")

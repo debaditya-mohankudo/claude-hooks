@@ -111,11 +111,6 @@
       "definition": "The factory that turns a node name into a fresh NodeCallable instance for graph wiring. Enforces that every registered value is a class, never a pre-built instance shared across graphs.",
       "evidence": "langchain_learning/nodes/registry.py:NODE_REGISTRY"
     },
-    "McpHookBridgeNode": {
-      "bounded_context": "LangGraph Node Pipeline",
-      "definition": "The generic PostToolUse bridge: any MCP tool whose response carries a hook payload gets it piped into the turn's injected context, with no per-integration node needed.",
-      "evidence": "langchain_learning/nodes/mcp_hook_bridge.py:McpHookBridgeNode"
-    },
     "NoopNode": {
       "bounded_context": "LangGraph Node Pipeline",
       "definition": "Routed to for stop events and unrecognised event types. Marks the first Stop of a turn, runs CheckpointTrim on every Stop, and logs a warning when more than one live session is detected -- surfacing forgotten detached sessions passively.",
@@ -183,8 +178,6 @@
      "note": "PreToolUse's counterpart event, routed the same way."},
     {"subject": "PreToolUse", "predicate": "determines", "object": "GateCheckNode",
      "note": "The only event a Gate ever evaluates -- deny/allow only makes sense before the call happens."},
-    {"subject": "PostToolUse", "predicate": "relates", "object": "McpHookBridgeNode",
-     "note": "The only node that inspects a tool's response after it returns."},
     {"subject": "UserPromptSubmit", "predicate": "relates", "object": "PreToolUse",
      "note": "Sibling hook events in the same per-turn sequence: prompt, then zero or more tool calls each bracketed by PreToolUse/PostToolUse."},
     {"subject": "PreToolUse", "predicate": "relates", "object": "PostToolUse",
@@ -211,8 +204,6 @@
      "note": "Not persistence in the storage sense -- NodeRegistry is the sole place fresh NodeCallable instances are constructed from, matching the analogous relation in ACME's and task-framework's ontologies for their own registries."},
     {"subject": "BackfillNodeProtocol", "predicate": "is-a", "object": "NodeCallable",
      "note": "A BackfillNodeProtocol implementor is still just a NodeCallable (same call signature); the extra protocol exists only to document the specific state fields the backfill slot is expected to read."},
-    {"subject": "McpHookBridgeNode", "predicate": "is-a", "object": "NodeCallable",
-     "note": "Structurally an ordinary PostToolUse node; its distinguishing behaviour (piping any tool's hook payload through generically) is a routing decision, not a different contract shape."},
     {"subject": "GateCheckNode", "predicate": "is-a", "object": "NodeCallable",
      "note": "Same NodeCallable contract as every other node; listed under Gates/Enforcement rather than LangGraph Node Pipeline because its behaviour (deny/allow via GatePolicy) is the point, not its place in the graph."},
     {"subject": "GateCheckNode", "predicate": "references", "object": "GatePolicy",

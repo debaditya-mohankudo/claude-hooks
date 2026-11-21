@@ -30,7 +30,6 @@ _CHAINS: dict[str, list[str]] = {
     ],
     "post-tool-use": [
         "log_tool_usage",
-        "mcp_hook_bridge",    # conditional — only for __hook__ MCP results
     ],
     "stop": [
         "noop",

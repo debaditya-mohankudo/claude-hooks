@@ -14,54 +14,14 @@ mcp = MCPServer("claude-hooks")
 build_dispatcher(mcp)
 
 
-def _ensure_ollama() -> bool:
-    """Start Ollama daemon if not already running. Returns True if ready."""
-    import subprocess
-    import time
-    import urllib.request
-    from logger import get_logger
-    log = get_logger(__name__)
-
-    try:
-        urllib.request.urlopen("http://localhost:11434/", timeout=2)
-        log.debug("[bootstrap] Ollama already running")
-        return True
-    except Exception:
-        pass
-
-    print("[claude-hooks] Ollama not running — starting daemon...", flush=True)
-    log.info("[bootstrap] Ollama not running — starting daemon")
-    try:
-        subprocess.Popen(
-            ["ollama", "serve"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        for _ in range(10):
-            time.sleep(0.5)
-            try:
-                urllib.request.urlopen("http://localhost:11434/", timeout=1)
-                print("[claude-hooks] Ollama started.", flush=True)
-                log.info("[bootstrap] Ollama started")
-                return True
-            except Exception:
-                pass
-        print("[claude-hooks] Ollama did not respond after 5s — semantic search may be unavailable.", flush=True)
-        log.warning("[bootstrap] Ollama did not respond after 5s")
-        return False
-    except FileNotFoundError:
-        print("[claude-hooks] ollama binary not found — install via: brew install ollama", flush=True)
-        log.warning("[bootstrap] ollama binary not found")
-        return False
-
-
 def _bootstrap() -> None:
-    """Ensure Ollama is running, then seed tool_hints keywords."""
+    """Seed tool_hints keywords."""
     from logger import get_logger
     log = get_logger(__name__)
 
-    _ensure_ollama()
-
+    # _ensure_ollama removed: it started an Ollama daemon at every MCP connect, and
+    # nothing in the running server needs it (memory injection is BM25). Only the
+    # standalone scripts/ embedding builders still use Ollama.
     # Task-index rebuild removed here (task:87ec7876, found post-deploy — this
     # import crashed every fresh claude-hooks MCP connection). rebuild_task_index
     # and _TASKS_TVIM lived in src/tools/tasks.py, deleted along with the whole

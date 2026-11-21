@@ -11,14 +11,8 @@ How to get claude-hooks running from scratch on a new machine or when sharing th
 
 - macOS with [Claude Code](https://claude.ai/code) installed
 - [uv](https://docs.astral.sh/uv/) installed (`curl -LsSf https://astral.sh/uv/install.sh | sh`)
-- [Ollama](https://ollama.com/download) installed and the `nomic-embed-text` model pulled:
 
-  ```bash
-  brew install ollama
-  ollama pull nomic-embed-text
-  ```
-
-  Ollama powers semantic search (code RAG, diff RAG). Without it the MCP server starts but the `code_rag__*` / `diff_rag__*` tools will not work; memory injection (BM25) does not need it.
+Memory injection is BM25 and needs nothing else. (Ollama was dropped as a prerequisite: the server no longer starts it. The standalone `scripts/build_*_embeddings.py` still import it if you run them by hand.)
 
 ---
 

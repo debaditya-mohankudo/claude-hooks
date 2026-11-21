@@ -14,8 +14,7 @@ tags: architecture overview, claude-hooks, hook server, MCP tools, LangGraph, se
 1. **Memory injection** — score and inject relevant memories from `MEMORY.sqlite` into every prompt (BM25 over tags plus slug words; skill-tagged memories on a `Skill` call)
 2. **Commit traceability gating** — deny a `git commit` that carries no `task:<id>` reference
 3. **Tool usage tracking** — accumulate latency and keyword signals per MCP tool in `tool_hints.sqlite`
-4. **MCP bridge** — any tool result carrying `__hook__` is injected back into the session
-5. **Observability** — structured logs in `claude_hooks.sqlite` and a rolling cross-session event log (`server_memory.sqlite`)
+4. **Observability** — structured logs in `claude_hooks.sqlite` and a rolling cross-session event log (`server_memory.sqlite`)
 
 ---
 
@@ -35,7 +34,7 @@ Ground truth: `langchain_learning/session_graph.py:build_session_graph()`. One g
 | --- | --- |
 | `UserPromptSubmit` | `load_turn` → `load_memories` → `set_prompt_id` → END |
 | `PreToolUse` | `gate_check` → END |
-| `PostToolUse` | `log_tool_usage` → (`mcp_hook_bridge` if the result has `__hook__`) → END |
+| `PostToolUse` | `log_tool_usage` → END |
 | `Stop` / unknown | `noop` → `play_sound` → END |
 
 After the graph returns, the dispatcher assembles `additionalContext` (`## Turn state`, user context, `## Injected memories`), trims it to the budget, and the response flows back through server → client → Claude Code.
@@ -103,7 +102,6 @@ flowchart TD
 
     subgraph PostToolUse Pipeline
         PTU_post --> LU[log_tool_usage\nlatency + keywords]
-        LU -->|__hook__ in result| BR[mcp_hook_bridge]
     end
 
     STOP --> NOOP[noop → play_sound]

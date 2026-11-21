@@ -40,21 +40,14 @@ Run these in parallel to check what's already installed:
 ```bash
 which git
 which uv
-which ollama
-brew list ollama 2>/dev/null && echo "ollama_brew=yes" || echo "ollama_brew=no"
-ollama list 2>/dev/null | grep nomic-embed-text || echo "nomic_missing"
 ```
 
 Report what's found vs. missing in a single message using checkboxes:
 - [x] git — already installed
 - [x/☐] uv — installed / not found
-- [x/☐] ollama — installed / not found
-- [x/☐] nomic-embed-text model — pulled / not pulled
 
 For anything missing, give the install command inline. For example:
 - uv missing: `curl -LsSf https://astral.sh/uv/install.sh | sh`
-- ollama missing: `brew install ollama`
-- nomic-embed-text missing: `ollama pull nomic-embed-text`
 
 Ask them to run any missing installs and confirm when done before proceeding.
 

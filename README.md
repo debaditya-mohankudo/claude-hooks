@@ -2,7 +2,7 @@
 
 A small FastAPI server that intercepts Claude Code's hook events — persistent memory injection, a commit-traceability gate, and observability across sessions.
 
-> **macOS only** — requires Claude Code, uv, and Ollama. See [setup](docs/setup.md) for prerequisites.
+> **macOS only** — requires Claude Code and uv. See [setup](docs/setup.md) for prerequisites.
 
 ---
 
