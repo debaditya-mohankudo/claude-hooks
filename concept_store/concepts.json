@@ -345,24 +345,24 @@
     "kitty-session-dashboard": {
       "confidence": 0.8,
       "contracts": [
-        "Launched as a plain script via `kitten @ launch --location=vsplit`; not a kitty-process kitten",
-        "Missing/locked DB prints one line and keeps polling; --once prints and exits 0"
+        "Writers and viewer share no code: the plan/turn JSON shapes are pinned here by tests/test_dashboard_contract.py and from the reader side by cli-graph tests/test_kitty_dashboard.py; a shape change updates both",
+        "CLAUDE_DASHBOARD_PLAN / CLAUDE_DASHBOARD_TURN override the paths; '0' disables the writer"
       ],
       "created_at": "2026-10-09T05:19:09.165458+00:00",
-      "description": "Optional read-only live view for a kitty split: dashboard_plan.json plan, dashboard_note.md note, latest task event and last N prompt/tool events from server_memory.sqlite. Stdlib only; nothing in the hooks imports it.",
+      "description": "Hook-owned state files behind the kitty session dashboard: dashboard_plan.json (hooks/dashboard_plan.py, PostToolUse), dashboard_turn.json (hooks/dashboard_turn.py, UserPromptSubmit/Stop) and Claude-written dashboard_note.md. The viewer and layout moved to cli-graph as `mac kitty dashboard` / `mac kitty layout` (task:3f30d74d); these files are the only interface between the repos. Nothing in the hooks imports the viewer.",
       "evidence": [
-        "kitty/dashboard.py:fetch",
-        "kitty/dashboard.py:read_plan",
-        "kitty/dashboard.py:snapshot",
-        "tests/test_kitty_dashboard.py:test_missing_db_fails_soft"
+        "hooks/dashboard_plan.py:update",
+        "hooks/dashboard_plan.py:new_plan",
+        "hooks/dashboard_turn.py:update",
+        "tests/test_dashboard_contract.py:test_plan_shape_task",
+        "tests/test_dashboard_contract.py:test_turn_shape"
       ],
       "invariants": [
-        "Opens the DB read-only (mode=ro)",
-        "Must stay importable by kitty's older PATH python3: keep `from __future__ import annotations`",
-        "Active-task header is the latest type='task' server_memory event, not the in-memory taskfw pointer, so it can be stale"
+        "Writers fail open: no hook may block or error because kitty or the viewer is absent",
+        "claude-hooks must not import or depend on cli-graph"
       ],
-      "last_validated": "2026-10-09T05:19:09.165475+00:00",
-      "module": "kitty/dashboard.py",
+      "last_validated": "2026-11-22T23:42:16.382446+00:00",
+      "module": "hooks/dashboard_plan.py",
       "name": "kitty-session-dashboard",
       "related": []
     },
@@ -733,6 +733,6 @@
     "commit": "5f62c6b5150a20fe7198d7bd6c155c4b3c0d3101",
     "extracted_at": "2026-07-23T05:42:23Z",
     "note": "incremental upsert (task:a2fd402d)",
-    "updated_at": "2026-11-21T17:53:21.544757+00:00"
+    "updated_at": "2026-11-22T23:42:16.382597+00:00"
   }
 }

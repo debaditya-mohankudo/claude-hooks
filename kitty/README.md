@@ -1,41 +1,31 @@
 # kitty session dashboard
 
-Optional. A read-only live view of `~/.claude/server_memory.sqlite`: latest task
-activation plus the last N prompt/tool events. Stdlib only; nothing here is
-imported by the hooks, so claude-hooks works unchanged without kitty.
+The viewer and layout live in cli-graph, not here:
 
-    kitten @ launch --location=vsplit --keep-focus python3 ~/workspace/claude-hooks/kitty/dashboard.py
+    mac kitty dashboard [--view all|turn|next] [-n N] [-i SECS] [--once]
+    mac kitty layout
 
-Needs remote control (`allow_remote_control socket-only` + `listen_on`). Optional
-keybinding in `kitty.conf`:
+Removed from this repo: `kitty/dashboard.py` and `kitty/layout.sh` (task:3f30d74d).
+They are utility features, not hook logic, and hand-built `kitten @` calls in a
+shell script repeated pitfalls `mac kitty` had already solved. Do not re-add a
+second copy here.
 
-    map f1 launch --location=vsplit --keep-focus python3 ~/workspace/claude-hooks/kitty/dashboard.py
+What stays here is hook-driven and is the **interface** between the repos. The
+viewer only reads these files; a rename or shape change on the writer side
+blanks it silently, so the shapes are pinned in `tests/test_dashboard_contract.py`
+(and from the reader side in cli-graph's `tests/test_kitty_dashboard.py`).
+Change both together.
 
-Flags: `-n` events (15), `-i` refresh seconds (2), `--once` print and exit.
-`CLAUDE_SERVER_MEMORY_DB` overrides the DB path.
+| File | Written by | Override (`=0` disables) |
+|---|---|---|
+| `~/.claude/dashboard_plan.json` | `hooks/dashboard_plan.py` on PostToolUse | `CLAUDE_DASHBOARD_PLAN` |
+| `~/.claude/dashboard_turn.json` | `hooks/dashboard_turn.py` on UserPromptSubmit / Stop | `CLAUDE_DASHBOARD_TURN` |
+| `~/.claude/dashboard_note.md` | Claude, free text (plan / what it is waiting on) | `CLAUDE_DASHBOARD_NOTE` |
 
-## Claude -> pane note
+Plan sources: `TodoWrite` replaces the plan; taskfw `tasks__create` sets title +
+resolution checklist; `tasks__check_item` ticks the item if the plan is that
+task's. The viewer also reads `~/.claude/server_memory.sqlite`
+(`CLAUDE_SERVER_MEMORY_DB`).
 
-Whatever is in `~/.claude/dashboard_note.md` (override: `CLAUDE_DASHBOARD_NOTE`)
-is shown at the top, up to 12 lines. Claude overwrites it with its current plan
-or what it is waiting on; delete the file to clear it. Costs no prompt context.
-
-## Hook-mirrored plan
-
-`hooks/dashboard_plan.py` (called from `client.py` on PostToolUse) writes
-`~/.claude/dashboard_plan.json` (override `CLAUDE_DASHBOARD_PLAN`; `=0` disables)
-and the dashboard shows it as `PLAN done/total` with `[x]`/`[ ]` items:
-
-- `TodoWrite` replaces the plan with the todo list
-- taskfw `tasks__create` sets title + resolution checklist
-- taskfw `tasks__check_item` ticks the item, if the plan is that task's
-
-This file is hook-owned; `dashboard_note.md` stays Claude's for free text
-(e.g. "waiting on you for X").
-
-## Turn tab + next-steps split
-
-`kitty/layout.sh` opens a tab with `--view turn` (current prompt and the final
-summary of the last turn) and a parallel vsplit with `--view next` (pending plan
-items only). `hooks/dashboard_turn.py` feeds it on UserPromptSubmit / Stop via
-`~/.claude/dashboard_turn.json` (`CLAUDE_DASHBOARD_TURN`; `=0` disables).
+`kitty.conf` and `tab_bar.py` stay in `kitty/config` (decision: moving them
+gains nothing and adds a third location).
