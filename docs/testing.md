@@ -18,7 +18,7 @@ Run unit + API tests (default — `pyproject.toml` sets `addopts = "-m 'not inte
 uv run python -m pytest tests/ -v
 ```
 
-Run the integration tests (requires server on :8766) as a separate run — `scripts/deploy.sh` does unit then integration sequentially, because a combined `-m "integration or not integration"` run oversubscribes `-n auto` and flakes a timing-sensitive perf test:
+Run the integration tests (requires server on :8766) as a separate run — `scripts/deploy.sh` does unit then integration sequentially, because a combined `-m "integration or not integration"` run oversubscribes `-n auto` and flakes a timing-sensitive perf test (`scripts/deploy.sh --restart-only` skips both runs and only restarts the server):
 
 ```bash
 uv run python -m pytest tests/ -v -m integration

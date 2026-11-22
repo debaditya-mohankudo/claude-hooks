@@ -49,7 +49,7 @@ Think-first writer for `MEMORY.sqlite`: is it worth saving, new vs update, slug 
 
 ### /deploy
 
-Runs the concept audit, commits to `main`, then `scripts/deploy.sh`: unit gate → launchctl restart → `/health` → unit then integration suites against the live server.
+Runs the concept audit, commits to `main`, then `scripts/deploy.sh`: unit gate → launchctl restart → `/health` → unit then integration suites against the live server. `scripts/deploy.sh --restart-only` skips both test steps and only restarts and health-checks.
 
 → `skills/deploy/skill.md` · `scripts/deploy.sh`
 

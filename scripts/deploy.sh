@@ -10,12 +10,26 @@ set -euo pipefail
 MAIN_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$MAIN_DIR"
 
+RESTART_ONLY=0
+case "${1:-}" in
+    "") ;;
+    --restart-only) RESTART_ONLY=1 ;;
+    *) echo "usage: $0 [--restart-only]" >&2; exit 2 ;;
+esac
+
 echo "=== claude-hooks deploy ==="
 
-# 1. Quick unit gate (no server needed)
-echo "Running unit tests..."
-uv run python -m pytest tests/ -q -m "not integration"
-echo "Unit tests passed."
+# 1. Quick unit gate (no server needed). --restart-only skips it, and the
+# step-3 full suite: for when the tests already ran (e.g. just before a
+# commit) and only the live server needs to pick up the code. The graceful
+# SIGTERM restart below is unchanged.
+if [ "$RESTART_ONLY" -eq 0 ]; then
+    echo "Running unit tests..."
+    uv run python -m pytest tests/ -q -m "not integration"
+    echo "Unit tests passed."
+else
+    echo "--restart-only: skipping unit gate and full suite."
+fi
 
 # 2. Restart server via launchctl so it picks up the new code
 PLIST_LABEL="com.debaditya.claude-hooks-pipeline"
@@ -59,6 +73,11 @@ echo "Health (post-restart): $HEALTH"
 if [ "$STATUS" != "ok" ]; then
     echo "WARNING: Server health check returned: $HEALTH" >&2
     exit 1
+fi
+
+if [ "$RESTART_ONLY" -eq 1 ]; then
+    echo "=== Restart complete (--restart-only: tests not run). ==="
+    exit 0
 fi
 
 # 3. Full suite (unit + integration) against the live server

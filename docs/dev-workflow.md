@@ -38,6 +38,11 @@ uv run python -m pytest tests/ -q -m "not integration"
 `/deploy` runs: unit tests → restart the server via launchctl → wait for
 `/health` → run the unit suite, then the integration suite, against the live server (two separate runs; the script refuses a false-green if no integration tests ran).
 
+`scripts/deploy.sh --restart-only` skips the unit gate and the full suite and
+only does the graceful SIGTERM restart + `/health` wait. Use it when the tests
+already ran (e.g. just before the commit) and the live server only needs the new
+code. Any other argument prints usage and exits 2.
+
 ## Key rules
 
 | Rule | Why |

@@ -119,6 +119,11 @@ The script (`set -euo pipefail` — any failure aborts it):
 If any step fails, **stop and report which step and which tests**. The server
 may or may not have restarted depending on where it aborted — say so.
 
+**`--restart-only`:** `deploy.sh --restart-only` skips step 1 (unit gate) and
+step 4 (full suite) and runs only steps 2–3 (restart + health). Use it only when
+the tests already ran on this exact code. Any other argument prints usage and
+exits 2. Report it as "restarted, health ok, tests not run".
+
 ### 4. Done
 
 Report:
