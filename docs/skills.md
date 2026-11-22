@@ -1,5 +1,5 @@
 ---
-tags: skills, /commit, /deploy, /pause, /onboarding, /what-am-i-working-on, skill index, slash commands, workflow skills
+tags: skills, /add-memory, /commit, /deploy, /pause, /onboarding, /what-am-i-working-on, skill index, slash commands, workflow skills
 ---
 # Claude-hooks Skills
 
@@ -14,6 +14,7 @@ Skills live in `skills/<name>` and are synced to `~/.claude/skills/<name>` after
 | `/pause` | `/pause` | Finish current action, save pending intent (to the active task, if one exists), wait for user input |
 | `/deploy` | `/deploy` | Run the unit gate, restart the hook server via launchd, run the full suite against it |
 | `/onboarding` | `/onboarding` | Interactive setup guide — walks a new teammate through full claude-hooks setup step by step |
+| `/add-memory` | `/add-memory` | Save to MEMORY.sqlite the right way — search first, pick type/slug/tags/links, write via `mac memory add`, verify |
 | `/what-am-i-working-on` | `/what-am-i-working-on` | Cold-start orientation — recent prompts, tool calls, and task activations across sessions |
 
 ---
@@ -35,6 +36,14 @@ Finishes any in-flight tool call, saves pending intent (to the active task via `
 Calls `hooks__server_memory(n_events=50)` and presents the returned timeline — recent prompts, tool calls, and task activations across sessions. Use at the start of a fresh session for quick orientation.
 
 → `skills/what-am-i-working-on/skill.md`
+
+---
+
+### /add-memory
+
+Think-first writer for `MEMORY.sqlite`: is it worth saving, new vs update, slug and BM25 tags, typed links, then `mac memory add` and a read-back. Guards the re-add traps (omitted `--related` wipes links; placeholder body overwrites the real one). Deployed copy is `~/.claude/skills/add-memory/SKILL.md`.
+
+→ `skills/add-memory/skill.md`
 
 ---
 
