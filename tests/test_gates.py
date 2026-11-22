@@ -175,18 +175,7 @@ def test_git_commit_allowed_with_task_id_inline():
     assert not deny
 
 
-def test_git_local_sh_denied_no_task_id():
-    ctx = _git_ctx('~/workspace/claude_for_mac_local/tools/git_local.sh -y "Fix auth bug"')
-    deny, reason = GitCommitGate().verify(ctx)
-    assert deny
-    assert "task:<id>" in reason
-
-
-def test_git_local_sh_allowed_with_task_id():
-    ctx = _git_ctx('~/workspace/claude_for_mac_local/tools/git_local.sh -y "Fix auth bug\n\ntask:abcdef12"')
-    deny, _ = GitCommitGate().verify(ctx)
-    assert not deny
-
+# The git_local.sh gate cases were removed with the tool (task:3629ecbf).
 
 def test_non_commit_bash_always_allowed():
     ctx = _git_ctx("ls -la /tmp")
@@ -477,8 +466,8 @@ def test_detection_ignores_git_commit_as_string_literal():
     assert not deny
 
 
-def test_detection_ignores_git_local_sh_as_string_literal():
-    ctx = _git_ctx('echo "git_local.sh"')
+def test_detection_ignores_tool_name_as_string_literal():
+    ctx = _git_ctx('echo "git commit"')
     deny, _ = GitCommitGate().verify(ctx)
     assert not deny
 

@@ -199,11 +199,11 @@ def _segment_is_git_commit(segment: str) -> bool:
     if i >= len(tokens):
         return False
 
-    # git_local.sh is a commit tool in its own right — match it on the command
-    # word, never as a substring, or `echo "git_local.sh"` resurrects the bug.
+    # Removed (task:3629ecbf): a `git_local.sh` command-word branch. The tool was
+    # deleted 2026-10-29 (claude_for_mac_local 68eb9d5); commits now go through
+    # `mac git commit`, which enforces task:<id> itself. Detection stays on the
+    # command word, never a substring, so `echo "git"` is still not a commit.
     command_word = tokens[i].rsplit("/", 1)[-1].lower()
-    if command_word == "git_local.sh":
-        return True
     if command_word != "git":
         return False
 
