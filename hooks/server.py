@@ -63,15 +63,23 @@ async def lifespan(app: FastAPI):
 
 def _warm_memory_connection() -> None:
     """Open the shared MEMORY.sqlite connection at startup, so the first prompt
-    does not pay the ~300 ms SQLCipher key derivation (task:bc39e90e). Fail-open."""
+    does not pay the ~300 ms SQLCipher key derivation (task:bc39e90e), and build
+    the BM25 scoring index over it (task:10ff74e3). The index build is ~20 ms;
+    most of what this saves is the lazy import of the scorer (rank_bm25 pulls in
+    numpy), which the first prompt's retrieve otherwise paid. Fail-open."""
     try:
         from langchain_learning.memory_conn import memory_connection
         t0 = time.perf_counter()
         with memory_connection() as conn:
             conn.execute("SELECT 1").fetchone()
-        log.info("hook-server: memory connection warmed in %.0f ms", (time.perf_counter() - t0) * 1000)
+            t1 = time.perf_counter()
+            log.info("hook-server: memory connection warmed in %.0f ms", (t1 - t0) * 1000)
+            from langchain_learning.nodes import _memory_scoring as ms
+            ms.load_scoring_cfg()
+            ms._bm25_index(conn)
+            log.info("hook-server: BM25 index warmed in %.0f ms", (time.perf_counter() - t1) * 1000)
     except Exception as exc:
-        log.warning("hook-server: memory connection warm-up failed: %s", exc)
+        log.warning("hook-server: memory warm-up failed: %s", exc)
 
 
 # --- Hook handlers run off the event loop (task:bc39e90e) -------------------
