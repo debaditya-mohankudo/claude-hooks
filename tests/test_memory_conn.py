@@ -108,3 +108,28 @@ def test_plain_db_opens_fresh_and_commits(tmp_path):
     with memory_conn.memory_connection(path, row_factory=sqlite3.Row) as conn:
         assert conn.execute("SELECT name FROM memories").fetchone()["name"] == "x"
     assert memory_conn._cached == {}
+
+
+# Opened through memory_conn, never directly. Each entry says why it may open its own.
+_DIRECT_OPEN_ALLOWED = {
+    "langchain_learning/memory_conn.py": "the cache itself",
+    "langchain_learning/nodes/backfill_memory_files.py": "registered but no graph edge reaches it (session_graph.py)",
+}
+
+
+def test_server_code_opens_memory_db_only_through_memory_conn():
+    """A direct open_db() of MEMORY.sqlite in server-process code pays ~300 ms of
+    key derivation per call — the cost task:bc39e90e removed from every prompt."""
+    import re
+    from pathlib import Path
+    root = Path(__file__).resolve().parent.parent
+    offenders = []
+    for pkg in ("langchain_learning", "hooks"):
+        for f in (root / pkg).rglob("*.py"):
+            rel = f.relative_to(root).as_posix()
+            if rel in _DIRECT_OPEN_ALLOWED:
+                continue
+            for n, line in enumerate(f.read_text().splitlines(), 1):
+                if re.search(r"\bopen_db\(.*memory_db", line):
+                    offenders.append(f"{rel}:{n}")
+    assert offenders == [], f"use langchain_learning.memory_conn.memory_connection: {offenders}"

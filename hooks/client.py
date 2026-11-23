@@ -46,12 +46,12 @@ def record_failure(event: str, kind: str, detail: str, elapsed_ms: float) -> Non
 
     Stderr alone was invisible: Claude Code does not surface a hook's stderr, so a
     UserPromptSubmit that timed out lost all its injected context without a trace.
-    Never raises, and waits at most 0.5 s on a locked DB: this runs on the hook path.
+    Never raises, and waits at most 0.2 s on a locked DB: this runs on the hook path.
     """
     try:
         import sqlite3
         path = _log_db()
-        conn = sqlite3.connect(path, timeout=0.5, uri=path.startswith("file:"))
+        conn = sqlite3.connect(path, timeout=0.2, uri=path.startswith("file:"))
         try:
             with conn:
                 conn.execute(
