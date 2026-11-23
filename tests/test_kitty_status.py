@@ -24,6 +24,7 @@ import pytest
 
 _CLIENT = str(Path(__file__).parent.parent / "hooks" / "client.py")
 _DEAD_SERVER = "http://127.0.0.1:1"  # nothing listens: client fails open
+_INHERITED_SWITCHES = {"TASKFW_TASK_ID", "CLAUDE_KITTY_STATUS"}  # read by hooks/kitty_status.py
 
 
 @pytest.fixture
@@ -37,7 +38,11 @@ def stub_kitten(tmp_path):
 
 
 def _run(event, payload, path_dir=None, **env):
-    base = {k: v for k, v in os.environ.items() if not k.startswith("KITTY_")}
+    # Strip every variable kitty_status reads, not just KITTY_*: a session run
+    # from a taskfw task tab inherits TASKFW_TASK_ID (task tab keeps its title,
+    # so the title assertions fail) and CLAUDE_KITTY_STATUS=0 disables it all.
+    base = {k: v for k, v in os.environ.items()
+            if not k.startswith("KITTY_") and k not in _INHERITED_SWITCHES}
     base["CLAUDE_HOOKS_SERVER"] = _DEAD_SERVER
     if path_dir is not None:
         base["PATH"] = f"{path_dir}:{base['PATH']}"
