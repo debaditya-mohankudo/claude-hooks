@@ -6,20 +6,23 @@
   },
   "bounded_contexts": {
     "Hook Dispatch": "The raw Claude Code hook event surface: reading stdin JSON, POSTing it to the FastAPI server, and routing each event type (UserPromptSubmit, PreToolUse, PostToolUse, Stop, SessionStart, SessionEnd) to its handler. Concerned with getting the payload from Claude Code's process to the right handler function -- not with what that handler decides.",
-    "Gates/Enforcement": "The anti-hallucination send-gate system: verifying a tool call against session history before it is allowed to execute, and the separate commit-traceability check that every git commit references a task id. Fails open on any internal error -- a gate that can't evaluate never blocks the call.",
+    "Gates/Enforcement": "Deciding allow or deny for a tool call before it executes. The live gates are the commit-traceability checks (every git commit names a task:<id>); the message-send gates moved to LocalMacMCP and the session-history checks went with the history (task:84dbcf14). Fails open on any internal error -- a gate that can't evaluate never blocks the call (task:4e56d23a).",
     "Session & Checkpoint State": "The SessionState schema and its persistence: one checkpoint per session, the public entry points that read/invoke/write it, and the bookkeeping (checkpoint trim, live-session audit) needed to keep an in-memory, non-persistent store from growing unboundedly.",
     "LangGraph Node Pipeline": "The node callables that actually do work inside the compiled session graph -- one class per file, wired together into event chains and looked up by name through a registry. Distinct from Session & Checkpoint State: this context is the node implementations and their structural contracts, not the state they read and write.",
-    "Memory & Retrieval": "Scoring and injecting relevant memories and tool hints into a turn via cheap keyword-overlap signals (no embeddings). Defines the seam that lets nodes swap in a null implementation for tests without touching the production scoring code.",
+    "Memory & Retrieval": "Scoring and injecting relevant memories into a turn: BM25 over each memory's tags and slug words, a recency factor, then the memory_links graph lifting neighbours of the top hits (no embeddings). Also the skill-scoped path that injects memories tagged for a Skill when it runs. Defines the seam that lets nodes swap in a null implementation for tests without touching the production scoring code. Tool hints are no longer injected (dispatcher._format_system_prompt tombstone).",
     "Ambient Context": "Identity and working-style context attached to every prompt turn from the user's vault, built from a typed ontology (LIFE_OS/user-context-ontology.json) rather than raw scored rows. Its always_on nodes (persona, financial profile) inject verbatim every turn; its remaining nodes (work domains) join a '## Relevant context' block only when the prompt's tokens hit their tags. Distinct from Memory & Retrieval, which scores MEMORY.sqlite rows -- this reads one curated graph the user maintains by hand.",
-    "Observability": "Answering 'what happened, and what was I working on' after the fact: the consolidated cross-session event timeline, the raw log sink every module writes through, and the MCP tools that expose both for querying.",
+    "Observability": "Answering 'what happened, and what was I working on' after the fact: the consolidated cross-session event timeline, the raw log sink every module writes through, and the per-feature hit-rate logs (find_cli lookups, prompt shadowing) recorded from PostToolUse. Read through `mac hooks ...`.",
     "Concept Store": "The per-module architectural-fact store this repo maintains about its own source, and about which repo boundary a piece of evidence is allowed to cross.",
-    "MCP Tool Surface": "The tool registry claude-hooks exposes to callers: mapping domain names to modules, generating one tool per action, and the separate personal tool->domain/tool->skill lookup used by the pipeline to describe tool calls generically."
+    "Tool Handler Surface": "The `handle_*` functions in src/tools/* that callers reach by name, and the two front-ends over them: cli-graph's `mac hooks|memory|...` verbs (live -- a subprocess runner imports the handlers) and mcp_server.py (dormant -- registered nowhere, kept on purpose for possible future use). Also the personal tool->domain/tool->skill lookup the pipeline uses to describe tool calls generically.",
+    "Tool-Call Side Effects": "Behaviour the dispatcher runs around the session graph on PreToolUse/PostToolUse rather than inside it: the WebSearch cache, find_cli and prompt-shadow logging, vault reindexing, the context-size nudge, and skill-memory injection with its tag nudge. Each is fail-open and independent of the others; none reads or writes SessionState.",
+    "Client-side Status": "State the thin hook client writes for the terminal before (or instead of) talking to HookServer: the kitty tab status, the dashboard plan/turn files and the saved last response. Runs in HookClient's process because only it has the session's KITTY_* environment.",
+    "Storage": "Cross-cutting storage primitives other contexts build on: the encrypted-SQLite opener for MEMORY.sqlite and the named in-process caches (optionally persisted) the server exposes under /cache."
   },
   "terms": {
     "HookDispatchTable": {
       "bounded_context": "Hook Dispatch",
-      "definition": "The lookup from each Claude Code hook event name to its handler. Single entry point for every hook event this repo processes.",
-      "evidence": "hooks/dispatcher.py:main"
+      "definition": "The lookup from each Claude Code hook event name to its handler function. HookServer's routes call the same handlers directly; the table itself is read only by the subprocess entry point dispatcher.main(), which tests use -- HookClient never falls back to it.",
+      "evidence": "hooks/dispatcher.py:_HANDLERS"
     },
     "HookClient": {
       "bounded_context": "Hook Dispatch",
@@ -38,18 +41,18 @@
     },
     "UserPromptSubmit": {
       "bounded_context": "Hook Dispatch",
-      "definition": "The event fired when the user submits a prompt, before Claude sees it. The point where scored memories, tool hints, and the rendered user-context ontology get attached to the turn. Active-task context is not attached here — task-framework owns it (task:173e6846).",
+      "definition": "The event fired when the user submits a prompt, before Claude sees it. The point where scored memories, the turn state and the rendered user-context ontology get attached to the turn (tool hints no longer are). Active-task context is not attached here — task-framework owns it (task:173e6846).",
       "evidence": "hooks/dispatcher.py:_handle_user_prompt_submit"
     },
     "PreToolUse": {
       "bounded_context": "Hook Dispatch",
-      "definition": "The moment just before any tool call executes -- machine-wide, across every MCP server and built-in tool, not scoped to this repo. The point where a call can still be denied.",
-      "evidence": "hooks/dispatcher.py:669"
+      "definition": "The moment just before any tool call executes -- machine-wide, across every MCP server and built-in tool, not scoped to this repo. The point where a call can still be denied -- by a Gate, or by WebSearchCache answering a repeated search.",
+      "evidence": "hooks/dispatcher.py:_handle_pre_tool_use"
     },
     "PostToolUse": {
       "bounded_context": "Hook Dispatch",
-      "definition": "The moment just after any tool call returns, machine-wide like PreToolUse. The point where a completed call is observed and recorded, never denied.",
-      "evidence": "hooks/dispatcher.py:669"
+      "definition": "The moment just after any tool call returns, machine-wide like PreToolUse. The point where a completed call is observed and recorded, never denied; most of what it does runs as Tool-Call Side Effects before the graph.",
+      "evidence": "hooks/dispatcher.py:_handle_post_tool_use"
     },
     "GateContext": {
       "bounded_context": "Gates/Enforcement",
@@ -121,11 +124,6 @@
       "definition": "The seam LoadMemoriesNode dispatches through: given prompt tokens, return scored memory rows. The dependency arrow runs one way, nodes toward retrievers, never back.",
       "evidence": "langchain_learning/retrievers.py:MemoryRetriever"
     },
-    "ToolScorer": {
-      "bounded_context": "Memory & Retrieval",
-      "definition": "The seam ScoreToolsNode dispatches through: given prompt keywords, return scored tool-hint rows. Usage count is only ever a tie-breaker on an existing keyword match, never enough on its own to manufacture relevance for an unrelated, frequently-called tool.",
-      "evidence": "langchain_learning/retrievers.py:ToolScorer"
-    },
     "LoadMemoriesNode": {
       "bounded_context": "Memory & Retrieval",
       "definition": "The UPS-chain node that tokenises the prompt, calls its MemoryRetriever, and records which memories surfaced and their hit counts -- recording is wrapped so a failure there degrades observability only, never the memories returned to the turn.",
@@ -153,25 +151,75 @@
     },
     "Concept": {
       "bounded_context": "Concept Store",
-      "definition": "A durable per-module architectural fact -- description, contracts, invariants, evidence -- keyed by module path. Evidence cites 'file:symbol' locations, never a bare line number (line numbers drift on every unrelated edit; symbol names mostly don't).",
+      "definition": "A durable per-module architectural fact -- description, contracts, invariants, evidence -- keyed by module path, so its subject is the codebase itself rather than a runtime behaviour. Read and written through task-framework's concept__* tools; nothing drift-checks it since the drift hook was retired (task:85e6001f). Evidence cites 'file:symbol' locations, never a bare line number (line numbers drift on every unrelated edit; symbol names mostly don't).",
       "evidence": "concept_store/store.py"
     },
     "MCPToolMap": {
-      "bounded_context": "MCP Tool Surface",
-      "definition": "The mapping from each domain name to its module and actions; registers one tool per action, named domain__action.",
-      "evidence": "src/dispatcher.py:build_dispatcher"
+      "bounded_context": "Tool Handler Surface",
+      "definition": "The mapping from each domain name to its module and actions -- the authoritative list of handle_* functions both front-ends reach. mcp_server.py registers one MCP tool per action (domain__action), but that server is dormant: no Claude Code config connects to it.",
+      "evidence": "src/dispatcher.py:DOMAIN_MAP"
     },
     "ToolDomainMap": {
-      "bounded_context": "MCP Tool Surface",
+      "bounded_context": "Tool Handler Surface",
       "definition": "The personal tool-name -> domain/skill lookup, loaded from an external file. How the pipeline describes a raw MCP tool call in domain/skill terms without hardcoding every tool by name.",
       "evidence": "hooks/core/tool_registry.py:infer_domain"
+    },
+    "PromptShadow": {
+      "bounded_context": "Observability",
+      "definition": "A shadow run of find_cli on every user prompt: records what it would have suggested, then links the next `mac` calls of that session to it, so its hit rate can be measured without ever showing the suggestion.",
+      "evidence": "src/tools/prompt_shadow.py:record, src/tools/prompt_shadow.py:link_calls"
+    },
+    "FindCliLog": {
+      "bounded_context": "Observability",
+      "definition": "The record of each explicit find_cli lookup and whether the session's next `mac` call used one of its results -- find_cli's measured hit rate.",
+      "evidence": "src/tools/find_cli_log.py:record_query, src/tools/find_cli_log.py:link_calls"
+    },
+    "WebSearchCache": {
+      "bounded_context": "Tool-Call Side Effects",
+      "definition": "A cache of WebSearch results keyed by normalised query. PostToolUse stores each result; on a fresh hit PreToolUse denies the repeated search with the cached result as the reason -- a deny used as a cache hit, not as a refusal. A miss falls through to the real search.",
+      "evidence": "src/tools/web_search_cache.py:cached_reason, src/tools/web_search_cache.py:record_hook"
+    },
+    "VaultReindex": {
+      "bounded_context": "Tool-Call Side Effects",
+      "definition": "Keeping the Obsidian vault's SQLite index current from PostToolUse: after a `mac vault` write or a file tool (Write, Edit, a shell redirect) that touched a note, only that note is reindexed. Unchanged notes cost one stat.",
+      "evidence": "src/tools/vault_index.py:reindex_for_tool, src/tools/vault_index.py:reindex_for_command"
+    },
+    "ContextSizeNudge": {
+      "bounded_context": "Tool-Call Side Effects",
+      "definition": "A PostToolUse notice injected when the conversation's estimated size (read from the transcript's last usage) crosses a threshold, repeated at most once per further band of tokens per session, suggesting the session wrap up or start fresh.",
+      "evidence": "hooks/dispatcher.py:_maybe_context_size_nudge"
+    },
+    "SkillMemories": {
+      "bounded_context": "Memory & Retrieval",
+      "definition": "Memories tagged for a skill, injected when that Skill tool call runs, skipping any the prompt's own injection already showed. Retrieval by exact skill tag, not BM25.",
+      "evidence": "langchain_learning/nodes/_skill_memories.py:inject_for_skill"
+    },
+    "SkillTagNudge": {
+      "bounded_context": "Memory & Retrieval",
+      "definition": "A PostToolUse reminder, after a skill run is followed by `mac` calls, to tag memories with that skill so SkillMemories can find them next time.",
+      "evidence": "langchain_learning/nodes/_skill_memories.py:tag_nudge"
+    },
+    "TerminalStatus": {
+      "bounded_context": "Client-side Status",
+      "definition": "Per-event terminal state written by HookClient itself: the kitty tab's title marker, the dashboard plan and turn files, and the saved last assistant response. Fire-and-forget, independent of whether HookServer answers.",
+      "evidence": "hooks/kitty_status.py:update, hooks/dashboard_plan.py:update, hooks/dashboard_turn.py:update, hooks/last_response.py:update"
+    },
+    "CacheStore": {
+      "bounded_context": "Storage",
+      "definition": "Named in-process string caches, created lazily on first use and optionally persisted to disk (the 'user_context' fallback is one). HookServer exposes them read-only at /cache and /cache/{name}.",
+      "evidence": "hooks/cache_store.py:get_cache"
+    },
+    "EncDB": {
+      "bounded_context": "Storage",
+      "definition": "The opener for SQLCipher-encrypted SQLite files such as MEMORY.sqlite: a plain SQLite file (or a new one) opens with stdlib sqlite3, anything else is treated as ciphertext and keyed; a missing or still-git-crypt key fails closed with an EncDBError that says what to fix. A vendored copy of cli-graph's opener.",
+      "evidence": "src/encdb.py:open_db"
     }
   },
   "relations": [
     {"subject": "UserPromptSubmit", "predicate": "part-of", "object": "HookDispatchTable",
      "note": "One of the event names the table routes."},
     {"subject": "UserPromptSubmit", "predicate": "determines", "object": "LoadMemoriesNode",
-     "note": "The only event that reaches memory/tool retrieval -- there's nothing to inject before the prompt exists."},
+     "note": "The only event that reaches BM25 memory retrieval -- there's nothing to score before the prompt exists. (SkillMemories injects on PostToolUse, by tag, not by score.)"},
     {"subject": "PreToolUse", "predicate": "part-of", "object": "HookDispatchTable",
      "note": "One of the event names the table routes."},
     {"subject": "PostToolUse", "predicate": "part-of", "object": "HookDispatchTable",
@@ -187,7 +235,7 @@
     {"subject": "CopilotBridge", "predicate": "relates", "object": "HookClient",
      "note": "Functional analogue for non-Claude-Code callers -- same HookServer, same event vocabulary, different invocation surface (CLI args vs. stdin JSON from Claude Code itself)."},
     {"subject": "HookDispatchTable", "predicate": "part-of", "object": "HookServer",
-     "note": "The subprocess dispatch table and the FastAPI server's routes cover the same event set; the server is what HookClient actually talks to in production, the dispatcher remains for fallback/testing."},
+     "note": "The subprocess dispatch table and the FastAPI server's routes cover the same event set; the server is what HookClient actually talks to in production; dispatcher.main() is kept for tests, and HookClient prints {} rather than falling back to it."},
     {"subject": "HookServer", "predicate": "persists", "object": "SessionCheckpoint",
      "note": "HookServer owns the one place a SessionCheckpoint's storage is constructed, for the life of the process."},
     {"subject": "SessionCheckpoint", "predicate": "part-of", "object": "SessionGraph",
@@ -214,18 +262,14 @@
      "note": "Every concrete Gate receives a GateContext to decide against; a Gate never reads SessionState or the hook payload directly."},
     {"subject": "LoadMemoriesNode", "predicate": "references", "object": "MemoryRetriever",
      "note": "Accepts a MemoryRetriever at construction -- the node owns when retrieval happens, the retriever owns how memories are scored."},
-    {"subject": "MemoryRetriever", "predicate": "relates", "object": "ToolScorer",
-     "note": "Sibling seams serving the same architectural role (swap production scoring for a null stub in tests) for two different data sources -- memory rows vs. tool-hint rows."},
     {"subject": "LoadMemoriesNode", "predicate": "references", "object": "ServerMemory",
      "note": "Records which memories surfaced after scoring, so it becomes part of the same cross-session timeline as prompts and tool calls -- a one-directional call, not a shared data structure."},
     {"subject": "ServerMemory", "predicate": "relates", "object": "SQLiteHandler",
      "note": "Both write to the same database but through separate tables and separate write paths -- co-located storage, not a shared schema."},
-    {"subject": "Concept", "predicate": "describes", "object": "SourceModule",
-     "note": "Keyed by module path across this entire repo -- the only bounded context whose subject is the codebase itself rather than a runtime behaviour."},
     {"subject": "MCPToolMap", "predicate": "relates", "object": "HookDispatchTable",
      "note": "Both are dispatch tables keyed by name, but route different protocols -- MCPToolMap wires MCP tool calls, HookDispatchTable wires Claude Code hook events -- no shared code path between them."},
-    {"subject": "ToolDomainMap", "predicate": "references", "object": "ToolScorer",
-     "note": "Used to describe a tool-hint row's origin in domain/skill terms; ToolScorer's own scoring does not depend on ToolDomainMap being populated (falls back to 'global'/empty skill when the personal registry is absent)."},
+    {"subject": "PostToolUse", "predicate": "references", "object": "ToolDomainMap",
+     "note": "The log_tool_usage step describes each recorded tool call in domain/skill terms through it; recording does not depend on it being populated (falls back to 'global'/empty skill when the personal registry is absent)."},
     {"subject": "AmbientRender", "predicate": "references", "object": "UserContextOntology",
      "note": "AmbientRender is the projection -- always_on nodes verbatim, tag-hit nodes as a '## Relevant context' list; UserContextOntology is the hand-maintained graph it reads. Adding a node with always_on:true adds an always-on section; adding one with tags makes it scored."},
     {"subject": "AmbientRender", "predicate": "part-of", "object": "UserPromptSubmit",
@@ -233,6 +277,34 @@
     {"subject": "AmbientRender", "predicate": "relates", "object": "MemoryRetriever",
      "note": "Sibling ways of populating the injected system prompt that render as adjacent sections -- AmbientRender is one curated ontology (verbatim persona/financial + tag-matched domains), MemoryRetriever is keyword-scored MEMORY.sqlite rows -- sharing no code path; AmbientRender is built in the dispatcher after the graph, not by a node."},
     {"subject": "UserContextOntology", "predicate": "relates", "object": "UserPromptSubmit",
-     "note": "Its always_on nodes are injected before Claude sees the prompt and shape the tone/style of the response -- the reason it is modelled rather than left as an implementation detail of _format_system_prompt. Not 'determines': it does not trigger or route the event, it only colours the output; the mechanism link is AmbientRender part-of UserPromptSubmit."}
+     "note": "Its always_on nodes are injected before Claude sees the prompt and shape the tone/style of the response -- the reason it is modelled rather than left as an implementation detail of _format_system_prompt. Not 'determines': it does not trigger or route the event, it only colours the output; the mechanism link is AmbientRender part-of UserPromptSubmit."},
+    {"subject": "PreToolUse", "predicate": "references", "object": "WebSearchCache",
+     "note": "Checked before the gate chain for WebSearch calls only; a fresh hit is returned as a deny whose reason is the cached result."},
+    {"subject": "PostToolUse", "predicate": "persists", "object": "WebSearchCache",
+     "note": "Every completed WebSearch is stored, so the next identical query within its TTL is served from the cache."},
+    {"subject": "UserPromptSubmit", "predicate": "persists", "object": "PromptShadow",
+     "note": "Each prompt gets a shadow find_cli row; PostToolUse later links the session's mac calls to it."},
+    {"subject": "PromptShadow", "predicate": "relates", "object": "FindCliLog",
+     "note": "Same measurement (did the next mac call use a suggestion?) for two triggers: every prompt, silently, vs. an explicit find_cli call."},
+    {"subject": "PostToolUse", "predicate": "references", "object": "FindCliLog",
+     "note": "Records find_cli results and links the next mac calls to them; nothing here changes the tool call's outcome."},
+    {"subject": "PostToolUse", "predicate": "references", "object": "VaultReindex",
+     "note": "Runs after any tool that may have written a vault note; a miss costs one stat."},
+    {"subject": "PostToolUse", "predicate": "references", "object": "ContextSizeNudge",
+     "note": "Checked on every completed tool call; fires once per token band per session."},
+    {"subject": "PostToolUse", "predicate": "references", "object": "SkillMemories",
+     "note": "A Skill tool call is the trigger; its additionalContext carries the skill-tagged memories."},
+    {"subject": "SkillMemories", "predicate": "relates", "object": "LoadMemoriesNode",
+     "note": "Sibling injection paths over the same MEMORY.sqlite: scored per prompt vs. exact tag per skill run; SkillMemories skips what the prompt already injected."},
+    {"subject": "SkillTagNudge", "predicate": "references", "object": "SkillMemories",
+     "note": "Asks for the tags SkillMemories retrieves by, so the next run of that skill has memories to inject."},
+    {"subject": "HookClient", "predicate": "persists", "object": "TerminalStatus",
+     "note": "Written in the client process on every event, before the POST to HookServer and regardless of its outcome."},
+    {"subject": "HookServer", "predicate": "references", "object": "CacheStore",
+     "note": "Exposes every named cache read-only over HTTP; the caches themselves are filled by the modules that own them."},
+    {"subject": "UserContextOntology", "predicate": "references", "object": "CacheStore",
+     "note": "Its last good copy lives in the persisted 'user_context' cache, the first fallback when the vault read fails."},
+    {"subject": "MemoryRetriever", "predicate": "references", "object": "EncDB",
+     "note": "MEMORY.sqlite is SQLCipher-encrypted, so every read of memory rows goes through EncDB rather than sqlite3."}
   ]
 }

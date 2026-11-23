@@ -1,8 +1,10 @@
 # claude-hooks
 
 This repo gives a coding agent a memory and a context. Hooks fire on every turn,
-assemble what's worth knowing — memories, active task, architectural concepts,
-related commits — and inject it before the model sees the prompt.
+assemble what's worth knowing — scored memories, the turn state, the user's
+ambient context, skill-tagged memories when a skill runs — and inject it before
+the model sees it. The active task is injected by task-framework's own hook,
+not this one.
 
 That premise has one hard consequence, and it shapes everything here: **context
 the agent trusts but that isn't true is worse than no context at all.** A missing
@@ -14,13 +16,15 @@ with no reason to double-check. Most of the design below is an answer to that.
 **Anything asserted must be checkable by something that runs.**
 A rule stated in a doc and enforced by nothing is a comment. It stays plausible
 while the code drifts underneath it, and the drift surfaces only when someone
-acts on it and gets hurt. Concept drift detection runs on every edit; the gates
-run on every tool call; the model tests run on every commit. When you add a claim
+acts on it and gets hurt. The gates run on every tool call; the model and
+ontology tests run in the suite that `/commit` runs before every commit. Nothing
+drift-checks `concept_store/` any more (the hook was retired in task:85e6001f),
+so its evidence is a hint, not a guarantee. When you add a claim
 about how this system behaves, add the thing that fails when it stops being true.
 
 **Prefer the durable record to the cache.**
-Git history is the record; the commit map is a cache over it and is rebuildable
-from scratch. The same shape recurs — derive from the source of truth rather than
+Git history is the record; task-framework's task↔commit links are a cache over
+it, rebuildable from the `task:<id>` citations with `python -m taskfw.backfill`. The same shape recurs — derive from the source of truth rather than
 maintaining a second copy that can silently disagree. When you must cache, make
 losing it cheap.
 
@@ -60,14 +64,17 @@ Not in this file. This file goes stale the same way any prose does, so it holds
 principles rather than specifics, and points at things that are checked:
 
 - **`concept_store/concepts.json`** — architectural facts per module, with
-  invariants and contracts. Drift-checked on every edit. Read and write it
-  through the `concept__*` MCP tools.
+  invariants and contracts. Not drift-checked; read and write it through
+  task-framework's `concept__*` MCP tools and re-check evidence before relying
+  on it.
 - **`ontology/claude-hooks-domain.json`** — the domain vocabulary: bounded
   contexts, terms that span modules (SessionState, GateContext, NodeRegistry),
   and typed relations between them. Answers "what is this thing, and how does
   it relate to the others" — concept_store answers "what does this module
-  promise" instead. Not drift-checked; re-verify evidence against source
-  before trusting a term.
+  promise" instead. `tests/test_ontology.py` checks that every evidence
+  pointer names a symbol defined in an existing file and every relation joins
+  defined terms; it cannot check the prose, so re-read the code behind a term
+  before trusting its wording.
 - **`models/*.sysml`** — the structural model and its requirements, enforced by
   `tests/test_models.py`.
 - **`tests/`** — the compatibility contract. When behaviour is load-bearing,
@@ -76,9 +83,13 @@ principles rather than specifics, and points at things that are checked:
   the live process. Editing this repo's hook code does not change the running
   server until it restarts; that gap has fooled people before.
 
-Read logs through the `hooks__read_logs_sqlite` MCP tool and memories through the
-`memory__*` tools rather than opening the databases directly — the tools apply
-the filtering and encoding the raw tables don't.
+Read logs with `mac hooks read_logs_sqlite` (and the session timeline with
+`mac hooks server_memory`), and memories with `mac memory …`, rather than opening
+the databases directly — they apply the filtering and decryption the raw tables
+don't. These call this repo's `src/tools/*` handlers through cli-graph. The
+`mcp_server.py` front-end over the same handlers is dormant: no Claude Code
+config connects to it, so `hooks__*` / `memory__*` MCP tools do not exist in a
+session.
 
 ## Working here
 

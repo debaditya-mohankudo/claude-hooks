@@ -15,6 +15,7 @@ tags: architecture overview, claude-hooks, hook server, MCP tools, LangGraph, se
 2. **Commit traceability gating** — deny a `git commit` that carries no `task:<id>` reference
 3. **Tool usage tracking** — accumulate latency and keyword signals per MCP tool in `tool_hints.sqlite`
 4. **Observability** — structured logs in `claude_hooks.sqlite` and a rolling cross-session event log (`server_memory.sqlite`)
+5. **Tool-call side effects** — the WebSearch cache, find_cli and prompt-shadow hit-rate logs, vault reindexing, the context-size nudge and skill-tagged memory injection. The dispatcher runs these around the graph, not inside it (see [The graph](#the-graph))
 
 ---
 
@@ -22,7 +23,7 @@ tags: architecture overview, claude-hooks, hook server, MCP tools, LangGraph, se
 
 - **HookServer** — FastAPI server (`hooks/server.py`, port 8766), `hooks/dispatcher.py` event handlers, the gates in `hooks/gates.py`, and the session memory timeline. Routes: `/hook/{UserPromptSubmit,PreToolUse,PostToolUse,Stop,SessionStart,SessionEnd}` plus `/health` and `/session*` read endpoints. Owns the checkpointer lifecycle.
 - **LangGraphPipeline** — `StateGraph(SessionState)` in `langchain_learning/session_graph.py`, 8 registered nodes, checkpointed by `MemorySaver` (`SqliteSaver` was retired after two corruption incidents, task:b3964f85).
-- **MCPTools** — `mcp_server.py` + `src/dispatcher.py`: 5 domains, 24 actions (`hooks`, `memory`, `think`, `scratch`, `vault_map`). `DOMAIN_MAP` in `src/dispatcher.py` is the authoritative list.
+- **ToolHandlers** — the `handle_*` functions in `src/tools/*`: 5 domains, 24 actions (`hooks`, `memory`, `think`, `scratch`, `vault_map`). `DOMAIN_MAP` in `src/dispatcher.py` is the authoritative list. The live front-end is cli-graph's `mac hooks …` / `mac memory …`, which imports the handlers through a subprocess runner. **`mcp_server.py` is dormant, kept on purpose:** no Claude Code config connects to it (`claude-hooks` is in `disabledMcpServers`), so `hooks__*` / `memory__*` MCP tools do not exist in a session. `tests/test_src_dispatcher.py` keeps it from rotting while dormant.
 - **Stores** — `MEMORY.sqlite` (memories, BM25), `tool_hints.sqlite`, `claude_hooks.sqlite` (logs), `server_memory.sqlite` (event log). `concept_store/concepts.json` holds per-module architectural facts.
 - **Foundation** — config (`src/config.py`), DB schema (`src/db/schema.py`), logging. Cross-cutting, not a peer subsystem.
 
@@ -38,6 +39,16 @@ Ground truth: `langchain_learning/session_graph.py:build_session_graph()`. One g
 | `Stop` / unknown | `noop` → `play_sound` → END |
 
 After the graph returns, the dispatcher assembles `additionalContext` (`## Turn state`, user context, `## Injected memories`), trims it to the budget, and the response flows back through server → client → Claude Code.
+
+Not everything runs in the graph. The dispatcher's handlers run side effects around it, each fail-open and none touching `SessionState`:
+
+| Event | Outside the graph (`hooks/dispatcher.py`) |
+| --- | --- |
+| `UserPromptSubmit` | prompt shadow (`src/tools/prompt_shadow.py`); user-context render after the graph |
+| `PreToolUse` | WebSearch cache: a fresh hit is returned as a deny carrying the cached result (`src/tools/web_search_cache.py`) |
+| `PostToolUse` | WebSearch store, find_cli log, prompt-shadow linking, vault reindex (command and file-tool), context-size nudge, skill memories and skill-tag nudge — all before `log_tool_usage` |
+
+The client (`hooks/client.py`) also writes terminal state itself before the POST — kitty tab status, dashboard plan/turn and the saved last response — because only its process has the session's `KITTY_*` environment.
 
 The task pipeline that used to sit in this graph (`load_active_task`, `load_task_code`, `load_related_commits`, `load_related_tasks`, `load_task_history`, `summarize_task_context`, `log_task_events`, `activate_task`, `deactivate_task`) and the tool-scoring and domain-detection nodes (`score_tools`, `cwd_domain_detect`) are gone. Tombstone comments in `session_graph.py` name the task and reason for each; read them before re-adding any of these. The backfill slot (`backfill_memory_files.py`) is unwired but kept on disk — see [Pluggable Nodes](pluggable_nodes.md).
 
@@ -62,9 +73,9 @@ The enforced model lives in `models/*.sysml` and is checked by `tests/test_model
 
 - **Hooks orchestrate; MCP servers own domain logic.** Project databases stay inside MCP servers — hooks never reach across that boundary.
 - **All safety decisions are deterministic and explainable.** Gate checks are rule-based, not probabilistic.
-- **Fail open.** A server that is down, a gate that errors, a parse that fails — none may block the user's tool call. `client.py` falls back to `dispatcher.py` in subprocess mode.
-- **Session state is the source of truth.** `SessionState` fields in the LangGraph checkpoint carry all cross-hook context — no DB-as-IPC.
-- **Modular graph nodes that can evolve independently.** Each node is a callable class registered in `nodes/registry.py`; adding behavior means adding a node, not editing existing ones.
+- **Fail open.** A server that is down, a gate that errors, a parse that fails — none may block the user's tool call. `client.py` has no fallback: on any error (unreachable server, timeout after 2 s, a 500 from a handler) it prints `{}`, which allows the call and injects nothing. `dispatcher.main()` is the subprocess entry point tests use, not a production path.
+- **Cross-hook state lives in the server process.** `SessionState` in the LangGraph checkpoint carries the turn and prompt fields the graph nodes share. Side effects outside the graph keep their own small per-session dicts (e.g. the context-nudge band, the skill-memory bookkeeping in `_skill_memories.py`). Both are in-memory and lost on restart — no DB-as-IPC.
+- **Modular graph nodes that can evolve independently.** Each node is a callable class registered in `nodes/registry.py`. In practice most behaviour added since the task pipeline left has gone into dispatcher side effects instead (table above); which of the two is the orchestrator is an open decision (architecture review 2026-11-23, #3).
 
 ---
 

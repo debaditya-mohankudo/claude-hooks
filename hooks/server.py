@@ -95,10 +95,13 @@ async def log_requests(request: Request, call_next):
 
 @app.post("/hook/UserPromptSubmit")
 async def user_prompt_submit(request: Request):
-    """UserPromptSubmit hook — runs the full UPS LangGraph chain.
+    """UserPromptSubmit hook — runs the UPS LangGraph chain (load_turn → load_memories → set_prompt_id).
 
-    Injects memories, tool hints, domain classification, and task context into the session
-    checkpoint. Returns hookSpecificOutput.additionalContext for Claude to consume.
+    Returns hookSpecificOutput.additionalContext with the turn state, the rendered
+    user context and the BM25-scored memories. Tool hints, domain classification and
+    task context are no longer injected (dispatcher._format_system_prompt tombstone;
+    task-framework's own hook injects the active task). Records the prompt to the
+    server_memory timeline.
     All lc.* node logs write immediately to claude_hooks.sqlite via SQLiteHandler.
     """
     from hooks.dispatcher import _handle_user_prompt_submit, _extract_prompt
@@ -116,8 +119,10 @@ async def user_prompt_submit(request: Request):
 async def pre_tool_use(request: Request):
     """PreToolUse hook — runs gate_check node against the current session checkpoint.
 
-    Returns permissionDecision=deny with a reason if a gated tool (e.g. a git commit
-    without a task:<id>) fails its gate. Returns {} to allow. A handler error is a
+    Returns permissionDecision=deny with a reason if a git commit carries no task:<id>
+    (GitCommitGate / GitCommitMcpGate), or — before the gates — if a WebSearch query has a
+    fresh cached result, which is returned as the deny reason (src/tools/web_search_cache.py).
+    Returns {} to allow. A handler error is a
     500, which hooks/client.py turns into {} (allow); nothing fails closed here
     (task:4e56d23a). Gate internals (name_arg_check, ALLOW/DENY rows, prompt_id correlation)
     write immediately to claude_hooks.sqlite via SQLiteHandler.
@@ -130,13 +135,15 @@ async def pre_tool_use(request: Request):
 
 @app.post("/hook/PostToolUse")
 async def post_tool_use(request: Request):
-    """PostToolUse hook — runs log_tool_usage node and conditional task-lifecycle bridge nodes.
+    """PostToolUse hook — runs the dispatcher's side effects, then the log_tool_usage node.
 
-    Upserts tool hint row in tool_hints.sqlite (skipped for test sessions).
-    Bridge nodes fire when tool_name matches a lifecycle tool (tasks__set_active,
-    tasks__pop_active, tasks__clear_active, tasks__finish, tasks__add_decision) —
-    they write task activation state into the MemorySaver checkpoint so the next
-    UPS turn sees the updated active task. Always returns {}.
+    Side effects (each fail-open): WebSearch cache store, find_cli log and prompt-shadow
+    linking, vault reindex, context-size nudge, and skill-tagged memories / skill-tag
+    nudge. log_tool_usage upserts the tool hint row in tool_hints.sqlite (skipped for
+    test sessions and memory tools). Returns {} or a hookSpecificOutput.additionalContext
+    from the nudge or skill-memory side effects — which return early, so log_tool_usage
+    is skipped for that call. The task-lifecycle bridge nodes are gone
+    (task-framework owns the active task). Records the call to the server_memory timeline.
     """
     from hooks.dispatcher import _handle_post_tool_use
     body = await _safe_json(request)
@@ -262,8 +269,9 @@ async def session_live():
 async def session_memory(n_events: int = 50):
     """Server session memory — last N events from the unified chronological timeline.
 
-    Free-flowing event log: prompts, tool calls, task activations, and assistant
-    turns interleaved with timestamps. Durable across reloads (SQLite-backed).
+    Free-flowing event log: prompts, tool calls, task activations, surfaced memories and session ends
+    interleaved with timestamps — no assistant turns. Durable across reloads
+    (SQLite-backed, rolling).
     """
     import hooks.server_memory as server_memory
     return server_memory.get_server_memory(n_events=n_events)

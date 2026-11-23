@@ -12,7 +12,8 @@ SessionState is written and read by nearly every node in the graph), and
 across the project's other memory stores, which answer different questions:
 
 - `concept_store/concepts.json` answers "what does this *module* promise" —
-  architecture per file, drift-checked on every edit.
+  architecture per file. Nothing drift-checks it since the drift hook was
+  retired (task:85e6001f).
 - `ontology/claude-hooks-domain.json` answers "what is this *term*, and how
   does it relate to the rest" — vocabulary per domain concept.
 
@@ -41,11 +42,19 @@ concept, and how does it relate to the other concepts" — technical detail
 belongs elsewhere, and a term's `evidence` field is a single pointer for
 verification, not an implementation trail to restate in prose.
 
-It is also a map, not a checked claim: nothing currently tests it against the
-code (unlike `concept_store/concepts.json`, which is drift-checked). Treat it
-as a durable but driftable snapshot of the domain vocabulary, kept only as
-accurate as whoever last updated it made it — re-verify evidence against
-source before trusting a term, per the root `CLAUDE.md`.
+## What is checked
+
+`tests/test_ontology.py` (task:e353061f) fails when a term's evidence file is
+missing, when a cited symbol is not *defined* in its file (a mention in a
+tombstone comment does not count), when a pointer is a bare line number, when
+a term names an undeclared bounded context, or when a relation's endpoint is
+not a defined term or its predicate is outside the list above.
+
+Evidence format: `path:symbol`, comma-separated for several, or a bare `path`
+to cite a whole file. Never `path:<line number>`.
+
+What the test cannot check is whether a definition's *prose* is still true.
+Re-read the cited code before trusting a term's wording.
 
 See the root `CLAUDE.md` ("Where truth actually lives") for how this file
 relates to `concept_store/concepts.json` and `models/*.sysml`.

@@ -1,4 +1,13 @@
-"""claude-hooks MCP server — self-contained tool server for task, memory, session, hooks tools."""
+"""claude-hooks MCP server — DORMANT, kept intentionally.
+
+An MCP front-end over the src/tools/* handlers in src/dispatcher.py:DOMAIN_MAP
+(hooks, memory, think, scratch, vault_map). No Claude Code config connects to
+it (claude-hooks is in ~/.claude.json disabledMcpServers), so its hooks__* /
+memory__* tools do not exist in a session. The live front-end over the same
+handlers is cli-graph's `mac hooks …` / `mac memory …`; use those. Kept for
+possible future use (architecture review 2026-11-23, task:e353061f), and
+tests/test_src_dispatcher.py keeps DOMAIN_MAP wiring from rotting meanwhile.
+"""
 import sys
 from pathlib import Path
 

@@ -124,7 +124,7 @@ Hooks now call `client.py` — a thin HTTP wrapper (stdlib urllib, no curl/jq ne
 }
 ```
 
-`client.py` enriches the payload with `CLAUDE_CWD` and POSTs it to the server. If the server is unreachable, it falls back to `dispatcher.py` (subprocess mode) so hooks never silently disappear.
+`client.py` enriches the payload with `CLAUDE_CWD` and POSTs it to the server. If the server is unreachable, times out (2 s) or errors, it prints `{}` and exits 0: the tool call is allowed and nothing is injected. There is no subprocess fallback.
 
 ---
 
