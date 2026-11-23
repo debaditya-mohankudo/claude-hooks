@@ -116,9 +116,10 @@ async def user_prompt_submit(request: Request):
 async def pre_tool_use(request: Request):
     """PreToolUse hook — runs gate_check node against the current session checkpoint.
 
-    Returns permissionDecision=deny with a reason if a gated tool (e.g. imessage__send)
-    is called without its prereq (e.g. contacts__search) in the session. Returns {} to
-    allow. Gate internals (name_arg_check, ALLOW/DENY rows, prompt_id correlation)
+    Returns permissionDecision=deny with a reason if a gated tool (e.g. a git commit
+    without a task:<id>) fails its gate. Returns {} to allow. A handler error is a
+    500, which hooks/client.py turns into {} (allow); nothing fails closed here
+    (task:4e56d23a). Gate internals (name_arg_check, ALLOW/DENY rows, prompt_id correlation)
     write immediately to claude_hooks.sqlite via SQLiteHandler.
     """
     from hooks.dispatcher import _handle_pre_tool_use

@@ -455,10 +455,10 @@
       "contracts": [
         "parse_bash returns one MacCall per simple command whose command word, after any env assignments, is a mac launcher. Text that names a verb as an argument (grep patterns, commit messages) is not a call.",
         "from_mcp maps an MCP tool name to the same id, with verb naming copied from cli-graph's tools/gen_mcp_groups.verb_name.",
-        "Ids are validated against cli-graph's graph/cli_graph.json. If the graph cannot be read, MCP names are left unmapped and Bash calls are accepted on syntax alone."
+        "Ids are validated against cli-graph's graph/cli_graph.json. If the graph cannot be read (known_ids() is None), both MCP names and Bash calls are mapped on syntax alone."
       ],
       "created_at": "2026-10-27T03:55:31.374375+00:00",
-      "description": "Maps both a Bash command line and an MCP call from a server that `mac` replaces (local-mac, astrology, wyckoff-analyzer, sysml-mcp) to one canonical `mac <area> <verb>` id. Vault reindex, the server_memory event log, hint learning (usage counts find_cli reads) and the fail-closed PreToolUse set all key on that id instead of on MCP tool names.",
+      "description": "Maps both a Bash command line and an MCP call from a server that `mac` replaces (local-mac, astrology, wyckoff-analyzer, sysml-mcp) to one canonical `mac <area> <verb>` id. Vault reindex, the server_memory event log and hint learning (usage counts find_cli reads) key on that id instead of on MCP tool names. (A fail-closed PreToolUse set keyed on `mac imessage send` / `mac mail compose` also read it until task:4e56d23a removed it: it ran only in dispatcher.main(), never on the production server route, and the send gate belongs to LocalMacMCP.)",
       "evidence": [
         "hooks/core/mac_command.py:parse_bash",
         "hooks/core/mac_command.py:from_mcp",
@@ -471,7 +471,7 @@
         "cli-graph's graph is the source of truth for which ids exist. This module never hard-codes the command list.",
         "A hook behaves the same before and after the MCP cutover (8cd14cfe), because both call forms resolve to one id."
       ],
-      "last_validated": "2026-11-01T05:19:53.172064+00:00",
+      "last_validated": "2026-11-23T13:56:23.391568+00:00",
       "module": "hooks/core/mac_command.py",
       "name": "mac-command-id",
       "related": []
@@ -756,6 +756,6 @@
     "commit": "5f62c6b5150a20fe7198d7bd6c155c4b3c0d3101",
     "extracted_at": "2026-07-23T05:42:23Z",
     "note": "incremental upsert (task:a2fd402d)",
-    "updated_at": "2026-11-23T13:48:32.021652+00:00"
+    "updated_at": "2026-11-23T13:56:23.391654+00:00"
   }
 }

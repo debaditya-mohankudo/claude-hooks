@@ -13,8 +13,10 @@ verb are not calls. Heredoc bodies are skipped. A line shlex cannot tokenise
 
 Calls are checked against cli-graph's graph/cli_graph.json, so an MCP tool
 with no `mac` verb (local-mac's ollama_agent) keeps its MCP name. When the graph
-cannot be read, both forms are mapped on syntax alone: a safety hook keyed on
-`mac imessage send` must not stop matching because a file is missing.
+cannot be read, both forms are mapped on syntax alone, so the event log and
+hint learning keep counting `mac` calls when the file is missing. (That
+fallback was once justified by a fail-closed PreToolUse set keyed on `mac
+imessage send`; the set was removed in task:4e56d23a.)
 """
 from __future__ import annotations
 

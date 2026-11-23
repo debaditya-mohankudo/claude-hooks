@@ -3,6 +3,7 @@ import importlib.util
 import json
 import sqlite3
 import sys
+import types
 from pathlib import Path
 
 import pytest
@@ -99,21 +100,39 @@ def test_find_cli_lookups_are_recorded_and_mac_calls_linked(ptu, monkeypatch):
     assert got["link"] == [("pytest-x", ["mac mail read", "mac vault write"])]
 
 
-# --- PreToolUse fail-closed ---------------------------------------------------
+# --- PreToolUse handler errors on outbound sends -------------------------------
+# Both hook paths fail open on a handler error, sends included: see the
+# tombstone in hooks/dispatcher.py (task:4e56d23a). Pinned on both paths so a
+# protection one path implies and the other drops can't come back unnoticed.
 
-@pytest.mark.parametrize("tool_name, tool_input", [
-    ("Bash", {"command": "~/bin/mac imessage send +1555 hi"}),
-    ("mcp__local-mac__imessage__send", {"recipient": "x"}),
-])
-def test_a_failing_pretooluse_handler_denies_an_outbound_send(monkeypatch, capsys, tool_name, tool_input):
+_SEND = {"tool_name": "Bash", "tool_input": {"command": "~/bin/mac imessage send +1555 hi"},
+         "session_id": "s"}
+
+
+def _raise(_):
+    raise ZeroDivisionError("boom")
+
+
+def test_a_failing_pretooluse_handler_does_not_deny_an_outbound_send_in_main(monkeypatch, capsys):
     import hooks.dispatcher as d
-    monkeypatch.setattr(d, "read_stdin", lambda: {"tool_name": tool_name, "tool_input": tool_input,
-                                                  "session_id": "s"})
-    monkeypatch.setitem(d._HANDLERS, "PreToolUse", lambda _: 1 / 0)
+    monkeypatch.setattr(d, "read_stdin", lambda: _SEND)
+    monkeypatch.setitem(d._HANDLERS, "PreToolUse", _raise)
     monkeypatch.setattr(sys, "argv", ["dispatcher.py", "PreToolUse"])
+    monkeypatch.setattr(d, "_lc_cfg", types.SimpleNamespace(dev_mode=False))  # frozen config
     d.main()
     out = capsys.readouterr().out
-    assert '"permissionDecision": "deny"' in out and "mac imessage send" in out
+    assert "permissionDecision" not in out and "handler failed" in out
+
+
+def test_a_failing_pretooluse_handler_does_not_deny_an_outbound_send_through_the_server(monkeypatch):
+    """The production route: a handler error is a 500 with no decision in it,
+    which hooks/client.py turns into {} (allow)."""
+    import hooks.dispatcher as d
+    from fastapi.testclient import TestClient
+    from hooks.server import app
+    monkeypatch.setattr(d, "_handle_pre_tool_use", _raise)
+    r = TestClient(app, raise_server_exceptions=False).post("/hook/PreToolUse", json=_SEND)
+    assert r.status_code == 500 and "permissionDecision" not in r.text
 
 
 # --- keywords and groups --------------------------------------------------------

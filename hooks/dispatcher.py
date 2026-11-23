@@ -422,10 +422,16 @@ def _bash_result(tool_response: dict) -> dict:
 # PreToolUse
 # ---------------------------------------------------------------------------
 
-# Commands that send something out: if the PreToolUse handler itself fails on a
-# call that runs one, deny rather than let it through unchecked. Matched as
-# `mac` command ids, so the Bash and MCP forms are both covered (task:0aa96180).
-_FAIL_CLOSED_COMMANDS = {"mac imessage send", "mac mail compose"}
+# _FAIL_CLOSED_COMMANDS ({"mac imessage send", "mac mail compose"}, task:0aa96180)
+# and the deny-on-handler-error branch in main() that read it were removed
+# (task:4e56d23a). It ran only in main(), the subprocess path; production goes
+# through client.py -> server.py, where a handler error is a 500 that the client
+# turns into {} (allow), so it protected nothing. Nothing here gates those
+# commands any more: LocalMacMCP owns the send gate (claude_for_mac_local
+# src/tool_hooks.py _imessage_guard, which fails closed itself), and the `mac`
+# CLI reaches it through local-mac's dispatcher. A PreToolUse handler error now
+# fails open on both paths, as every other hook error does. Don't re-add a
+# send-specific rule here; it belongs with the tool.
 
 # The task-body-template gate that lived here (_check_task_body_format and its
 # supporting constants) was removed with src/tools/tasks.py (task:87ec7876).
@@ -630,28 +636,14 @@ def main():
         write_json_to_stdout(error=f"Unknown hook event: {hook_event!r}")
         return
 
-    hook_input: dict = {}
     try:
         hook_input = read_stdin()
         result = handler(hook_input)
         write_json_to_stdout(result if result else None)
     except Exception as e:
         log.error("%s handler failed: %s", hook_event, e)
-        # PreToolUse fail-closed: irreversible tools must deny on any error
-        if hook_event == "PreToolUse":
-            from core.mac_command import calls_for
-            hit = [c.id for c in calls_for(hook_input.get("tool_name", ""), hook_input.get("tool_input"))
-                   if c.id in _FAIL_CLOSED_COMMANDS] if hook_input else []
-            if hit:
-                short = hit[0]
-                write_json_to_stdout({
-                    "hookSpecificOutput": {
-                        "hookEventName": "PreToolUse",
-                        "permissionDecision": "deny",
-                        "permissionDecisionReason": f"Gate check failed (internal error) — {short} blocked for safety.",
-                    }
-                })
-                return
+        # No PreToolUse fail-closed branch here; see the tombstone above
+        # _FAIL_CLOSED_COMMANDS's old place (task:4e56d23a).
         write_json_to_stdout(error=f"{hook_event} handler failed: {e}")
         if _lc_cfg.dev_mode:
             sys.exit(2)
