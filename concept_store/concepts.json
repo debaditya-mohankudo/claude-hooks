@@ -388,10 +388,10 @@
     "log-tool-usage-single-writer": {
       "confidence": 0.92,
       "contracts": [
-        "__call__(state) -> {prompt_tools, session_tools} state update"
+        "__call__(state) -> {} (no state update; side effect is the tool_hints upsert)"
       ],
       "created_at": "2026-08-01T05:48:37.369390+00:00",
-      "description": "Upserts a tool_hints.sqlite row per tool call and seeds keywords in the same connection. Used to also run _upsert_task_event_tools concurrently via a ThreadPoolExecutor, writing to task_events on EVERY tool call — removed (task:87ec7876) because task_events no longer exists. Found by grep for _cfg.tasks_db rather than the open_tasks/_connect patterns task:6240c675's sweep used, which is why it survived that earlier pass. With one writer left, the pool bought nothing; __call__ now calls _upsert_tool_hint directly.",
+      "description": "Upserts a tool_hints.sqlite row per tool call and seeds keywords in the same connection. Used to also run _upsert_task_event_tools concurrently via a ThreadPoolExecutor, writing to task_events on EVERY tool call — removed (task:87ec7876) because task_events no longer exists. Found by grep for _cfg.tasks_db rather than the open_tasks/_connect patterns task:6240c675's sweep used, which is why it survived that earlier pass. With one writer left, the pool bought nothing; __call__ now calls _upsert_tool_hint directly. It no longer appends to prompt_tools/session_tools (task:84dbcf14): session_tools kept every tool_input and was re-serialised into a checkpoint blob on every call, an O(n²) leak with no reader.",
       "evidence": [
         "langchain_learning/nodes/log_tool_usage.py:LogToolUsageNode",
         "langchain_learning/nodes/log_tool_usage.py:LogToolUsageNode.__call__"
@@ -400,9 +400,10 @@
         "Writes to tool_hints.sqlite only — no task store dependency",
         "Test sessions (api-test-/test-/pytest- prefixes) skip the upsert entirely"
       ],
-      "last_validated": "2026-08-01T05:48:37.369390+00:00",
+      "last_validated": "2026-11-23T13:47:21.578384+00:00",
       "module": "langchain_learning/nodes/log_tool_usage.py",
-      "name": "log-tool-usage-single-writer"
+      "name": "log-tool-usage-single-writer",
+      "related": []
     },
     "logger-sqlite-handler": {
       "confidence": 0.97,
@@ -734,6 +735,6 @@
     "commit": "5f62c6b5150a20fe7198d7bd6c155c4b3c0d3101",
     "extracted_at": "2026-07-23T05:42:23Z",
     "note": "incremental upsert (task:a2fd402d)",
-    "updated_at": "2026-11-22T23:49:04.684617+00:00"
+    "updated_at": "2026-11-23T13:47:21.578494+00:00"
   }
 }

@@ -7,15 +7,14 @@ Adding a gate: add a Gate subclass below + register it in GATES. Gates for
 other repos' MCP tools live with those tools, not here.
 
 Anti-hallucination principle: Claude cannot be trusted to remember whether it
-already verified something. Only tool call records in prompt_tool_calls (written
-by the hook infrastructure, not the model) are facts. Gates enforce this.
+already verified something. Only what the hook infrastructure records (not the
+model's claims) counts as fact. Gates enforce this.
 """
 from __future__ import annotations
 
 import os
 from abc import ABC, abstractmethod
-from collections import OrderedDict
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 from src.logger import get_logger
@@ -28,83 +27,23 @@ _log = get_logger(__name__)
 # ---------------------------------------------------------------------------
 
 @dataclass
-class ToolCall:
-    tool: str
-    prompt_id: str
-    tool_input: dict = field(default_factory=dict)
-    tool_result: dict = field(default_factory=dict)
-    found: bool = False
-    ts: float = 0.0
-
-
-@dataclass
 class GateContext:
     """Prepared view of session state passed to every gate's verify().
 
     Built once in gate_check.py from SessionState; each gate uses what it needs.
+
+    ToolCall and the history this used to carry — current_calls,
+    session_tools, session_prompt_ids, prompt_text, recent_prompt_texts and
+    the called_this_session / called_recently / prev_tools / prompt_texts
+    helpers — were removed (task:84dbcf14). They served lookup-before-send
+    gates that now live with their tools in other repos; the two gates left
+    read only tool_input, and keeping the history fed an O(n²) per-session
+    memory leak. A gate that needs history should add the one bounded field
+    it reads.
     """
     tool_name: str
     tool_input: dict
-
-    # Rich call records from prompt_tools (current prompt only)
-    current_calls: list[ToolCall]
-
-    # Tool names only from session history (all prompts, keyed by prompt_id)
-    session_tools: OrderedDict[str, list[str]]
-
-    # Ordered prompt ids this session
-    session_prompt_ids: list[str]
-
-    # Current prompt id
-    prompt_id: str
-
-    # Raw prompt text for name presence checks (lower-cased)
-    prompt_text: str = ""
-
-    # Current + previous prompt texts (current first); used for multi-turn name checks
-    recent_prompt_texts: list[str] = None  # type: ignore[assignment]
-
-    def __post_init__(self) -> None:
-        if self.recent_prompt_texts is None:
-            self.recent_prompt_texts = [self.prompt_text] if self.prompt_text else []
-
-    def prompt_texts(self):
-        """Yield recent prompt texts, current first."""
-        yield from self.recent_prompt_texts
-
-    def called_this_session(self, tool: str) -> bool:
-        return any(
-            (entry.get("tool") if isinstance(entry, dict) else entry if isinstance(entry, str) else None) == tool
-            for bucket in self.session_tools.values()
-            for entry in bucket
-        )
-
-    def called_recently(self, tool: str, window_s: float = 120.0) -> bool:
-        """Return True if tool was called within window_s seconds."""
-        import time
-        cutoff = time.time() - window_s
-        for tc in self.prev_tools():
-            if tc.tool == tool and tc.ts >= cutoff:
-                return True
-        return False
-
-    def prev_tools(self):
-        """Yield ToolCall objects in reverse call order (most recent first)."""
-        history: list[ToolCall] = []
-        for bucket in self.session_tools.values():
-            for entry in bucket:
-                if isinstance(entry, dict) and "tool" in entry:
-                    history.append(ToolCall(
-                        tool=entry["tool"],
-                        prompt_id="",
-                        tool_input=entry.get("tool_input", {}),
-                        ts=entry.get("ts", 0.0),
-                    ))
-                elif isinstance(entry, str):
-                    history.append(ToolCall(tool=entry, prompt_id=""))
-        history.extend(self.current_calls)
-        yield from reversed(history)
-
+    prompt_id: str = ""
 
 
 # ---------------------------------------------------------------------------

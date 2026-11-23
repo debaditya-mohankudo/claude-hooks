@@ -133,3 +133,55 @@ class TestCheckpointTrim:
 
         total_after = sum(len(ns) for ns in checkpointer.storage["thread-f"].values())
         assert total_after <= _CHECKPOINT_ROW_CAP
+
+
+def _blob_bytes(checkpointer, thread_id: str) -> int:
+    return sum(len(v[1]) for k, v in checkpointer.blobs.items() if k[0] == thread_id)
+
+
+class TestCheckpointTrimFreesBlobs:
+    """task:84dbcf14 — channel values live in checkpointer.blobs, not storage.
+    Trimming storage alone took a probe thread from 805 checkpoints to 5 while
+    125 MB of blobs stayed put, so the cap bounded nothing."""
+
+    def test_blob_bytes_drop_after_trim(self, mem_graph):
+        sg = mem_graph
+        for i in range(20):
+            sg.run_session(f"prompt {i} " + "x" * 5000, session_id="thread-g", cwd="/tmp")
+
+        checkpointer = sg._graph.checkpointer
+        before = _blob_bytes(checkpointer, "thread-g")
+        _trim_thread_checkpoints("thread-g", row_cap=5)
+        after = _blob_bytes(checkpointer, "thread-g")
+
+        assert after < before / 4, (before, after)
+
+    def test_current_state_unchanged_by_trim(self, mem_graph):
+        """No blob a surviving checkpoint references may be freed: a channel
+        that has not changed since an evicted checkpoint still points at the
+        old version's blob."""
+        sg = mem_graph
+        for i in range(20):
+            sg.run_session(f"prompt {i}", session_id="thread-h", cwd="/tmp")
+        cfg = {"configurable": {"thread_id": "thread-h"}}
+
+        before = sg._graph.get_state(cfg).values
+        _trim_thread_checkpoints("thread-h", row_cap=5)
+        after = sg._graph.get_state(cfg).values
+
+        assert after == before
+        # Every survivor still loads all its channels.
+        for snap in sg._graph.get_state_history(cfg):
+            assert snap.values.get("session_id") == "thread-h"
+
+    def test_trim_keeps_blobs_of_other_threads(self, mem_graph):
+        sg = mem_graph
+        for i in range(20):
+            sg.run_session(f"prompt {i}", session_id="thread-i", cwd="/tmp")
+        for i in range(3):
+            sg.run_session(f"prompt {i}", session_id="thread-j", cwd="/tmp")
+
+        checkpointer = sg._graph.checkpointer
+        before_j = _blob_bytes(checkpointer, "thread-j")
+        _trim_thread_checkpoints("thread-i", row_cap=5)
+        assert _blob_bytes(checkpointer, "thread-j") == before_j

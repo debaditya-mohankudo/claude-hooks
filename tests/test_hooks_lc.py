@@ -161,7 +161,11 @@ class TestToolUsageLoggerLc:
             count = conn.execute("SELECT COUNT(*) FROM mcp_tool_hints").fetchone()[0]
         assert count == 0
 
-    def test_records_prompt_tool_in_state(self, tool_hints_db, tmp_path):
+    def test_tool_body_not_retained_in_state(self, tool_hints_db, tmp_path):
+        """task:84dbcf14: the session state used to keep every tool_input
+        (session_tools) and a per-prompt call list (prompt_tools), re-serialised
+        on every PostToolUse. After a call, the current state must hold no copy
+        of the tool body and no history field."""
         from langgraph.checkpoint.memory import MemorySaver
         import langchain_learning.nodes.log_tool_usage as tn
         from langchain_learning.config import config as lc_cfg
@@ -176,17 +180,15 @@ class TestToolUsageLoggerLc:
         mock_cfg_tn.valid_domains = lc_cfg.valid_domains
         mock_cfg_tn.memory_db = lc_cfg.memory_db
         with patch.object(tn, "_cfg", mock_cfg_tn):
-            sg_mod.run_post_tool("mcp__local-mac__contacts__search", {"query": "kuna"},
+            sg_mod.run_post_tool("Write", {"file_path": "/x", "content": "BODY" * 500},
                                  session_id="sess-1", duration_ms=80)
 
         cp_state = sg_mod.get_session_graph().get_state({"configurable": {"thread_id": "sess-1"}})
         sg_mod._graph = None
-        prompt_tools = cp_state.values.get("prompt_tools") or []
-        assert any(
-            (isinstance(t, dict) and t.get("tool") == "contacts__search")
-            or t == "contacts__search"
-            for t in prompt_tools
-        )
+        values = cp_state.values
+        for gone in ("prompt_tools", "session_tools", "session_prompt_texts", "session_prompt_ids"):
+            assert gone not in values
+        assert "BODY" not in repr(values)
 
     def test_avg_latency_computed_correctly(self, tool_hints_db, tmp_path):
         for ms in [100, 200]:

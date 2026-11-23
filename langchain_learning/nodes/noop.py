@@ -68,13 +68,31 @@ def _log_live_sessions_if_multiple() -> None:
 _CHECKPOINT_ROW_CAP = 5000
 
 
+# task:84dbcf14 — trim down to this fraction of the cap, not to the cap itself,
+# so the blob reference scan below (~60 ms at 5000 kept checkpoints) runs once
+# per ~1000 new checkpoints instead of on every Stop once a thread is over cap.
+_CHECKPOINT_LOW_WATER = 0.8
+
+
 def _trim_thread_checkpoints(thread_id: str, row_cap: int = _CHECKPOINT_ROW_CAP) -> None:
     """Cap this thread's checkpoint history under the live MemorySaver.
+
+    Once a (thread, ns) holds more than row_cap checkpoints, evicts the oldest
+    down to _CHECKPOINT_LOW_WATER * row_cap, along with their pending writes
+    and every channel blob no surviving checkpoint references.
+
+    The blob step is what actually frees memory (task:84dbcf14): channel values
+    live in checkpointer.blobs keyed (thread, ns, channel, version), not in
+    storage. Trimming storage alone took a probe thread from 805 checkpoints to
+    5 while its blobs stayed at 125 MB. A blob is shared by every checkpoint
+    whose channel_versions still names that version, so it is kept if any
+    survivor references it — computed from the survivors, never guessed from
+    version ordering.
 
     No-ops if the live graph/checkpointer isn't set (e.g. standalone/test
     invocations using get_session_graph()'s own throwaway MemorySaver with no
     prior history) or isn't a MemorySaver (defensive — this reaches into
-    MemorySaver-specific internals, .storage/.writes, that no other
+    MemorySaver-specific internals, .storage/.writes/.blobs, that no other
     checkpointer implementation exposes the same way).
     """
     import langchain_learning.session_graph as sg
@@ -91,17 +109,36 @@ def _trim_thread_checkpoints(thread_id: str, row_cap: int = _CHECKPOINT_ROW_CAP)
     if not thread_storage:
         return
 
-    for ns, ns_checkpoints in thread_storage.items():
+    def _blob_keys(ns: str, serialized) -> set[tuple]:
+        versions = checkpointer.serde.loads_typed(serialized).get("channel_versions", {})
+        return {(thread_id, ns, ch, ver) for ch, ver in versions.items()}
+
+    keep = max(1, int(row_cap * _CHECKPOINT_LOW_WATER))
+    for ns, ns_checkpoints in list(thread_storage.items()):
         if len(ns_checkpoints) <= row_cap:
             continue
         ids_sorted = sorted(ns_checkpoints.keys())  # oldest first
-        evict_ids = ids_sorted[:-row_cap]
+        evict_ids = ids_sorted[:-keep]
+        candidates: set[tuple] = set()
         for cid in evict_ids:
-            del ns_checkpoints[cid]
+            candidates |= _blob_keys(ns, ns_checkpoints.pop(cid)[0])
             checkpointer.writes.pop((thread_id, ns, cid), None)
+
+        # Only blobs an evicted checkpoint named are candidates. A put racing
+        # this trim writes fresh versions (never candidates) and inherits the
+        # rest from the newest checkpoint, which always survives — so the
+        # candidate set, not a sweep of every blob, is what makes this safe
+        # without a lock.
+        referenced: set[tuple] = set()
+        for serialized, _metadata, _parent in list(ns_checkpoints.values()):
+            referenced |= _blob_keys(ns, serialized)
+        dead = candidates - referenced
+        for k in dead:
+            checkpointer.blobs.pop(k, None)
+
         _log.info(
-            "[noop] checkpoint trim: thread=%s ns=%r evicted=%d kept=%d",
-            thread_id[:8], ns, len(evict_ids), row_cap,
+            "[noop] checkpoint trim: thread=%s ns=%r evicted=%d kept=%d blobs_freed=%d",
+            thread_id[:8], ns, len(evict_ids), keep, len(dead),
         )
 
 

@@ -1,4 +1,4 @@
-"""LogToolUsageNode — upserts tool hint, seeds keywords, appends to prompt_tools state.
+"""LogToolUsageNode — upserts tool hint and seeds keywords; returns no state update.
 
 Merged from update_tool_keywords: keyword seeding now happens in the same
 SQLite connection as the upsert, eliminating a second DB round-trip.
@@ -24,7 +24,8 @@ _log = get_logger(__name__)
 
 _MAX_RECENT_PROMPTS = 10
 
-# Tools where a non-empty result means "found" — used by gate prereq checks
+# Tools where a non-empty result means "found" — logged per call. Gate prereq
+# checks used to read it via prompt_tools, removed in task:84dbcf14.
 _SEARCH_TOOLS = {"mac contacts search", "mac mail search", "mac reminders list", "mac notes list"}
 
 
@@ -174,21 +175,11 @@ class LogToolUsageNode:
         _log.info("[log_tool_usage] tool=%s domain=%s latency=%.1fms found=%s prompt=%s",
                   tool_name, domain, duration_ms, found, prompt_id[:8] if prompt_id else "?")
 
-        existing = list(state.get("prompt_tools") or [])
-        existing.append({"tool": tool_name, "found": found})
-
-        import time
-        from collections import OrderedDict
-        ts = time.time()  # single canonical timestamp for this tool call
-        tool_input  = state.get("tool_input") or {}
-        session_tools: OrderedDict[str, list[dict]] = OrderedDict(state.get("session_tools") or {})
-        if prompt_id:
-            bucket = list(session_tools.get(prompt_id) or [])
-            bucket.append({"tool": tool_name, "tool_input": tool_input, "ts": ts})
-            session_tools[prompt_id] = bucket
-            _log.info("[log_tool_usage] session_tools[%s]=%s", prompt_id[:8], [e["tool"] for e in bucket])
-
-        return {"prompt_tools": existing, "session_tools": session_tools}
+        # Appending to prompt_tools and session_tools was removed here
+        # (task:84dbcf14). session_tools kept every tool_input (Write bodies
+        # included) for the whole session and was re-serialised into a new
+        # checkpoint blob on every call — O(n²) memory — and no gate read it.
+        return {}
 
     # _upsert_task_event_tools was removed here (task:87ec7876). It ran on
     # EVERY tool call, writing to task_events — a table that no longer exists.

@@ -53,7 +53,7 @@
     },
     "GateContext": {
       "bounded_context": "Gates/Enforcement",
-      "definition": "The dataclass a PreToolUse call is packaged into before a Gate evaluates it: tool name, tool input, the current prompt's tool calls so far, and recent prompt text. What a Gate actually sees -- it never touches SessionState directly.",
+      "definition": "The dataclass a PreToolUse call is packaged into before a Gate evaluates it: tool name, tool input and prompt id -- no session history, which was removed with its leak (task:84dbcf14). What a Gate actually sees -- it never touches SessionState directly.",
       "evidence": "hooks/gates.py:GateContext"
     },
     "Gate": {
@@ -88,7 +88,7 @@
     },
     "CheckpointTrim": {
       "bounded_context": "Session & Checkpoint State",
-      "definition": "The cap on one session's checkpoint history, run on every Stop event. Exists because the in-memory store has no built-in eviction -- without it a long-running session's history grows unboundedly. Costs only time-travel to evicted checkpoints, never current-state correctness.",
+      "definition": "The cap on one session's checkpoint history, run on every Stop event. Exists because the in-memory store has no built-in eviction -- without it a long-running session's history grows unboundedly. Frees the channel blobs only evicted checkpoints referenced, which is where the memory actually lives (task:84dbcf14). Costs only time-travel to evicted checkpoints, never current-state correctness.",
       "evidence": "langchain_learning/nodes/noop.py:_trim_thread_checkpoints"
     },
     "ActiveSessionLookup": {

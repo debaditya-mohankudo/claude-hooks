@@ -23,7 +23,6 @@ registry.py holds NODE_REGISTRY + get_node() factory.
 """
 from __future__ import annotations
 
-from collections import OrderedDict
 
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import StateGraph, START, END
@@ -194,8 +193,7 @@ def _fresh_state(session_id: str) -> SessionState:
         memories=[],
         keywords=[],
         current_state="prompt",
-        tool_name="", tool_input={}, prompt_id="", prompt_tools=[],
-        session_prompt_ids=[], session_tools=OrderedDict(), session_prompt_texts={},
+        tool_name="", tool_input={}, prompt_id="",
         gate_denied=False, gate_reason="",
         duration_ms=0.0, tool_result={},
         pending_hook_output={},
@@ -321,7 +319,7 @@ def run_stop(session_id: str) -> dict:
     hook_output: dict = (final.values.get("pending_hook_output") or {}) if final and final.values else {}
     get_session_graph(session_id).update_state(cfg, {
         "event_type": "",
-        "prompt": "", "prompt_id": "", "prompt_tools": [],
+        "prompt": "", "prompt_id": "",
         "tool_name": "", "tool_input": {}, "tool_result": {}, "duration_ms": 0.0,
         "gate_denied": False, "gate_reason": "",
         "pending_hook_output": {},
