@@ -99,16 +99,17 @@ class CombinationSignalRetriever:
         import sqlite3
         from langchain_learning.config import config as _cfg
         from langchain_learning.nodes._memory_scoring import score_memories
-        from src.encdb import open_db
+        from langchain_learning.memory_conn import memory_connection
 
         if not _cfg.memory_db.exists():
             _log.debug("[CombinationSignalRetriever] memory_db not found: %s", _cfg.memory_db)
             return []
-        conn = open_db(_cfg.memory_db, readonly=True)
-        conn.row_factory = sqlite3.Row
+        # Shared process connection, not a fresh open_db: an encrypted open costs
+        # ~300 ms of key derivation per call (task:bc39e90e).
         try:
-            trace: list[dict] = []
-            results = score_memories(tokens, conn, top_n=top_n, trace=trace)
+            with memory_connection(_cfg.memory_db, row_factory=sqlite3.Row) as conn:
+                trace: list[dict] = []
+                results = score_memories(tokens, conn, top_n=top_n, trace=trace)
             self.last_trace = trace
             _log.debug("[CombinationSignalRetriever] scored=%d tokens=%d",
                        len(results), len(tokens))
@@ -116,8 +117,6 @@ class CombinationSignalRetriever:
         except Exception as exc:
             _log.error("[CombinationSignalRetriever] score_memories error: %s", exc)
             return []
-        finally:
-            conn.close()
 
 
 class DefaultGatePolicy:

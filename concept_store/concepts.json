@@ -567,14 +567,17 @@
         "_safe_json(request) -> dict — always returns a dict, never raises; malformed/empty/missing body returns {} with a logged warning"
       ],
       "created_at": "2026-06-29T09:47:25.286219+00:00",
-      "description": "Persistent FastAPI server replacing per-invocation subprocess dispatcher. Routes POST /hook/{event} to dispatcher handlers. Uses MemorySaver (in-process, in-memory LangGraph checkpointer) — does NOT survive server restarts. Replaced SqliteSaver (task:b3964f85) after two corruption incidents. Per-thread checkpoint history is capped at 5000 rows, enforced from NoopNode on every Stop event. Single uvicorn worker process, event loop is uvloop (task:53c9f817). All 6 hook endpoints parse the request body via a shared _safe_json() helper (task:33419f95) that fails open to {} on malformed/empty JSON instead of raising — matches hooks/client.py's own fail-open design.",
+      "description": "Persistent FastAPI server replacing per-invocation subprocess dispatcher. Routes POST /hook/{event} to dispatcher handlers. Uses MemorySaver (in-process, in-memory LangGraph checkpointer) — does NOT survive server restarts. Replaced SqliteSaver (task:b3964f85) after two corruption incidents. Per-thread checkpoint history is capped at 5000 rows, enforced from NoopNode on every Stop event. Single uvicorn worker process, event loop is uvloop (task:53c9f817). All 6 hook endpoints parse the request body via a shared _safe_json() helper (task:33419f95) that fails open to {} on malformed/empty JSON instead of raising — matches hooks/client.py's own fail-open design. Hook handlers run in the threadpool under a per-session lock (task:bc39e90e).",
       "evidence": [
         "hooks/server.py",
         "hooks/server.py:session_current",
         "pyproject.toml",
         "~/Library/LaunchAgents/com.debaditya.claude-hooks-pipeline.plist",
         "hooks/server.py:_safe_json",
-        "tests/test_server_api.py"
+        "tests/test_server_api.py",
+        "hooks/server.py:_run_hook",
+        "langchain_learning/memory_conn.py:memory_connection",
+        "tests/test_server_concurrency.py"
       ],
       "invariants": [
         "Checkpoint state lives only in-process memory (MemorySaver) — discarded on every server restart/reload; nothing about session/task-activation state persists across a restart except what server_memory.py separately logs to SQLite",
@@ -582,11 +585,14 @@
         "Server runs on port 8766 as a single uvicorn worker process — deliberately not multi-worker/per-session",
         "GET /session/current reads live in-memory MemorySaver state (not a DB); it does not require an active task — GET /session/active (which did) was removed (task:8529435a). This server no longer holds any active-task state at all: the /set-active-taskid push cache (task:996cc8f0) was removed (task:173e6846), so the only session state here is session_id/turn from the checkpoint",
         "Event loop is uvloop, not stdlib asyncio — controlled entirely by whether uvloop is installed",
-        "All 6 /hook/{event} endpoints (UserPromptSubmit, PreToolUse, PostToolUse, Stop, SessionStart, SessionEnd) parse their body via the shared _safe_json(request) helper, which catches any JSON-parse failure and returns {} instead of letting it propagate to the generic exception handler as a 500 — found missing (task:33419f95, log audit 2026-07-26) after an empty/malformed body crashed pre_tool_use with an unhandled JSONDecodeError. Any NEW hook endpoint added here must use _safe_json too, not a bare `await request.json()`, to preserve this fail-open guarantee."
+        "All 6 /hook/{event} endpoints (UserPromptSubmit, PreToolUse, PostToolUse, Stop, SessionStart, SessionEnd) parse their body via the shared _safe_json(request) helper, which catches any JSON-parse failure and returns {} instead of letting it propagate to the generic exception handler as a 500 — found missing (task:33419f95, log audit 2026-07-26) after an empty/malformed body crashed pre_tool_use with an unhandled JSONDecodeError. Any NEW hook endpoint added here must use _safe_json too, not a bare `await request.json()`, to preserve this fail-open guarantee.",
+        "All 6 /hook/{event} routes hand their synchronous handler to the threadpool via _run_hook, serialised by a per-session threading.Lock (task:bc39e90e). A slow request in one session no longer blocks the event loop for other sessions; events of ONE session stay serial, as the event loop used to make them, because InMemorySaver has no lock. A new hook route must use _run_hook too, not call a dispatcher handler directly from async code. The session lock is dropped on SessionEnd.",
+        "MEMORY.sqlite is reached through langchain_learning.memory_conn.memory_connection (one cached SQLCipher connection, warmed in lifespan), not a fresh src.encdb.open_db per call: each encrypted open costs ~300 ms of key derivation, which was ~600 ms of the UPS median (task:bc39e90e)."
       ],
-      "last_validated": "2026-08-11T15:03:48.659252+00:00",
+      "last_validated": "2026-11-23T14:58:10.732417+00:00",
       "module": "hooks/server.py",
-      "name": "server-fastapi-hook-server"
+      "name": "server-fastapi-hook-server",
+      "related": []
     },
     "server-memory-consolidated-timeline": {
       "confidence": 0.96,
@@ -756,6 +762,6 @@
     "commit": "5f62c6b5150a20fe7198d7bd6c155c4b3c0d3101",
     "extracted_at": "2026-07-23T05:42:23Z",
     "note": "incremental upsert (task:a2fd402d)",
-    "updated_at": "2026-11-23T13:56:23.391654+00:00"
+    "updated_at": "2026-11-23T14:58:10.733028+00:00"
   }
 }

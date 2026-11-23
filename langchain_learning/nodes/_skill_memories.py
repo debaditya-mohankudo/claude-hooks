@@ -108,14 +108,11 @@ def inject_for_skill(session_id: str, skill: str) -> dict | None:
     note_skill_run(session_id, tag)
     try:
         from langchain_learning.config import config as _cfg
-        from src.encdb import open_db
+        from langchain_learning.memory_conn import memory_connection
         if not _cfg.memory_db.exists():
             return None
-        conn = open_db(_cfg.memory_db, readonly=True)
-        try:
+        with memory_connection(_cfg.memory_db) as conn:
             mems = lookup(conn, tag, skip=_PROMPT_INJECTED.get(session_id))
-        finally:
-            conn.close()
     except Exception as exc:
         _log.warning("skill memories lookup failed (%s): %s", tag, exc)
         return None

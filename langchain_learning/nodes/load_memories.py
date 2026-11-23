@@ -10,6 +10,7 @@ Tuning: improve tags on memories that surface incorrectly (visible in sqlite log
 """
 from __future__ import annotations
 
+import time
 from collections import OrderedDict, deque
 
 from langchain_learning.nodes._node_log import entry
@@ -71,11 +72,13 @@ class LoadMemoriesNode:
         carried = self._carried_areas(session_id) if len(tokens) <= _THIN_TOKENS else []
         tokens |= set(carried)
 
+        t0 = time.monotonic()
         try:
             memories = self._retriever.retrieve(tokens)
         except Exception as exc:
             _log.error("[load_memories] retriever error: %s", exc)
             return {"memories": [], "keywords": list(tokens)}
+        retrieve_ms = (time.monotonic() - t0) * 1000
 
         names_out = [m.get("name", "?") for m in memories]
         try:
@@ -95,8 +98,8 @@ class LoadMemoriesNode:
         except Exception as exc:
             _log.warning("memory audit failed: %s", exc)
         _log.info(
-            "[load_memories] mode=combination returned=%d keywords=%d names=%s",
-            len(memories), len(tokens), names_out,
+            "[load_memories] mode=combination returned=%d keywords=%d retrieve_ms=%.0f names=%s",
+            len(memories), len(tokens), retrieve_ms, names_out,
         )
         try:
             from hooks.server_memory import record_memories

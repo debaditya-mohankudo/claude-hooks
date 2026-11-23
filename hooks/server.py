@@ -23,11 +23,13 @@ for _p in (str(_PROJECT_ROOT), str(_HOOKS_DIR)):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
+import threading
 import time
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from src.logger import get_logger, setup
@@ -51,9 +53,50 @@ async def lifespan(app: FastAPI):
     import hooks.server_memory as server_memory
     server_memory.load()
     log.info("hook-server[pid=%d]: started, graph built with MemorySaver, server_session=%s", pid, server_memory.SERVER_SESSION_ID)
+    await run_in_threadpool(_warm_memory_connection)
     yield
     log.info("hook-server[pid=%d]: shutdown, in-memory checkpoint state discarded", pid)
     sg._graph = None
+    from langchain_learning import memory_conn
+    memory_conn.reset()
+
+
+def _warm_memory_connection() -> None:
+    """Open the shared MEMORY.sqlite connection at startup, so the first prompt
+    does not pay the ~300 ms SQLCipher key derivation (task:bc39e90e). Fail-open."""
+    try:
+        from langchain_learning.memory_conn import memory_connection
+        t0 = time.perf_counter()
+        with memory_connection() as conn:
+            conn.execute("SELECT 1").fetchone()
+        log.info("hook-server: memory connection warmed in %.0f ms", (time.perf_counter() - t0) * 1000)
+    except Exception as exc:
+        log.warning("hook-server: memory connection warm-up failed: %s", exc)
+
+
+# --- Hook handlers run off the event loop (task:bc39e90e) -------------------
+# The dispatcher handlers are synchronous (SQLite, the LangGraph invoke). Called
+# straight from an `async def` route they ran on the event loop, so one slow
+# UserPromptSubmit stalled every other session's PreToolUse. Each hook route now
+# hands its handler to the threadpool, under a lock per session: InMemorySaver has
+# no lock of its own, and the event loop used to serialise same-session events
+# (parallel tool calls fire concurrent PostToolUse hooks) as a side effect. The
+# lock keeps that ordering inside a session while sessions run in parallel.
+# A session's lock is dropped on SessionEnd; one that never ends leaves a bare Lock
+# behind (a few hundred bytes per session per server lifetime), which is cheaper
+# than an eviction that could hand two threads different locks for one session.
+_session_locks: dict[str, threading.Lock] = {}
+
+
+def _run_serialised(session_id: str, fn, body: dict):
+    # dict.setdefault is atomic under the GIL: two threads always get the same Lock.
+    with _session_locks.setdefault(session_id, threading.Lock()):
+        return fn(body)
+
+
+async def _run_hook(fn, body: dict):
+    """Run a synchronous hook body in the threadpool, serialised per session."""
+    return await run_in_threadpool(_run_serialised, str(body.get("session_id") or ""), fn, body)
 
 
 app = FastAPI(lifespan=lifespan)
@@ -104,15 +147,20 @@ async def user_prompt_submit(request: Request):
     server_memory timeline.
     All lc.* node logs write immediately to claude_hooks.sqlite via SQLiteHandler.
     """
-    from hooks.dispatcher import _handle_user_prompt_submit, _extract_prompt
     body = await _safe_json(request)
+    result = await _run_hook(_user_prompt_submit_sync, body)
+    return JSONResponse(content=result or {})
+
+
+def _user_prompt_submit_sync(body: dict):
+    from hooks.dispatcher import _handle_user_prompt_submit, _extract_prompt
     result = _handle_user_prompt_submit(body)
     try:
         import hooks.server_memory as server_memory
         server_memory.record_prompt(body.get("session_id", ""), _extract_prompt(body))
     except Exception as exc:
         log.warning("server_memory: record_prompt failed: %s", exc)
-    return JSONResponse(content=result or {})
+    return result
 
 
 @app.post("/hook/PreToolUse")
@@ -129,7 +177,7 @@ async def pre_tool_use(request: Request):
     """
     from hooks.dispatcher import _handle_pre_tool_use
     body = await _safe_json(request)
-    result = _handle_pre_tool_use(body)
+    result = await _run_hook(_handle_pre_tool_use, body)
     return JSONResponse(content=result or {})
 
 
@@ -145,8 +193,13 @@ async def post_tool_use(request: Request):
     is skipped for that call. The task-lifecycle bridge nodes are gone
     (task-framework owns the active task). Records the call to the server_memory timeline.
     """
-    from hooks.dispatcher import _handle_post_tool_use
     body = await _safe_json(request)
+    result = await _run_hook(_post_tool_use_sync, body)
+    return JSONResponse(content=result or {})
+
+
+def _post_tool_use_sync(body: dict):
+    from hooks.dispatcher import _handle_post_tool_use
     result = _handle_post_tool_use(body)
     try:
         import hooks.server_memory as server_memory
@@ -154,7 +207,7 @@ async def post_tool_use(request: Request):
         server_memory.record_task_from_hook(body)
     except Exception as exc:
         log.warning("server_memory: record failed: %s", exc)
-    return JSONResponse(content=result or {})
+    return result
 
 
 @app.post("/hook/Stop")
@@ -169,7 +222,7 @@ async def stop(request: Request):
     """
     from hooks.dispatcher import _handle_stop
     body = await _safe_json(request)
-    result = _handle_stop(body)
+    result = await _run_hook(_handle_stop, body)
     return JSONResponse(content=result or {})
 
 
@@ -178,7 +231,7 @@ async def session_start(request: Request):
     """SessionStart hook — logs each new or resumed session."""
     body = await _safe_json(request)
     from hooks.dispatcher import _handle_session_start
-    _handle_session_start(body)
+    await _run_hook(_handle_session_start, body)
     return JSONResponse(content={})
 
 
@@ -190,6 +243,12 @@ async def session_end(request: Request):
     session ends, unlike Stop which fires every turn). Always returns {}.
     """
     body = await _safe_json(request)
+    await _run_hook(_session_end_sync, body)
+    _session_locks.pop(str(body.get("session_id") or ""), None)
+    return JSONResponse(content={})
+
+
+def _session_end_sync(body: dict):
     from hooks.dispatcher import _handle_session_end
     _handle_session_end(body)
     try:
@@ -197,7 +256,6 @@ async def session_end(request: Request):
         server_memory.record_session_end(body.get("session_id", ""), body.get("reason", ""))
     except Exception as exc:
         log.warning("server_memory: record_session_end failed: %s", exc)
-    return JSONResponse(content={})
 
 
 @app.get("/health")

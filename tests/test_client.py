@@ -167,3 +167,81 @@ class TestFailOpen:
             capture_output=True,
         )
         assert result.returncode == 1  # usage error, not fail-open
+
+
+# ---------------------------------------------------------------------------
+# A failed POST is recorded in hook_logs (task:bc39e90e)
+# ---------------------------------------------------------------------------
+
+class _SlowHandler(BaseHTTPRequestHandler):
+    def do_POST(self):
+        import time
+        time.sleep(1.0)
+        try:
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"{}")
+        except Exception:
+            pass
+
+    def log_message(self, *_):
+        pass
+
+
+def _log_db(tmp_path):
+    """A log DB built from the logger's own DDL, so a hook_logs shape change that the
+    client's INSERT no longer matches fails here."""
+    import sqlite3
+    from src.logger import _SCHEMA
+    path = tmp_path / "hook_logs.sqlite"
+    c = sqlite3.connect(path)
+    c.executescript(_SCHEMA)
+    c.close()
+    return path
+
+
+def _client_rows(path):
+    import sqlite3
+    c = sqlite3.connect(path)
+    try:
+        return c.execute("SELECT logger, level, message FROM hook_logs").fetchall()
+    finally:
+        c.close()
+
+
+class TestFailureRecorded:
+    """Stderr is not shown by Claude Code, so a timed-out UPS used to lose its
+    context with no trace. The client now writes one hook_logs row per failure."""
+
+    def test_timeout_is_recorded(self, tmp_path):
+        db = _log_db(tmp_path)
+        srv = HTTPServer(("127.0.0.1", 0), _SlowHandler)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        try:
+            r = _run("UserPromptSubmit", {"session_id": "s1"},
+                     env={"CLAUDE_HOOKS_TEST_LOG_DB": str(db), "CLAUDE_HOOKS_CLIENT_TIMEOUT": "0.2"},
+                     server=f"http://127.0.0.1:{srv.server_address[1]}")
+        finally:
+            srv.shutdown()
+        assert r.returncode == 0 and r.stdout.decode().strip() == "{}"
+        [(logger, level, message)] = _client_rows(db)
+        assert (logger, level) == ("hook_client", "WARNING")
+        assert message.startswith("UserPromptSubmit timeout after ")
+
+    def test_unreachable_is_recorded(self, tmp_path):
+        db = _log_db(tmp_path)
+        r = _run("PreToolUse", {"session_id": "s1"},
+                 env={"CLAUDE_HOOKS_TEST_LOG_DB": str(db)}, server="http://127.0.0.1:1")
+        assert r.returncode == 0
+        [(_, _, message)] = _client_rows(db)
+        assert message.startswith("PreToolUse unreachable after ")
+
+    def test_success_records_nothing(self, tmp_path, local_server):
+        db = _log_db(tmp_path)
+        _run("PreToolUse", {"session_id": "s1"}, env={"CLAUDE_HOOKS_TEST_LOG_DB": str(db)}, server=local_server)
+        assert _client_rows(db) == []
+
+    def test_missing_log_table_still_fails_open(self, tmp_path):
+        r = _run("PreToolUse", {"session_id": "s1"},
+                 env={"CLAUDE_HOOKS_TEST_LOG_DB": str(tmp_path / "none.sqlite")}, server="http://127.0.0.1:1")
+        assert r.returncode == 0 and r.stdout.decode().strip() == "{}"

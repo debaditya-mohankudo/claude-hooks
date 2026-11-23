@@ -363,24 +363,23 @@ def record_memory_hits(names: list[str]) -> None:
     write failure can't break prompt injection (mirrors record_memories()'s
     fire-and-forget instrumentation pattern in hooks/server_memory.py).
 
-    Opens its own short-lived read-write connection — score_memories() itself
-    reads via a read-only connection (CombinationSignalRetriever.retrieve()),
-    so this is intentionally a separate write path, not folded into scoring.
+    Writes through the process-wide memory_connection(), the same connection
+    CombinationSignalRetriever.retrieve() reads through: a short-lived open per
+    call paid ~300 ms of SQLCipher key derivation every prompt (task:bc39e90e).
+    It stays a separate call after scoring, not folded into it.
     """
     if not names:
         return
     from src.config import config as _src_cfg
-    from src.encdb import open_db
+    from langchain_learning.memory_conn import memory_connection
 
     try:
-        conn = open_db(_src_cfg.memory_db)
-        conn.executemany(
-            "UPDATE memories SET hit_count = COALESCE(hit_count, 0) + 1, "
-            "last_hit = CURRENT_TIMESTAMP WHERE name = ?",
-            [(name,) for name in names],
-        )
-        conn.commit()
-        conn.close()
+        with memory_connection(_src_cfg.memory_db) as conn:
+            conn.executemany(
+                "UPDATE memories SET hit_count = COALESCE(hit_count, 0) + 1, "
+                "last_hit = CURRENT_TIMESTAMP WHERE name = ?",
+                [(name,) for name in names],
+            )
         _log.debug("[record_memory_hits] incremented=%d names=%s", len(names), names)
     except Exception as exc:
         _log.warning("[record_memory_hits] failed (hit-count tracking degraded): %s", exc)

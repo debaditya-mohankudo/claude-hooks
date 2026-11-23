@@ -213,6 +213,11 @@
       "bounded_context": "Storage",
       "definition": "The opener for SQLCipher-encrypted SQLite files such as MEMORY.sqlite: a plain SQLite file (or a new one) opens with stdlib sqlite3, anything else is treated as ciphertext and keyed; a missing or still-git-crypt key fails closed with an EncDBError that says what to fix. A vendored copy of cli-graph's opener.",
       "evidence": "src/encdb.py:open_db"
+    },
+    "MemoryConnection": {
+      "bounded_context": "Storage",
+      "definition": "The hook-server's one long-lived connection to MEMORY.sqlite, opened through EncDB and used under a lock, committed per block. Exists because each encrypted open pays ~300 ms of key derivation; memory scoring, hit counting and skill-tagged lookups all go through it. A plain file opens fresh per call; a replaced file or an error inside a block reopens it.",
+      "evidence": "langchain_learning/memory_conn.py:memory_connection"
     }
   },
   "relations": [
@@ -305,6 +310,10 @@
     {"subject": "UserContextOntology", "predicate": "references", "object": "CacheStore",
      "note": "Its last good copy lives in the persisted 'user_context' cache, the first fallback when the vault read fails."},
     {"subject": "MemoryRetriever", "predicate": "references", "object": "EncDB",
-     "note": "MEMORY.sqlite is SQLCipher-encrypted, so every read of memory rows goes through EncDB rather than sqlite3."}
+     "note": "MEMORY.sqlite is SQLCipher-encrypted, so every read of memory rows goes through EncDB rather than sqlite3."},
+    {"subject": "MemoryRetriever", "predicate": "references", "object": "MemoryConnection",
+     "note": "Scoring reads through the shared connection rather than a fresh EncDB open per prompt (task:bc39e90e)."},
+    {"subject": "MemoryConnection", "predicate": "references", "object": "EncDB",
+     "note": "Opens the file once through EncDB and reuses it."}
   ]
 }
