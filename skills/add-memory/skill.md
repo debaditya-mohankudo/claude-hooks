@@ -151,9 +151,12 @@ c.commit()"
 - **Omitting `--related` on a re-add wipes the links column.** Always pass it back.
 - **A placeholder body overwrites the real body** (92 memories once lost theirs this way). Fetch
   the body with `mac memory get` first.
-- `add` **merges** tags into the stored string (verified 2026-11-21: a re-add without
-  `skill-wording-test` kept it). Passing old plus new is harmless, but `add` can never remove a
-  tag; removal needs the `encdb` edit below (snapshot first).
+- **A re-add replaces ordinary tags; only stored `skill-*` tags survive.** Tested 2026-11-24 on
+  a throwaway memory: tags `alpha beta skill-foo`, then a re-add with `gamma` stored
+  `gamma, skill-foo`. A tags-only update with just the new tag therefore wipes the old ones
+  (it happened on `read-md-notes-with-glow-in-new-kitty-tab`). Always pass the old tags plus the
+  new ones. `add` can never remove a `skill-*` tag; removal needs the `encdb` edit below
+  (snapshot first). The 2026-11-21 check that said "merges" only tested a `skill-*` tag.
 - Any `add` / `add_batch` write, even tags-only, stamps `last_validated` to now. It records that
   the row was written, not that its claims were re-verified.
 - A re-add kept `domain` (`claude-hooks`) and `type` as stored (verified on a tags-only update;
