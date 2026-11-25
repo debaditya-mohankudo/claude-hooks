@@ -6,6 +6,12 @@ the stored one and re-parses only what changed, so it is cheap to call after a
 graph run or on server start. `reindex_file` is the single-note path that a
 PostToolUse hook on vault writes can call.
 
+The vault is walked once per refresh, by cli-graph's vault file log
+(`mac vault_log scan`); `sync_from_log` then re-parses only the notes that scan
+saw change, and `reindex_if_stale` runs that pair. The log is a separate file,
+read-only here, because the two have opposite lifecycles: this index is a cache
+that connect() drops on a schema bump, the log is history that cannot be rebuilt.
+
 Sections are the unit the old VAULT_MAP.json lacked: every heading becomes a row
 with its line range and, when the heading carries a date ("run 2026-10-17"), an
 `entry_date`, so a dated run-log entry inside a long archive note is findable.
@@ -18,11 +24,14 @@ from __future__ import annotations
 import os
 import re
 import shlex
+import shutil
 import sqlite3
+import subprocess
 from pathlib import Path
 
 VAULT = Path.home() / "Library/Mobile Documents/iCloud~md~obsidian/Documents"
 DB = Path.home() / ".claude/vault_index.sqlite"
+LOG_DB = Path.home() / ".claude/vault_file_log.sqlite"  # read-only here; cli-graph's `mac vault_log` writes it
 SKIP_DIRS = {".obsidian", ".git", ".trash", "Tmp", "__pycache__"}
 SKIP_FILES = {"VAULT_MAP.md"}
 SCHEMA_VERSION = "2"
@@ -228,12 +237,95 @@ def reindex_all(conn: sqlite3.Connection, root: Path | str | None = None, force:
     return stats
 
 
+def log_db() -> Path:
+    """The vault file log (cli-graph's mac/vault_file_log.py, behind `mac vault_log`), the vault's change feed."""
+    return Path(os.environ.get("VAULT_FILE_LOG_DB") or LOG_DB)
+
+
+def sync_from_log(conn: sqlite3.Connection, root: Path | str | None = None,
+                  log: Path | str | None = None) -> dict | None:
+    """Re-parse only the notes the vault file log saw change since the last sync (task:371976dd).
+
+    The log's `scan` is the one walk of the vault; this reads its events instead of walking
+    again. The log stays its own file, opened read-only on a separate connection (never
+    ATTACHed), so this index's schema-version drop in connect() cannot reach it. The
+    high-water mark is meta.log_event_id. With no mark yet, or a mark past the log's newest
+    event (a log restored from backup), it falls back to one reindex_all and sets the mark.
+    Returns None when there is no log to read.
+    """
+    p = Path(log or log_db())
+    if not p.is_file():
+        return None
+    src = sqlite3.connect(f"file:{p}?mode=ro", uri=True, timeout=30)
+    try:
+        top = src.execute("SELECT COALESCE(MAX(id), 0) FROM events").fetchone()[0]
+        row = conn.execute("SELECT value FROM meta WHERE key = 'log_event_id'").fetchone()
+        mark = int(row[0]) if row and str(row[0]).isdigit() else None
+        if mark is None or mark > top:
+            stats = {"mode": "rebuild", **reindex_all(conn, root)}
+        else:
+            changed = [r[0] for r in src.execute(
+                "SELECT DISTINCT path FROM events WHERE id > ? AND id <= ? "
+                "AND event IN ('created', 'edited', 'deleted') ORDER BY path", (mark, top))]
+            stats = {"mode": "log", "indexed": 0, "removed": 0, "unreadable": 0}
+            for rel in filter(_indexable, changed):
+                stats[reindex_file(conn, root, rel)] += 1
+            conn.execute("INSERT OR REPLACE INTO meta VALUES ('last_full_build', datetime('now'))")
+    finally:
+        src.close()
+    conn.execute("INSERT OR REPLACE INTO meta VALUES ('log_event_id', ?)", (str(top),))
+    conn.execute("INSERT OR REPLACE INTO meta VALUES ('last_error', '')")
+    conn.commit()
+    return {**stats, "log_event_id": top}
+
+
+def handle_sync_from_log() -> dict:
+    """`mac vault_log scan` calls this after its scan, so the index follows the log. Never raises."""
+    try:
+        conn = connect()
+        try:
+            return sync_from_log(conn) or {"skipped": f"no vault file log at {log_db()}"}
+        finally:
+            conn.close()
+    except Exception as exc:
+        _record_error("sync_from_log", exc)
+        return {"error": f"vault index sync failed: {type(exc).__name__}: {exc}"}
+
+
+def _log_covers(root: Path) -> bool:
+    """The log scans the real vault only; an index pointed at another root (a test vault) must walk it."""
+    try:
+        return root.resolve() == VAULT.resolve() and log_db().is_file()
+    except OSError:
+        return False
+
+
+def _run_log_scan() -> bool:
+    """Run `mac vault_log scan` (which syncs this index itself). False when it cannot run or fails."""
+    mac = shutil.which("mac") or str(Path.home() / "bin" / "mac")
+    try:
+        return subprocess.run([mac, "vault_log", "scan"], capture_output=True, timeout=120).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
 def reindex_if_stale(conn: sqlite3.Connection, ttl_s: int = STALE_AFTER_S) -> bool:
-    """Run reindex_all unless one finished within ttl_s. Catches edits no tool hook sees (Obsidian)."""
+    """Refresh the index unless that happened within ttl_s. Catches edits no tool hook sees (Obsidian).
+
+    The refresh is a vault_log scan followed by sync_from_log, so the scan is the only walk of
+    the vault (task:371976dd). reindex_all's own walk stays only as the fallback: when the index
+    is not on the real vault, the log is missing, or the scan fails.
+    """
     row = conn.execute("SELECT CAST(strftime('%s','now') AS INTEGER) - CAST(strftime('%s', value) AS INTEGER) "
                        "FROM meta WHERE key = 'last_full_build'").fetchone()
     if row and row[0] is not None and row[0] < ttl_s:
         return False
+    if _log_covers(vault_root()) and _run_log_scan():
+        try:
+            if sync_from_log(conn) is not None:  # a no-op when the scan's own sync already ran
+                return True
+        except sqlite3.Error as exc:
+            _record_error("sync_from_log", exc)
     reindex_all(conn)
     return True
 
