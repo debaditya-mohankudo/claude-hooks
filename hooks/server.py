@@ -1,14 +1,8 @@
 """FastAPI hook server — persistent process replacing per-invocation subprocess dispatcher.
 
 Routes: POST /hook/{event} for UserPromptSubmit | PreToolUse | PostToolUse | Stop | SessionStart | SessionEnd
-State:  MemorySaver (in-process, in-memory) — does NOT survive server restarts.
-        task:b3964f85 — replaced SqliteSaver (~/.claude/langgraph_checkpoints.db) after
-        two corruption incidents (a 1.7GB .old-bloated file, then a
-        "database disk image is malformed" failure that silently broke every
-        Stop-hook write). Per-thread checkpoint history is capped at 5000 rows,
-        enforced from NoopNode on every Stop event (langchain_learning/nodes/noop.py)
-        — MemorySaver has no built-in eviction, so without this a long-running
-        session would grow RAM usage unboundedly instead of corrupting a file.
+State:  hooks/session_store.py — a per-session dict, in-process, lost on a server restart
+        (task:31fb711d removed the LangGraph graph and its MemorySaver checkpointer).
 Launch: uvicorn hooks.server:app --host 127.0.0.1 --port 8766
 
 Subprocess dispatcher (dispatcher.py) remains untouched for fallback / testing.
@@ -41,22 +35,19 @@ _slog = setup("server")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     import asyncio
-    from langgraph.checkpoint.memory import MemorySaver
-    import langchain_learning.session_graph as sg
     import os as _os_mod
 
     pid = _os_mod.getpid()
     loop_impl = type(asyncio.get_running_loop()).__module__
     log.info("hook-server[pid=%d]: lifespan startup begin, event_loop=%s", pid, loop_impl)
-    checkpointer = MemorySaver()
-    sg._graph = sg.build_session_graph(checkpointer=checkpointer)
     import hooks.server_memory as server_memory
     server_memory.load()
-    log.info("hook-server[pid=%d]: started, graph built with MemorySaver, server_session=%s", pid, server_memory.SERVER_SESSION_ID)
+    log.info("hook-server[pid=%d]: started, server_session=%s", pid, server_memory.SERVER_SESSION_ID)
     await run_in_threadpool(_warm_memory_connection)
     yield
-    log.info("hook-server[pid=%d]: shutdown, in-memory checkpoint state discarded", pid)
-    sg._graph = None
+    log.info("hook-server[pid=%d]: shutdown, in-memory session state discarded", pid)
+    from hooks import session_store
+    session_store.reset()
     from langchain_learning import memory_conn
     memory_conn.reset()
 
@@ -83,11 +74,11 @@ def _warm_memory_connection() -> None:
 
 
 # --- Hook handlers run off the event loop (task:bc39e90e) -------------------
-# The dispatcher handlers are synchronous (SQLite, the LangGraph invoke). Called
+# The dispatcher handlers are synchronous (SQLite, the memory scorer). Called
 # straight from an `async def` route they ran on the event loop, so one slow
 # UserPromptSubmit stalled every other session's PreToolUse. Each hook route now
-# hands its handler to the threadpool, under a lock per session: InMemorySaver has
-# no lock of its own, and the event loop used to serialise same-session events
+# hands its handler to the threadpool, under a lock per session: session_store's
+# read-modify-write sequences span several calls, and the event loop used to serialise same-session events
 # (parallel tool calls fire concurrent PostToolUse hooks) as a side effect. The
 # lock keeps that ordering inside a session while sessions run in parallel.
 # A session's lock is dropped on SessionEnd; one that never ends leaves a bare Lock
@@ -146,7 +137,7 @@ async def log_requests(request: Request, call_next):
 
 @app.post("/hook/UserPromptSubmit")
 async def user_prompt_submit(request: Request):
-    """UserPromptSubmit hook — runs the UPS LangGraph chain (load_turn → load_memories → set_prompt_id).
+    """UserPromptSubmit hook — begins the turn in session_store, then runs load_memories.
 
     Returns hookSpecificOutput.additionalContext with the turn state, the rendered
     user context and the BM25-scored memories. Tool hints, domain classification and
@@ -173,7 +164,7 @@ def _user_prompt_submit_sync(body: dict):
 
 @app.post("/hook/PreToolUse")
 async def pre_tool_use(request: Request):
-    """PreToolUse hook — runs gate_check node against the current session checkpoint.
+    """PreToolUse hook — runs the gates (hooks.gates.check) with the turn's prompt_id from session_store.
 
     Returns permissionDecision=deny with a reason if a git commit carries no task:<id>
     (GitCommitGate / GitCommitMcpGate), or — before the gates — if a WebSearch query has a
@@ -191,15 +182,14 @@ async def pre_tool_use(request: Request):
 
 @app.post("/hook/PostToolUse")
 async def post_tool_use(request: Request):
-    """PostToolUse hook — runs the dispatcher's side effects, then the log_tool_usage node.
+    """PostToolUse hook — runs the dispatcher's side effects, then the log_tool_usage node (a plain call, not a graph node).
 
     Side effects (each fail-open): WebSearch cache store, find_cli log and prompt-shadow
     linking, vault reindex, context-size nudge, and skill-tagged memories / skill-tag
     nudge. log_tool_usage upserts the tool hint row in tool_hints.sqlite (skipped for
     test sessions and memory tools). Returns {} or a hookSpecificOutput.additionalContext
     from the nudge or skill-memory side effects — which return early, so log_tool_usage
-    is skipped for that call. The task-lifecycle bridge nodes are gone
-    (task-framework owns the active task). Records the call to the server_memory timeline.
+    is skipped for that call. Records the call to the server_memory timeline.
     """
     body = await _safe_json(request)
     result = await _run_hook(_post_tool_use_sync, body)
@@ -222,11 +212,10 @@ def _post_tool_use_sync(body: dict):
 async def stop(request: Request):
     """Stop hook — finalises the *turn*, NOT the session.
 
-    Fires at the end of every assistant response. Clears per-turn ephemeral fields
-    (via run_stop) but must NOT evict the checkpoint — that would wipe cross-turn
-    state (active task, turn counter) every turn. Session eviction happens on
-    SessionEnd. Normally returns {}; returns a one-shot decision:"block" +
-    sound-alert reason on the first Stop of a turn (see NoopNode).
+    Fires at the end of every assistant response. Marks the Stop in session_store but
+    must NOT evict the session — that would reset the turn counter every turn.
+    Eviction happens on SessionEnd. Normally returns {}; plays the completion
+    chime once per turn (hooks/stop_effects.py).
     """
     from hooks.dispatcher import _handle_stop
     body = await _safe_json(request)
@@ -245,9 +234,9 @@ async def session_start(request: Request):
 
 @app.post("/hook/SessionEnd")
 async def session_end(request: Request):
-    """SessionEnd hook — the session has actually closed; evict its checkpoint.
+    """SessionEnd hook — the session has actually closed; evict its session_store entry.
 
-    This is the correct place to reclaim MemorySaver storage (fires once when the
+    This is the correct place to reclaim session storage (fires once when the
     session ends, unlike Stop which fires every turn). Always returns {}.
     """
     body = await _safe_json(request)
@@ -274,10 +263,10 @@ async def health():
 
 @app.get("/session/current")
 async def session_current():
-    """Current session_id — from the single most-recent checkpoint write, no active
-    task required. /session/active (which task is active in this checkpoint) was
+    """Current session_id — from the most recently touched real session in
+    session_store, no active task required. /session/active (which task is active in this checkpoint) was
     removed (task:8529435a) — task-framework owns that fact; ask tasks__active.
-    Returns {} if no checkpoint exists yet.
+    Returns {} if no session exists yet.
     """
     from hooks.session_state import get_current_session
     return JSONResponse(content=get_current_session())
@@ -313,17 +302,17 @@ async def cache_get(name: str):
 
 @app.get("/session/live")
 async def session_live():
-    """Live claude CLI processes — OS-level, not checkpoint-based.
+    """Live claude CLI processes — OS-level, not session_store-based.
 
     Returns {count, sessions: [{pid, etime}]} for every running `claude` CLI
-    process (ps-based, matches noop.py's passive Stop-time check). Unlike
-    /session and /session/{id} (which reflect the in-memory MemorySaver and
+    process (ps-based, matches the Stop-time check in stop_effects.py). Unlike
+    /session and /session/{id} (which reflect the in-memory session_store and
     can hold stale entries across a server restart, or miss a session that
     predates the current server process), this reflects actual live OS
     processes — the same check that caught a 20-day-old forgotten tmux
     session via a runaway sound-alert loop.
     """
-    from langchain_learning.nodes.noop import live_claude_sessions
+    from hooks.stop_effects import live_claude_sessions
     sessions = live_claude_sessions()
     return JSONResponse(content={
         "count": len(sessions),
@@ -343,55 +332,23 @@ async def session_memory(n_events: int = 50):
     return server_memory.get_server_memory(n_events=n_events)
 
 
-
-
-
-
 @app.get("/session/{session_id}")
 async def session_detail(session_id: str):
-    """Full checkpoint state for one session — latest channel_values from the live MemorySaver.
+    """State of one session from hooks/session_store.py.
 
-    Returns {session_id, turn_count, state} where state is the checkpoint's channel_values
-    dict (turn, domains, etc.) as of the most recent write for this thread.
-    Returns {"detail": "not found"} (404) if no checkpoint exists for session_id.
-
-    Routes through get_session_graph(session_id) (task:b63088a1) so a
-    TEST_SESSION_PREFIX'd session_id resolves against the isolated test graph
-    it was actually written to, not the production one.
+    Returns {session_id, turn_count, state}; turn_count is the UserPromptSubmit
+    counter. 404 {"detail": "not found"} when the server has no entry for it.
     """
-    import langchain_learning.session_graph as sg
-    checkpointer = sg.get_session_graph(session_id).checkpointer
-
-    turn_count = 0
-    latest_state: dict = {}
-    found = False
-    for tup in checkpointer.list({"configurable": {"thread_id": session_id}}):
-        found = True
-        turn_count += 1
-        latest_state = tup.checkpoint.get("channel_values", {})
-
-    if not found:
+    from hooks import session_store
+    if not session_store.exists(session_id):
         return JSONResponse(content={"detail": "not found"}, status_code=404)
-
-    return JSONResponse(content={
-        "session_id": session_id,
-        "turn_count": turn_count,
-        "state": latest_state,
-    })
+    state = session_store.get(session_id)
+    return JSONResponse(content={"session_id": session_id, "turn_count": state["turn"], "state": state})
 
 
 @app.get("/session")
 async def session():
-    """Session list — returns all sessions with checkpoint counts from the live checkpointer."""
-    import langchain_learning.session_graph as sg
-    checkpointer = sg._graph.checkpointer if sg._graph else None
-    counts: dict[str, int] = {}
-    if checkpointer:
-        try:
-            for tup in checkpointer.list(None):
-                sid = tup.config["configurable"]["thread_id"]
-                counts[sid] = counts.get(sid, 0) + 1
-        except Exception:
-            pass
-    sessions = [{"session_id": sid, "turns": n} for sid, n in counts.items()]
+    """Session list — every session in session_store with its turn count."""
+    from hooks import session_store
+    sessions = [{"session_id": sid, "turns": st["turn"]} for sid, st in session_store.snapshot().items()]
     return {"count": len(sessions), "sessions": sessions}

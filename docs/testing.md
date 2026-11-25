@@ -1,5 +1,5 @@
 ---
-tags: testing strategy, pytest, unit tests, API tests, integration tests, replay harness, test suite, mock, fixtures, test_langchain_session_graph, test_replay_harness, uv run pytest, MemorySaver, test isolation
+tags: testing strategy, pytest, unit tests, API tests, integration tests, replay harness, test suite, mock, fixtures, test_session_store, test_replay_harness, uv run pytest, MemorySaver, test isolation
 ---
 # Testing Strategy
 
@@ -34,13 +34,13 @@ uv run python -m pytest tests/ -v -m integration
 
 **Key files:**
 - `tests/test_gates.py` — gate allow/deny logic for all gated tools
-- `tests/test_langchain_session_graph.py` — LangGraph node execution and routing
+- `tests/test_session_store.py` — per-session store: turn counter, once-per-turn chime, eviction, and the dispatcher Stop / PreToolUse wiring
 - `tests/test_logger.py` — prod schema contract and `emit()` behavior
 - `tests/test_memory_tools.py`, `tests/test_tools_hooks.py` — MCP memory/hooks tool handlers
 
 **How they work:**
 
-Unit tests call nodes and graph functions directly, bypassing HTTP. Log output is captured in a named shared in-memory SQLite DB (`file:testlogs?mode=memory&cache=shared`) during the run and dumped to `tests/test_logs.db` at session end. The `_log_test_marker` fixture scopes log queries to the current test.
+Unit tests call nodes and dispatcher handlers directly, bypassing HTTP. Log output is captured in a named shared in-memory SQLite DB (`file:testlogs?mode=memory&cache=shared`) during the run and dumped to `tests/test_logs.db` at session end. The `_log_test_marker` fixture scopes log queries to the current test.
 
 **Log inspection:**
 
@@ -57,13 +57,13 @@ sqlite3 tests/test_logs.db "SELECT logger, message FROM hook_logs ORDER BY id DE
 
 ## 2. API Tests
 
-**What they cover:** FastAPI route dispatch, JSON parsing, lifespan (graph build), response shape, end-to-end HTTP → dispatcher → LangGraph stack.
+**What they cover:** FastAPI route dispatch, JSON parsing, lifespan, response shape, end-to-end HTTP → dispatcher → session store.
 
 **File:** `tests/test_server_api.py`
 
 **How they work:**
 
-Uses FastAPI `TestClient` (Starlette) — runs the full ASGI app in-process with no port binding. Lifespan fires so the MemorySaver graph is built once per module. The hook routes plus `/health` and `/session*` are exercised.
+Uses FastAPI `TestClient` (Starlette) — runs the full ASGI app in-process with no port binding. Lifespan fires once per module. The hook routes plus `/health` and `/session*` are exercised.
 
 ```python
 @pytest.fixture(scope="module")
@@ -99,23 +99,23 @@ uv run python -m pytest tests/test_server_api.py -v
 
 ## 3. Integration Tests
 
-**What they cover:** End-to-end contracts against the live hook server on `:8766`. Tests the full request path including LangGraph graph execution, MemorySaver checkpoints, and the session APIs.
+**What they cover:** End-to-end contracts against the live hook server on `:8766`. Tests the full request path including the session store and the session APIs.
 
-**Files:** `tests/test_checkpoint_query_integration.py`, `tests/test_session_apis_integration.py`, and the `integration`-marked cases in `tests/test_server_api.py`.
+**Files:** `tests/test_session_apis_integration.py`, and the `integration`-marked cases in `tests/test_server_api.py`.
 
 **Requirements:** Server must be running (`~/workspace/claude-hooks` main branch, port 8766). Tests are skipped automatically when the server is unreachable.
 
-**Isolation:** Test traffic uses `TEST_SESSION_PREFIX`'d session ids, which `session_graph.get_session_graph()` routes to an isolated test graph, so it never lands in the production checkpointer. `test_session_apis_integration.py` proves that: posting test traffic must not change what `/session/current` reports.
+**Isolation:** Test traffic uses `TEST_SESSION_PREFIX`'d session ids, which `session_store.current()` skips, so it never changes what `/session/current` reports. `test_session_apis_integration.py` proves that: posting test traffic must not change what `/session/current` reports.
 
 ```bash
-uv run python -m pytest tests/test_session_apis_integration.py tests/test_checkpoint_query_integration.py -v -m integration
+uv run python -m pytest tests/test_session_apis_integration.py -v -m integration
 ```
 
 ---
 
 ## 4. Replay Harness
 
-**What it covers:** Graph output stability against real production UPS events. Detects regressions in memory injection when the graph changes.
+**What it covers:** Memory-injection stability against real production UPS events. Detects regressions in memory injection when the dispatcher or scorer changes.
 
 **Files:** `tests/replay_harness.py`, `tests/test_replay_harness.py`, `tests/replay_baseline.json`
 
@@ -123,12 +123,12 @@ uv run python -m pytest tests/test_session_apis_integration.py tests/test_checkp
 
 **How it works:**
 
-1. **Capture** — load prod UPS events, replay through current graph, save output as `replay_baseline.json`
-2. **Replay** — load same prod events, replay again, diff against baseline on the fields in `_DONE_FIELDS` in `tests/replay_harness.py` (`memories_count` is the meaningful one now; the task-era fields such as `related` and `rag_chunks` no longer exist in the graph)
+1. **Capture** — load prod UPS events, replay through the current dispatcher turn, save output as `replay_baseline.json`
+2. **Replay** — load same prod events, replay again, diff against baseline on the fields in `_DONE_FIELDS` in `tests/replay_harness.py` (`memories_count` is the meaningful one now; the task-era fields such as `related` and `rag_chunks` no longer exist)
 3. Any deviation = regression
 
 ```bash
-# Capture a fresh baseline (do this before making graph changes)
+# Capture a fresh baseline (do this before making retrieval changes)
 uv run python tests/replay_harness.py --capture --since 2026-06-13 --limit 50
 
 # Replay and diff vs saved baseline
@@ -146,7 +146,7 @@ uv run python -m pytest tests/test_replay_harness.py -v
 
 Skips automatically if `~/.claude/claude_hooks.sqlite` is not present or if no baseline exists. The `test_diff_runs_no_regressions` test compares the last two pytest run_ids in `test_logs.db`.
 
-**When to run:** Before and after any change to LangGraph nodes, or memory retrieval. Not part of routine CI — run manually as a smoke test.
+**When to run:** Before and after any change to the UserPromptSubmit handler, or memory retrieval. Not part of routine CI — run manually as a smoke test.
 
 ---
 

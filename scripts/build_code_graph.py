@@ -24,7 +24,7 @@ OUT_FILE = REPO_ROOT / ".code_graph.json"
 
 
 def _module_key(path: Path) -> str:
-    """Convert absolute path to dotted module key, e.g. langchain_learning.nodes.load_turn."""
+    """Convert absolute path to dotted module key, e.g. langchain_learning.nodes.load_memories."""
     rel = path.relative_to(REPO_ROOT).with_suffix("")
     return ".".join(rel.parts)
 

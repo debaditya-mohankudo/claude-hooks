@@ -1,7 +1,6 @@
 """API-level integration tests for the FastAPI hook server.
 
-Uses FastAPI TestClient — runs the full ASGI stack in-process (lifespan fires,
-MemorySaver graph is built). No real server or port binding, no disk file needed.
+Uses FastAPI TestClient — runs the full ASGI stack in-process (lifespan fires). No real server or port binding, no disk file needed.
 
 Excluded from the default pytest run (marked `integration`). Run explicitly:
     uv run python -m pytest tests/test_server_api.py -v
@@ -25,21 +24,19 @@ for _p in (str(_PROJECT_ROOT), str(_PROJECT_ROOT / "hooks")):
 
 @pytest.fixture(scope="module")
 def client(tmp_path_factory):
-    """Single TestClient for the module — lifespan fires once, graph is built.
+    """Single TestClient for the module — lifespan fires once.
 
-    task:b3964f85 — MemorySaver is in-process/in-memory, no disk file at all,
-    so there's nothing to redirect to a temp path anymore (unlike the old
-    SqliteSaver-backed fixture, which pointed _CHECKPOINT_DB at a temp file
-    so tests never touched the production checkpoint DB).
+    Session state is hooks/session_store.py, in-process (task:31fb711d), so
+    there is no disk file to redirect. The store is reset around the module.
     """
-    import langchain_learning.session_graph as sg_mod
     from fastapi.testclient import TestClient
+    from hooks import session_store
     from hooks.server import app
 
-    sg_mod._graph = None
+    session_store.reset()
     with TestClient(app) as c:
         yield c
-    sg_mod._graph = None
+    session_store.reset()
 
 
 # ---------------------------------------------------------------------------
@@ -110,15 +107,13 @@ class TestSessionDetail:
         assert "state" in body
 
     def test_turn_count_increments_across_calls(self, client):
-        # turn_count is checkpointer.list()'s write count for the thread, not a
-        # simple hook-call tally — UserPromptSubmit's subgraph appends multiple
-        # checkpoint entries per call, so two UPS calls reliably increase it.
+        # turn_count is the session's UserPromptSubmit counter.
         sid = "api-test-session-detail-3"
         client.post("/hook/UserPromptSubmit", json={"session_id": sid, "cwd": "/tmp", "prompt": "hi"})
         first = client.get(f"/session/{sid}").json()["turn_count"]
         client.post("/hook/UserPromptSubmit", json={"session_id": sid, "cwd": "/tmp", "prompt": "hi again"})
         second = client.get(f"/session/{sid}").json()["turn_count"]
-        assert second > first
+        assert (first, second) == (1, 2)
 
     def test_state_is_dict(self, client):
         sid = "api-test-session-detail-4"
@@ -138,9 +133,8 @@ class TestSessionDetail:
 
 class TestSessionLifecycleEviction:
     def _has_checkpoint(self, sid: str) -> bool:
-        import langchain_learning.session_graph as sg
-        cfg = {"configurable": {"thread_id": sid}}
-        return sg._graph.checkpointer.get(cfg) is not None
+        from hooks import session_store
+        return session_store.exists(sid)
 
     def test_stop_keeps_checkpoint_but_sessionend_evicts(self, client):
         sid = "api-test-evict"
@@ -278,7 +272,7 @@ _PTU_SESSION = "api-test-ptu"
 
 @pytest.fixture(scope="module")
 def ptu_session(client):
-    """Seed a UPS checkpoint so gate has session state to read from."""
+    """Seed a UPS session entry so gate has session state to read from."""
     client.post("/hook/UserPromptSubmit", json={
         "session_id": _PTU_SESSION,
         "cwd": "/tmp",
@@ -415,12 +409,11 @@ class TestSessionStart:
         r = client.post("/hook/SessionStart", json={"session_id": "api-test-session-start-2"})
         assert r.json() == {}
 
-    def test_prewarms_checkpoint(self, client):
+    def test_creates_session_entry(self, client):
         sid = "api-test-session-start-prewarm"
         client.post("/hook/SessionStart", json={"session_id": sid})
-        from langchain_learning.session_graph import get_session_graph, _config
-        state = get_session_graph().get_state(_config(sid))
-        assert state is not None and state.metadata is not None, "checkpoint thread should exist after SessionStart"
+        from hooks import session_store
+        assert session_store.exists(sid), "session entry should exist after SessionStart"
 
     def test_second_call_is_resumed(self, client):
         sid = "api-test-session-start-resume"
@@ -447,9 +440,8 @@ class TestSessionEnd:
         sid = "api-test-session-end-evict"
         client.post("/hook/SessionStart", json={"session_id": sid})
         client.post("/hook/SessionEnd", json={"session_id": sid})
-        from langchain_learning.session_graph import get_session_graph, _config
-        state = get_session_graph().get_state(_config(sid))
-        assert state.metadata is None, "checkpoint should be gone after SessionEnd"
+        from hooks import session_store
+        assert not session_store.exists(sid), "session entry should be gone after SessionEnd"
 
     def test_missing_session_id_returns_200(self, client):
         r = client.post("/hook/SessionEnd", json={})

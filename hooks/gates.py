@@ -23,14 +23,14 @@ _log = get_logger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# GateContext — prepared once from SessionState, passed to every gate
+# GateContext — prepared once by dispatcher._gate_check, passed to every gate
 # ---------------------------------------------------------------------------
 
 @dataclass
 class GateContext:
     """Prepared view of session state passed to every gate's verify().
 
-    Built once in gate_check.py from SessionState; each gate uses what it needs.
+    Built once by dispatcher._gate_check; each gate uses what it needs.
 
     ToolCall and the history this used to carry — current_calls,
     session_tools, session_prompt_ids, prompt_text, recent_prompt_texts and

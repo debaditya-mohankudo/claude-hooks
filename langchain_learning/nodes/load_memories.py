@@ -13,10 +13,8 @@ from __future__ import annotations
 import time
 from collections import OrderedDict, deque
 
-from langchain_learning.nodes._node_log import entry
 from langchain_learning.nodes._text_utils import tokenise
 from langchain_learning.retrievers import CombinationSignalRetriever, MemoryRetriever
-from langchain_learning.session_state import SessionState
 from src.logger import get_logger
 
 _log = get_logger(__name__)
@@ -63,9 +61,7 @@ class LoadMemoriesNode:
         while len(self._areas) > _MAX_SESSIONS:
             self._areas.popitem(last=False)
 
-    def __call__(self, state: SessionState) -> dict:
-        entry("load_memories", state, prompt_len=len(state.get("prompt", "")))
-
+    def __call__(self, state: dict) -> dict:
         prompt = state["prompt"]
         tokens = set(tokenise(prompt.lower()))
         session_id = state.get("session_id", "")

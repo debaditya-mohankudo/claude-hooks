@@ -51,16 +51,16 @@ package Requirements {
     }
     satisfy requirement LogReadViaMCPOnlyRequirement by system.mcpTools;
 
-    requirement def CheckpointNonPersistenceRequirement {
-        doc /* Source: hooks/server.py (lifespan, MemorySaver construction).
-             * The graph is compiled with an in-process, in-memory
-             * checkpointer, so checkpoint state does NOT survive a server
-             * restart. This is chosen, not incidental: SqliteSaver was retired
-             * after two corruption incidents (task:b3964f85), on the view that
-             * losing a session's checkpoint is cheap and recoverable while a
-             * corrupt one is neither. */
+    requirement def SessionStateNonPersistenceRequirement {
+        doc /* Source: hooks/session_store.py (module docstring, _MAX_SESSIONS).
+             * Per-session state is an in-process dict, so it does NOT survive
+             * a server restart and is capped in size. This is chosen, not
+             * incidental: SqliteSaver was retired after two corruption
+             * incidents (task:b3964f85), on the view that losing a session's
+             * turn counter is cheap and recoverable while a corrupt store is
+             * neither. */
     }
-    satisfy requirement CheckpointNonPersistenceRequirement by system.pipeline;
+    satisfy requirement SessionStateNonPersistenceRequirement by system.sessionStore;
 
     requirement def MemoryScoringPerDomainRequirement {
         doc /* Source: concept memory-scoring-per-domain-batch-limit

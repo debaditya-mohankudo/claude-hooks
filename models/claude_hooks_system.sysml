@@ -17,8 +17,8 @@ package ClaudeHooksSystem {
 
     part def HookServer {
         doc /* FastAPI server (hooks/server.py), event dispatcher, 3 gates,
-             * session memory timeline. Owns the LangGraph checkpointer
-             * lifecycle. */
+             * session memory timeline. Owns the SessionStore
+             * lifecycle (cleared at shutdown). */
         part foundation : Foundation;
     }
 
@@ -46,11 +46,13 @@ package ClaudeHooksSystem {
         part foundation : Foundation;
     }
 
-    part def LangGraphPipeline {
-        doc /* StateGraph(SessionState) with ~28 nodes wired via explicit
-             * add_edge calls, compiled with a checkpointer. Currently
-             * MemorySaver (in-memory only) after a prior SqliteSaver
-             * corrupted. */
+    part def SessionStore {
+        doc /* hooks/session_store.py: a plain per-session dict (turn, prompt,
+             * prompt_id, Stop flags), in-process only. It replaced a LangGraph
+             * StateGraph with a MemorySaver checkpointer (task:31fb711d; the
+             * SqliteSaver before that corrupted, task:b3964f85). The dispatcher
+             * is the single orchestrator. Do not re-add a graph part: tests/
+             * test_models.py fails if LangGraphPipeline returns. */
         part foundation : Foundation;
     }
 
@@ -58,7 +60,7 @@ package ClaudeHooksSystem {
         part hookServer : HookServer;
         part mcpTools : MCPTools;
         part stores : MemoryConceptRAGStores;
-        part pipeline : LangGraphPipeline;
+        part sessionStore : SessionStore;
         part foundation : Foundation;
     }
 }

@@ -260,17 +260,14 @@ def test_record_task_from_hook_ignores_other_mcp_tools():
 # ── accessor endpoint ─────────────────────────────────────────────────────────
 
 def test_session_memory_endpoint():
-    import langchain_learning.session_graph as sg_mod
     from fastapi.testclient import TestClient
     from hooks.server import app
 
     sm.record_prompt("s1", "endpoint hello")
     sm.record_task("s1", "tX", "Endpoint task")
 
-    sg_mod._graph = None
     with TestClient(app) as c:
         r = c.get("/session/memory", params={"n_events": 10})
-    sg_mod._graph = None
 
     assert r.status_code == 200
     data = r.json()

@@ -12,11 +12,13 @@ Each handler is responsible for one Claude Code hook type. All share:
   - read_stdin / write_json_to_stdout
   - dev_mode sys.exit(2) on error
 
-Session graph call graph:
-  UserPromptSubmit  → run_session()
-  PostToolUse       → run_post_tool()
-  PreToolUse        → run_gate()
-  Stop              → run_stop()
+The dispatcher is the single orchestrator (task:31fb711d): each handler below does
+its work directly and keeps what has to survive between events in the plain
+per-session dict of hooks/session_store.py. There is no graph and no checkpointer.
+  UserPromptSubmit  → session_store.begin_turn + LoadMemoriesNode
+  PreToolUse        → hooks.gates.check
+  PostToolUse       → side effects, then LogToolUsageNode
+  Stop              → session_store.mark_stop + hooks/stop_effects.py
 """
 import json as _json
 import os
@@ -65,7 +67,7 @@ def _extract_prompt(hook_input: dict) -> str:
 # ---------------------------------------------------------------------------
 
 def _format_system_prompt(ctx: dict) -> str:
-    """Convert SessionState dict into the injected system prompt block."""
+    """Convert the turn context dict into the injected system prompt block."""
     lines: list[str] = []
 
     session_id = ctx.get("session_id", "")
@@ -121,6 +123,35 @@ def _format_system_prompt(ctx: dict) -> str:
 from hooks.user_context import render_user_context
 
 
+_load_memories_node = None
+_log_tool_usage_node = None
+
+
+def _load_memories(state: dict) -> dict:
+    """LoadMemoriesNode is one process-wide instance: it carries each session's recent areas."""
+    global _load_memories_node
+    if _load_memories_node is None:
+        from langchain_learning.nodes.load_memories import LoadMemoriesNode
+        _load_memories_node = LoadMemoriesNode()
+    return _load_memories_node(state)
+
+
+def _log_tool_usage(state: dict) -> dict:
+    global _log_tool_usage_node
+    if _log_tool_usage_node is None:
+        from langchain_learning.nodes.log_tool_usage import LogToolUsageNode
+        _log_tool_usage_node = LogToolUsageNode()
+    return _log_tool_usage_node(state)
+
+
+def _run_user_prompt_turn(prompt: str, session_id: str, cwd: str) -> dict:
+    """Open the turn in the session store and load its memories. Returns the turn context."""
+    from hooks import session_store
+    turn = session_store.begin_turn(session_id, prompt)
+    loaded = _load_memories({"prompt": prompt, "session_id": session_id})
+    return {**turn, **loaded, "session_id": session_id, "cwd": cwd}
+
+
 def _handle_user_prompt_submit(hook_input: dict) -> dict | None:
     cwd        = hook_input.get("cwd") or os.environ.get("CLAUDE_CWD") or os.getcwd()
     prompt     = _extract_prompt(hook_input)
@@ -134,8 +165,7 @@ def _handle_user_prompt_submit(hook_input: dict) -> dict | None:
         return None
 
     t0 = time.monotonic()
-    from langchain_learning.session_graph import run_session
-    ctx = run_session(prompt=prompt, session_id=session_id, cwd=cwd)
+    ctx = _run_user_prompt_turn(prompt, session_id, cwd)
     elapsed_ms = (time.monotonic() - t0) * 1000
 
     # Shadow run (task:444cc036): find_cli's answer for the whole prompt is logged,
@@ -147,17 +177,6 @@ def _handle_user_prompt_submit(hook_input: dict) -> dict | None:
 
     ctx["user_context"] = render_user_context(set(ctx.get("keywords") or []))
     system_prompt = _format_system_prompt(ctx)
-
-    # One-shot node output for this UPS turn (e.g. LogTaskEventsNode's
-    # introspection nudge after a "task:<id> done" auto-close). run_session()
-    # already cleared the checkpoint copy, so this renders exactly once.
-    # Gated on hookEventName so a stale PostToolUse payload is never
-    # misattributed to the UPS response.
-    _pho = (ctx.get("pending_hook_output") or {}).get("hookSpecificOutput") or {}
-    if _pho.get("hookEventName") == "UserPromptSubmit" and _pho.get("additionalContext"):
-        nudge = _pho["additionalContext"]
-        system_prompt = f"{system_prompt}\n\n{nudge}" if system_prompt else nudge
-        log.info("UPS one-shot hook output appended: %.80s", nudge)
 
     # Char/token counts of the task-activation context categories (task_history,
     # rag_chunks, related_tasks, related_commits) are gone with the nodes that
@@ -369,31 +388,24 @@ def _handle_post_tool_use(hook_input: dict) -> dict | None:
         log.info("PTU skip: non-MCP tool=%s", tool_name)
         return None
 
-    from langchain_learning.session_graph import run_post_tool, get_session_graph, _config
-    try:
-        state = get_session_graph().get_state(_config(session_id))
-        prompt = (state.values.get("prompt") or "") if state and state.values else ""
-    except Exception:
-        prompt = ""
-
+    from hooks import session_store
+    turn = session_store.get(session_id)
     tool_input_clean = tool_input if isinstance(tool_input, dict) else {}
 
-    hook_output = None
     for name in names:
         t0 = time.monotonic()
-        output = run_post_tool(
-            tool_name=name,
-            tool_input=tool_input_clean,
-            tool_result=tool_response,
-            session_id=session_id,
-            duration_ms=duration_ms / len(names),
-            prompt=prompt,
-        )
-        hook_output = hook_output or output
-        elapsed = (time.monotonic() - t0) * 1000
-        log.info("PTU done: session=%s tool=%s elapsed_ms=%.0f%s", session_id[:8], name, elapsed,
-                 " hook_output=yes" if output else "")
-    return hook_output or None
+        _log_tool_usage({
+            "tool_name": name,
+            "tool_input": tool_input_clean,
+            "tool_result": tool_response,
+            "session_id": session_id,
+            "duration_ms": duration_ms / len(names),
+            "prompt": turn["prompt"],
+            "prompt_id": turn["prompt_id"],
+        })
+        log.info("PTU done: session=%s tool=%s elapsed_ms=%.0f", session_id[:8], name,
+                 (time.monotonic() - t0) * 1000)
+    return None
 
 
 def _vault_input(call) -> dict:
@@ -508,19 +520,41 @@ def _maybe_tmux_nudge(short_name: str, tool_input: dict, session_id: str) -> dic
     }
 
 
+def _gate_check(tool_name: str, tool_input: dict, session_id: str) -> tuple[bool, str]:
+    """Run the gate registered for tool_name, if any. Returns (denied, reason).
+
+    The prompt_id is the log tag the gate prints; a first-turn tool call that
+    precedes any UserPromptSubmit gets a generated "fb-" id so the row stays traceable.
+    """
+    from hooks.gates import GATES, GateContext, check
+    if tool_name not in GATES:
+        return False, ""
+    from hooks import session_store
+    prompt_id = session_store.get(session_id)["prompt_id"]
+    if not prompt_id:
+        import hashlib
+        prompt_id = "fb-" + hashlib.sha256(f"{session_id or 'anon'}-{time.time()}".encode()).hexdigest()[:12]
+        log.info("PreTU gate session=%s generated fallback prompt_id=%s (no UPS yet)",
+                 session_id[:8] or "?", prompt_id)
+    deny, reason = check(tool_name, GateContext(tool_name=tool_name, tool_input=tool_input, prompt_id=prompt_id))
+    log.info("PreTU gate: tool=%s prompt_id=%s %s", tool_name, prompt_id[:8], "DENY" if deny else "ALLOW")
+    return deny, reason
+
+
 def _handle_pre_tool_use(hook_input: dict) -> dict | None:
     from core.tool_registry import strip_mcp_prefix
 
     tool_name  = hook_input.get("tool_name", "")
     session_id = hook_input.get("session_id", "")
 
+    _t0 = time.monotonic()
     log.info("PreTU enter: session=%s tool=%s", session_id[:8] if session_id else "?", tool_name)
 
     if not tool_name or not session_id:
         return None
 
     # Built-in tools (e.g. Bash) are gated directly by tool_name; MCP tools are stripped.
-    # Edit/Write/MultiEdit have no gate entry (run_gate no-ops for unregistered tool
+    # Edit/Write/MultiEdit have no gate entry (hooks.gates.check no-ops for unregistered tool
     # names). They used to also need to reach the drift-reflection nudge below;
     # that nudge moved to task-framework (task:f1d46386), but the branch stays in
     # case a future Edit/Write/MultiEdit-specific gate or reminder needs it again.
@@ -554,20 +588,14 @@ def _handle_pre_tool_use(hook_input: dict) -> dict | None:
     else:
         return None
 
-    from langchain_learning.session_graph import run_gate
-    result = run_gate(
-        tool_name=short_name,
-        tool_input=hook_input.get("tool_input") or {},
-        session_id=session_id,
-    )
-
-    if result["gate_denied"]:
-        log.info("PreTU deny: session=%s tool=%s reason=%s", session_id[:8], short_name, result["gate_reason"][:80])
+    denied, reason = _gate_check(short_name, hook_input.get("tool_input") or {}, session_id)
+    if denied:
+        log.info("PreTU deny: session=%s tool=%s reason=%s", session_id[:8], short_name, reason[:80])
         return {
             "hookSpecificOutput": {
                 "hookEventName": "PreToolUse",
                 "permissionDecision": "deny",
-                "permissionDecisionReason": result["gate_reason"],
+                "permissionDecisionReason": reason,
             }
         }
     tmux_nudge = _maybe_tmux_nudge(short_name, hook_input.get("tool_input") or {}, session_id)
@@ -575,7 +603,7 @@ def _handle_pre_tool_use(hook_input: dict) -> dict | None:
         log.info("PreTU allow+tmux-nudge: session=%s tool=%s", session_id[:8], short_name)
         return tmux_nudge
 
-    log.info("PreTU allow: session=%s tool=%s", session_id[:8], short_name)
+    log.info("PreTU allow: session=%s tool=%s elapsed_ms=%.1f", session_id[:8], short_name, (time.monotonic() - _t0) * 1000)
     return None
 
 
@@ -586,28 +614,19 @@ def _handle_pre_tool_use(hook_input: dict) -> dict | None:
 def _handle_session_end(hook_input: dict) -> dict | None:
     session_id = hook_input.get("session_id", "")
 
-    import langchain_learning.session_graph as sg
-    # Check the already-built graph for this session's routing (test-prefixed
-    # sessions route to sg._test_graph, task:b63088a1) without lazily creating
-    # one just to immediately delete from it.
-    is_test = session_id.startswith(sg.TEST_SESSION_PREFIX)
-    graph = sg._test_graph if is_test else sg._graph
-    if not session_id or not graph:
-        log.info("SessionEnd: session=%s status=skipped", (session_id or "?")[:8])
+    from hooks import session_store
+    if not session_id:
+        log.info("SessionEnd: session=? status=skipped")
         return None
-    try:
-        graph.checkpointer.delete_thread(session_id)
-        status = "evicted"
-    except Exception:
-        status = "not_found"
+    status = "evicted" if session_store.end(session_id) else "not_found"
     log.info("SessionEnd: session=%s status=%s", session_id[:8], status)
     return None
 
 
 def _handle_session_start(hook_input: dict) -> dict | None:
     session_id = hook_input.get("session_id", "")
-    from langchain_learning.session_graph import prewarm_session
-    is_new = prewarm_session(session_id)
+    from hooks import session_store
+    is_new = session_store.start(session_id) if session_id else False
     status = "new" if is_new else "resumed"
     log.info("SessionStart: session=%s status=%s", session_id[:8] if session_id else "?", status)
     return None
@@ -620,11 +639,14 @@ def _handle_stop(hook_input: dict) -> dict | None:
 
     log.info("Stop enter: session=%s", session_id[:8])
     t0 = time.monotonic()
-    from langchain_learning.session_graph import run_stop
-    hook_output = run_stop(session_id=session_id)
+    from hooks import session_store, stop_effects
+    chime = session_store.mark_stop(session_id)
+    stop_effects.log_live_sessions_if_multiple()
+    if chime:
+        stop_effects.play_completion_sound(session_id)
     log.info("Stop done: session=%s elapsed_ms=%.0f%s", session_id[:8], (time.monotonic() - t0) * 1000,
-              " sound_alert=1" if hook_output else "")
-    return hook_output or None
+             " chime=1" if chime else "")
+    return None
 
 
 # ---------------------------------------------------------------------------

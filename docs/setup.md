@@ -61,7 +61,7 @@ uv run uvicorn hooks.server:app --host 127.0.0.1 --port 8766
 ```
 
 > Do not use `--reload` — it restarts the worker on every file save, wiping the
-> in-process MemorySaver checkpoint (session context). `scripts/deploy.sh` restarts
+> in-process session store (session context). `scripts/deploy.sh` restarts
 > the server explicitly via launchctl (`--restart-only` for a restart without the tests).
 
 **Verify the server is up:**

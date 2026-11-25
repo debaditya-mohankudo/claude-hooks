@@ -3,12 +3,13 @@ package UserPromptSubmitFlow {
          * SysML v2 textual notation has no distinct sequence-diagram
          * keyword; ordered actions + succession is the closest fit.
          * Ground truth: hooks/dispatcher.py:_handle_user_prompt_submit()
-         * and langchain_learning/session_graph.py:build_session_graph().
+         * and hooks/session_store.py:begin_turn().
          * Correction: the epic named hooks/memory_loader_lc.py (an "LCEL
          * pipeline") but that file does not exist in this repo or on
          * this machine — it belongs to a separate global ~/.claude/
-         * memory system. Modeled the real mechanism instead: a LangGraph
-         * StateGraph, not LCEL. */
+         * memory system. There is no graph either: a LangGraph StateGraph
+         * stood here until task:31fb711d; the dispatcher calls the steps
+         * directly. */
 
     action def UserPromptSubmitFlow {
         action clientForward {
@@ -17,22 +18,20 @@ package UserPromptSubmitFlow {
         action serverRoute {
             doc /* hooks/server.py routes the POST to the dispatcher. */
         }
-        action dispatcherCheckState {
-            doc /* dispatcher.py reads existing checkpoint state before invoking the graph. */
+        action beginTurn {
+            doc /* dispatcher._run_user_prompt_turn opens the turn in
+                 * session_store (turn counter, prompt_id, Stop flags reset). */
         }
-        action graphInvoke {
-            doc /* session_graph.py:run_session() runs the StateGraph. The
-                 * UserPromptSubmit chain is now just: load_turn ->
-                 * (load_memories, score_tools) fan-out -> fan-in at
-                 * set_prompt_id -> END. The task-context pipeline that once
-                 * sat here (load_active_task, load_related_tasks,
-                 * summarize_task_context, cwd_domain_detect, log_task_events)
-                 * is gone (task:882d67fa and follow-ups) — task-framework
-                 * owns active-task context and is asked via tasks__context,
-                 * not announced by a parallel pipeline here. */
+        action loadMemories {
+            doc /* LoadMemoriesNode scores MEMORY.sqlite against the prompt. The
+                 * task-context pipeline that once sat beside it
+                 * (load_active_task, load_related_tasks, summarize_task_context,
+                 * cwd_domain_detect, log_task_events) is gone (task:882d67fa
+                 * and follow-ups) — task-framework owns active-task context
+                 * and is asked via tasks__context. */
         }
         action loadVaultContext {
-            doc /* dispatcher.py adds vault_context after the graph returns:
+            doc /* dispatcher.py adds vault_context once memories are loaded:
                  * _load_vault_context() reads the fixed set of LIFE_OS files
                  * (_LIFE_OS_FILES — currently just dev_personality.md) verbatim,
                  * unscored, falling back to the last cached copy on a transient
@@ -53,9 +52,9 @@ package UserPromptSubmitFlow {
         }
 
         first clientForward then serverRoute;
-        first serverRoute then dispatcherCheckState;
-        first dispatcherCheckState then graphInvoke;
-        first graphInvoke then loadVaultContext;
+        first serverRoute then beginTurn;
+        first beginTurn then loadMemories;
+        first loadMemories then loadVaultContext;
         first loadVaultContext then enforceContextBudget;
         first enforceContextBudget then formatSystemPrompt;
         first formatSystemPrompt then injectResponse;

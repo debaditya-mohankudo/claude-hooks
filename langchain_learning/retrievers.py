@@ -1,4 +1,7 @@
-"""Public Protocol contracts for the retrieval and gate layers.
+"""Public Protocol contract for the memory retrieval layer.
+
+(GatePolicy / DefaultGatePolicy were removed in task:31fb711d: nothing but the
+deleted gate_check node used them; the dispatcher calls hooks.gates.check directly.)
 
 These interfaces are the joints in the memory injection pipe:
   prompt → tokenise → MemoryRetriever → LoadMemoriesNode → additionalContext
@@ -18,14 +21,6 @@ from src.logger import get_logger
 
 _log = get_logger(__name__)
 
-# GateContext is a dataclass defined in hooks/gates.py.
-# We import the type only for the GatePolicy signature; the arrow goes:
-#   hooks/gate_check.py → retrievers.py (for GatePolicy)
-#   hooks/gates.py      → retrievers.py (only for GateContext type, which is fine)
-# retrievers.py never calls into hooks/ — it only names the type.
-from hooks.gates import GateContext
-
-
 # ---------------------------------------------------------------------------
 # MemoryRetriever
 # ---------------------------------------------------------------------------
@@ -44,21 +39,6 @@ class MemoryRetriever(Protocol):
         tokens: set[str],
         top_n: int | None = None,
     ) -> list[dict]: ...
-
-
-# ---------------------------------------------------------------------------
-# GatePolicy
-# ---------------------------------------------------------------------------
-
-@runtime_checkable
-class GatePolicy(Protocol):
-    """Check whether a tool call should be allowed or denied.
-
-    Implementations:
-      DefaultGatePolicy — wraps GATES dict dispatch (hooks/gates.py)
-    """
-
-    def check(self, tool_name: str, ctx: GateContext) -> tuple[bool, str]: ...
 
 
 # ---------------------------------------------------------------------------
@@ -118,15 +98,3 @@ class CombinationSignalRetriever:
             _log.error("[CombinationSignalRetriever] score_memories error: %s", exc)
             return []
 
-
-class DefaultGatePolicy:
-    """Dispatches to the GATES dict in hooks/gates.py.
-
-    Wraps hooks.gates.check() to satisfy GatePolicy Protocol.
-    """
-
-    def check(self, tool_name: str, ctx: GateContext) -> tuple[bool, str]:
-        from hooks.gates import check as _check
-        deny, reason = _check(tool_name, ctx)
-        _log.debug("[DefaultGatePolicy] tool=%s deny=%s reason=%r", tool_name, deny, reason)
-        return deny, reason

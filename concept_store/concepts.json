@@ -28,27 +28,6 @@
       "name": "cache-store",
       "related": []
     },
-    "checkpoint-trim-frees-blobs": {
-      "confidence": 0.8,
-      "contracts": [
-        "_trim_thread_checkpoints(thread_id, row_cap) -> None; no-op without a live MemorySaver graph"
-      ],
-      "created_at": "2026-11-23T13:48:32.021593+00:00",
-      "description": "Per-thread checkpoint cap for the live MemorySaver, run from NoopNode on every Stop. Channel values live in checkpointer.blobs keyed (thread, ns, channel, version), not in storage, so evicting storage rows alone frees nothing (task:84dbcf14 probe: 805 -> 5 checkpoints, 125 MB of blobs unchanged). Once a (thread, ns) exceeds _CHECKPOINT_ROW_CAP it evicts down to _CHECKPOINT_LOW_WATER * cap and frees the blobs that only evicted checkpoints named.",
-      "evidence": [
-        "langchain_learning/nodes/noop.py:_trim_thread_checkpoints",
-        "tests/test_noop_node.py:TestCheckpointTrimFreesBlobs"
-      ],
-      "invariants": [
-        "get_state values for a thread are identical before and after a trim",
-        "Only blobs named by evicted checkpoints and by no survivor are freed, never a sweep of all blobs, so a concurrent put's fresh blob is never deleted",
-        "Other threads' blobs are untouched"
-      ],
-      "last_validated": "2026-11-23T13:48:32.021612+00:00",
-      "module": "langchain_learning/nodes/noop.py",
-      "name": "checkpoint-trim-frees-blobs",
-      "related": []
-    },
     "concept-store-symbol-only-evidence": {
       "confidence": 0.8,
       "contracts": [
@@ -192,7 +171,7 @@
         "All sections are markdown-formatted, emitted in a fixed order: '## Turn state', the user-context block (its own '## Dev personality' / '## Financial profile' / '## Relevant context' headings), '## Injected memories'"
       ],
       "created_at": "2026-06-29T09:47:25.284960+00:00",
-      "description": "Assembles the UserPromptSubmit additionalContext from the SessionState-derived ctx dict into markdown sections. Rewritten task:173e6846 (2026-09-01) after the long STALE period (task:c2e36050): the pre-task:882d67fa pull-based task-context pipeline is entirely gone, and so is the task:996cc8f0 '## Active task' push block. The usage-ranked '## Suggested tools' / '## Suggested tool groups' blocks were removed in task:734841bf (find_cli replaced them). What remains is three small sections: turn identifiers, the rendered user-context ontology (hooks/user_context.py) and scored memories.",
+      "description": "Assembles the UserPromptSubmit additionalContext from the ctx dict _run_user_prompt_turn builds (session_store turn + loaded memories) into markdown sections. Rewritten task:173e6846 (2026-09-01) after the long STALE period (task:c2e36050): the pre-task:882d67fa pull-based task-context pipeline is entirely gone, and so is the task:996cc8f0 '## Active task' push block. The usage-ranked '## Suggested tools' / '## Suggested tool groups' blocks were removed in task:734841bf (find_cli replaced them). What remains is three small sections: turn identifiers, the rendered user-context ontology (hooks/user_context.py) and scored memories.",
       "evidence": [
         "hooks/dispatcher.py:_format_system_prompt",
         "hooks/user_context.py:render_user_context",
@@ -203,11 +182,11 @@
         "The user-context block is ctx['user_context'] appended verbatim (already stripped) when non-empty — _format_system_prompt owns none of its headings; render_user_context builds them from LIFE_OS/user-context-ontology.json (always_on nodes verbatim, tag-hit domain nodes as '## Relevant context'), falling back to dev_personality.md when the graph is unreadable",
         "'## Injected memories' renders each memory as '### {name} [{domain}]' followed by its stripped body; there is no token-budget trimming here (_enforce_context_budget was removed) — memories render exactly as the retriever scored/returned them",
         "No active-task section in any form: _format_system_prompt has no active_task branch and the handler no longer populates ctx['active_task'] (push cache removed task:173e6846). task-framework owns the active task; it is read via tasks__context, never pushed here",
-        "The one-shot node-output append is NOT done by this function — _handle_user_prompt_submit appends ctx['pending_hook_output'].hookSpecificOutput.additionalContext after calling _format_system_prompt, gated on hookEventName == 'UserPromptSubmit'. run_session() surfaces-and-clears the checkpoint copy so any such payload renders exactly once and cannot leak into the next PostToolUse response",
+        "The one-shot node-output append is gone: no node sets pending_hook_output any more (removed with the graph, task:31fb711d), so _handle_user_prompt_submit appends nothing after _format_system_prompt",
         "No tool-hint sections: '## Suggested tools' / '## Suggested tool groups' were removed (task:734841bf), so a stray ctx['tool_hints'] key is ignored. find_cli resolves a task to a command on demand; tool_hints.sqlite stays only as its usage store.",
         "Each section is emitted only when its data is non-empty; a ctx with no session_id/prompt_id, empty user_context and no memories yields an empty string"
       ],
-      "last_validated": "2026-11-01T05:20:12.518128+00:00",
+      "last_validated": "2026-11-25T00:00:00+00:00",
       "module": "hooks/dispatcher.py",
       "name": "dispatcher-system-prompt-assembly",
       "related": []
@@ -370,28 +349,28 @@
         "handle_server_memory(n_events) returns a markdown table or {error: ...}",
         "handle_read_logs_sqlite(level, logger, search, limit, format=\"toon\") returns a TOON-encoded string by default (\"count: N\\nrows[N]{...}:\\n  ...\"), or {count, rows} dict when format=\"json\"",
         "handle_session_id() returns {session_id, turn} or {error: ...} after one retry on empty first response",
-        "handle_checkpoint_query(thread_id=\"\") returns {thread_id, turn_count, prompt_id, keywords, memories, tool_hints, session_context, ...} or {error: ...}; thread_id doubles as session_id, omitted thread_id resolves to the current session via GET /session/current — no 'domains' key as of task:5b15dc9b (2026-08-07), since nothing in SessionState computes domains anymore"
+        "handle_checkpoint_query(thread_id=\"\") returns {thread_id, turn_count, state, ...} or {error: ...}; thread_id doubles as session_id, omitted thread_id resolves to the current session via GET /session/current — no 'domains' key as of task:5b15dc9b (2026-08-07), since nothing computes domains anymore"
       ],
       "created_at": "2026-06-29T09:47:25.288414+00:00",
-      "description": "MCP tools for querying hook state: server_memory (live chronological timeline via HTTP), checkpoint_query (thin HTTP wrapper over the live server's GET /session/{session_id}, reading in-process MemorySaver state — no longer a SQLite reader as of task:da29c842), and read_logs_sqlite (filtered log reader from claude_hooks.sqlite at ~/.claude/claude_hooks.sqlite via config.log_db as of task:62ea0ea5). Also session_id (added 2026-07-05, task:61703ef7): returns current session_id via GET /session/current with a built-in one-shot retry, absorbing the checkpoint-write race for a brand-new session.",
+      "description": "MCP tools for querying hook state: server_memory (live chronological timeline via HTTP), checkpoint_query (thin HTTP wrapper over the live server's GET /session/{session_id}, reading the in-process session_store entry — no longer a SQLite reader as of task:da29c842), and read_logs_sqlite (filtered log reader from claude_hooks.sqlite at ~/.claude/claude_hooks.sqlite via config.log_db as of task:62ea0ea5). Also session_id (added 2026-07-05, task:61703ef7): returns current session_id via GET /session/current with a built-in one-shot retry, absorbing the checkpoint-write race for a brand-new session.",
       "evidence": [
         "src/tools/hooks.py",
         "src/tools/hooks.py:handle_session_id",
         "src/tools/hooks.py:handle_read_logs_sqlite",
         "src/tools/hooks.py:handle_checkpoint_query",
         "src/toon.py:rows_to_toon",
-        "tests/test_checkpoint_query_integration.py"
+        "tests/test_session_apis_integration.py"
       ],
       "invariants": [
         "server_memory hits the live FastAPI server at 127.0.0.1:8766 — fails if server is down",
         "session_id retries once (0.5s sleep) if the first /session/current response has no session_id — absorbs the race where a brand-new session's first checkpoint write lags behind the query",
-        "checkpoint_query is a thin HTTP wrapper over GET /session/{session_id} — it does NOT read ~/.claude/langgraph_checkpoints.db directly (that sqlite path was retired in production by task:b3964f85; the prior invariant here claiming checkpoint_query reads that file as 'the live DB SqliteSaver writes to in production' was true when confirmed 2026-07-05 (task:61703ef7) but went stale after task:b3964f85's later migration — corrected 2026-07-27, task:da29c842, after the stale assumption caused an unhandled 'no such table: checkpoints' error). checkpoint_query has no 'latest checkpoint across all threads' mode anymore — omitted thread_id resolves only to the current session, matching hooks__session_id's semantics.",
+        "checkpoint_query is a thin HTTP wrapper over GET /session/{session_id} — it does NOT read ~/.claude/langgraph_checkpoints.db directly (that sqlite path was retired in production by task:b3964f85, and the checkpointer itself by task:31fb711d; the prior invariant here claiming checkpoint_query reads that file as 'the live DB SqliteSaver writes to in production' was true when confirmed 2026-07-05 (task:61703ef7) but went stale after task:b3964f85's later migration — corrected 2026-07-27, task:da29c842, after the stale assumption caused an unhandled 'no such table: checkpoints' error). checkpoint_query has no 'latest checkpoint across all threads' mode anymore — omitted thread_id resolves only to the current session, matching hooks__session_id's semantics.",
         "read_logs_sqlite's `format` param defaults to \"toon\" (task:d2165715): rows share a uniform schema (id, ts, level, logger, message), which TOON's tabular header+rows encoding compresses well versus repeating JSON keys per row. format=\"json\" is kept as an explicit fallback returning the original {count, rows} dict shape — callers needing the dict shape (e.g. programmatic filtering) must pass format=\"json\" explicitly.",
         "The TOON encoder itself (rows_to_toon/toon_cell) was extracted to src/toon.py (task:4b5bf21f) so src/tools/tasks.py's handle_list could reuse it — hooks.py now imports rows_to_toon rather than defining its own copy.",
         "A docstring/comment's 'confirmed on <date>' claim is only as fresh as the last re-check against the code it describes — checkpoint_query's docstring cited a specific confirmation date (task:61703ef7) that read as settled fact but silently went stale after a later migration nobody circled back to update. Re-verify dated confirmations against current runtime behavior, don't trust the date alone.",
         "read_logs_sqlite reads from config.log_db. _HOOKS_LOG_DB in src/tools/hooks.py is `_cfg.log_db` (was a hard-coded iCloud path until task:62ea0ea5, 2026-09-03), resolving to ~/.claude/claude_hooks.sqlite."
       ],
-      "last_validated": "2026-09-03T06:19:17.423128+00:00",
+      "last_validated": "2026-11-25T00:00:00+00:00",
       "module": "src/tools/hooks.py",
       "name": "hooks-mcp-tools-observability",
       "related": []
@@ -424,18 +403,19 @@
       "confidence": 0.9,
       "contracts": [
         "live_claude_sessions() matches ps comm basename == 'claude', excluding MCP subprocess paths",
-        "NoopNode only logs when len(sessions) > 1 — silent in the normal single-session case",
-        "GET /session/live and NoopNode's passive log call the same live_claude_sessions() helper"
+        "log_live_sessions_if_multiple() only logs when len(sessions) > 1 — silent in the normal single-session case",
+        "GET /session/live and the Stop-time log call the same live_claude_sessions() helper"
       ],
       "created_at": "2026-08-11T15:03:48.660566+00:00",
-      "description": "NoopNode (langchain_learning/nodes/noop.py) logs a warning on every Stop event when more than one `claude` CLI process is live, listing each pid's elapsed runtime — surfaces forgotten detached tmux/terminal sessions passively. GET /session/live on the FastAPI hook server exposes the same ps-based check on demand. Both share one helper, live_claude_sessions(), so they can't drift apart. Replaces the removed session-brief-on-/clear feature (session-brief-segment-cursor, session-brief-worker-detached-summarizer) as this repo's answer to 'is a stray session running.'",
+      "description": "The Stop handler (hooks/dispatcher.py:_handle_stop) logs a warning on every Stop when more than one `claude` CLI process is live, listing each pid's elapsed runtime — surfaces forgotten detached tmux/terminal sessions passively. GET /session/live on the FastAPI hook server exposes the same ps-based check on demand. Both share one helper, live_claude_sessions(), so they can't drift apart. It was NoopNode's job until task:31fb711d removed the graph.",
       "evidence": [
-        "langchain_learning/nodes/noop.py:live_claude_sessions",
+        "hooks/stop_effects.py:live_claude_sessions",
+        "hooks/stop_effects.py:log_live_sessions_if_multiple",
         "hooks/server.py"
       ],
       "invariants": [],
-      "last_validated": "2026-08-11T15:03:48.660566+00:00",
-      "module": "",
+      "last_validated": "2026-11-25T00:00:00+00:00",
+      "module": "hooks/stop_effects.py",
       "name": "live-session-audit"
     },
     "log-tool-usage-single-writer": {
@@ -444,7 +424,7 @@
         "__call__(state) -> {} (no state update; side effect is the tool_hints upsert)"
       ],
       "created_at": "2026-08-01T05:48:37.369390+00:00",
-      "description": "Upserts a tool_hints.sqlite row per tool call and seeds keywords in the same connection. Used to also run _upsert_task_event_tools concurrently via a ThreadPoolExecutor, writing to task_events on EVERY tool call — removed (task:87ec7876) because task_events no longer exists. Found by grep for _cfg.tasks_db rather than the open_tasks/_connect patterns task:6240c675's sweep used, which is why it survived that earlier pass. With one writer left, the pool bought nothing; __call__ now calls _upsert_tool_hint directly. It no longer appends to prompt_tools/session_tools (task:84dbcf14): session_tools kept every tool_input and was re-serialised into a checkpoint blob on every call, an O(n²) leak with no reader.",
+      "description": "Upserts a tool_hints.sqlite row per tool call and seeds keywords in the same connection. Used to also run _upsert_task_event_tools concurrently via a ThreadPoolExecutor, writing to task_events on EVERY tool call — removed (task:87ec7876) because task_events no longer exists. Found by grep for _cfg.tasks_db rather than the open_tasks/_connect patterns task:6240c675's sweep used, which is why it survived that earlier pass. With one writer left, the pool bought nothing; __call__ now calls _upsert_tool_hint directly. It no longer appends to prompt_tools/session_tools (task:84dbcf14): session_tools kept every tool_input and was re-serialised into a checkpoint blob on every call, an O(n²) leak with no reader. The checkpointer is gone entirely (task:31fb711d); the dispatcher calls the node directly with a plain dict.",
       "evidence": [
         "langchain_learning/nodes/log_tool_usage.py:LogToolUsageNode",
         "langchain_learning/nodes/log_tool_usage.py:LogToolUsageNode.__call__"
@@ -453,7 +433,7 @@
         "Writes to tool_hints.sqlite only — no task store dependency",
         "Test sessions (api-test-/test-/pytest- prefixes) skip the upsert entirely"
       ],
-      "last_validated": "2026-11-23T13:47:21.578384+00:00",
+      "last_validated": "2026-11-25T00:00:00+00:00",
       "module": "langchain_learning/nodes/log_tool_usage.py",
       "name": "log-tool-usage-single-writer",
       "related": []
@@ -615,11 +595,11 @@
         "POST /hook/{event} calls dispatcher handler and returns hookSpecificOutput, a top-level decision/reason dict (Stop only), or {}",
         "GET /health returns {status: ok}",
         "GET /session/memory returns last N events from server_memory",
-        "GET /session/current returns {session_id, turn} from the most recent checkpoint — no active task required. GET /session/active was removed (task:8529435a); task-framework owns active-task state, queried via tasks__active. POST /set-active-taskid and GET /session/active-task (the task:996cc8f0 push cache) were also removed (task:173e6846) — task-framework stopped pushing and nothing here read the cache back",
+        "GET /session/current returns {session_id, turn} from the most recently touched real session in session_store — no active task required. GET /session/active was removed (task:8529435a); task-framework owns active-task state, queried via tasks__active. POST /set-active-taskid and GET /session/active-task (the task:996cc8f0 push cache) were also removed (task:173e6846) — task-framework stopped pushing and nothing here read the cache back",
         "_safe_json(request) -> dict — always returns a dict, never raises; malformed/empty/missing body returns {} with a logged warning"
       ],
       "created_at": "2026-06-29T09:47:25.286219+00:00",
-      "description": "Persistent FastAPI server replacing per-invocation subprocess dispatcher. Routes POST /hook/{event} to dispatcher handlers. Uses MemorySaver (in-process, in-memory LangGraph checkpointer) — does NOT survive server restarts. Replaced SqliteSaver (task:b3964f85) after two corruption incidents. Per-thread checkpoint history is capped at 5000 rows, enforced from NoopNode on every Stop event. Single uvicorn worker process, event loop is uvloop (task:53c9f817). All 6 hook endpoints parse the request body via a shared _safe_json() helper (task:33419f95) that fails open to {} on malformed/empty JSON instead of raising — matches hooks/client.py's own fail-open design. Hook handlers run in the threadpool under a per-session lock (task:bc39e90e).",
+      "description": "Persistent FastAPI server replacing per-invocation subprocess dispatcher. Routes POST /hook/{event} to dispatcher handlers. Per-session state is hooks/session_store.py (in-process dict, capped at 200 sessions) — does NOT survive server restarts. It replaced the LangGraph MemorySaver checkpointer (task:31fb711d), which had replaced SqliteSaver (task:b3964f85) after two corruption incidents. Single uvicorn worker process, event loop is uvloop (task:53c9f817). All 6 hook endpoints parse the request body via a shared _safe_json() helper (task:33419f95) that fails open to {} on malformed/empty JSON instead of raising — matches hooks/client.py's own fail-open design. Hook handlers run in the threadpool under a per-session lock (task:bc39e90e).",
       "evidence": [
         "hooks/server.py",
         "hooks/server.py:session_current",
@@ -632,16 +612,16 @@
         "tests/test_server_concurrency.py"
       ],
       "invariants": [
-        "Checkpoint state lives only in-process memory (MemorySaver) — discarded on every server restart/reload; nothing about session/task-activation state persists across a restart except what server_memory.py separately logs to SQLite",
-        "Per-thread checkpoint history is capped at 5000 rows via NoopNode on every Stop event, not by the server itself",
+        "Session state lives only in-process memory (hooks/session_store.py) — discarded on every server restart/reload; nothing about session/task-activation state persists across a restart except what server_memory.py separately logs to SQLite",
+        "The session store is capped at 200 sessions (oldest touched evicted) and entries are dropped on SessionEnd, so it cannot grow without bound; the server itself holds no eviction logic",
         "Server runs on port 8766 as a single uvicorn worker process — deliberately not multi-worker/per-session",
-        "GET /session/current reads live in-memory MemorySaver state (not a DB); it does not require an active task — GET /session/active (which did) was removed (task:8529435a). This server no longer holds any active-task state at all: the /set-active-taskid push cache (task:996cc8f0) was removed (task:173e6846), so the only session state here is session_id/turn from the checkpoint",
+        "GET /session/current reads the in-memory session_store (not a DB); it does not require an active task — GET /session/active (which did) was removed (task:8529435a). This server holds no active-task state: the /set-active-taskid push cache (task:996cc8f0) was removed (task:173e6846), so the only session state here is session_id/turn",
         "Event loop is uvloop, not stdlib asyncio — controlled entirely by whether uvloop is installed",
         "All 6 /hook/{event} endpoints (UserPromptSubmit, PreToolUse, PostToolUse, Stop, SessionStart, SessionEnd) parse their body via the shared _safe_json(request) helper, which catches any JSON-parse failure and returns {} instead of letting it propagate to the generic exception handler as a 500 — found missing (task:33419f95, log audit 2026-07-26) after an empty/malformed body crashed pre_tool_use with an unhandled JSONDecodeError. Any NEW hook endpoint added here must use _safe_json too, not a bare `await request.json()`, to preserve this fail-open guarantee.",
-        "All 6 /hook/{event} routes hand their synchronous handler to the threadpool via _run_hook, serialised by a per-session threading.Lock (task:bc39e90e). A slow request in one session no longer blocks the event loop for other sessions; events of ONE session stay serial, as the event loop used to make them, because InMemorySaver has no lock. A new hook route must use _run_hook too, not call a dispatcher handler directly from async code. The session lock is dropped on SessionEnd.",
+        "All 6 /hook/{event} routes hand their synchronous handler to the threadpool via _run_hook, serialised by a per-session threading.Lock (task:bc39e90e). A slow request in one session no longer blocks the event loop for other sessions; events of ONE session stay serial, as the event loop used to make them, because session_store's multi-call sequences are not atomic across calls. A new hook route must use _run_hook too, not call a dispatcher handler directly from async code. The session lock is dropped on SessionEnd.",
         "MEMORY.sqlite is reached through langchain_learning.memory_conn.memory_connection (one cached SQLCipher connection, warmed in lifespan), not a fresh src.encdb.open_db per call: each encrypted open costs ~300 ms of key derivation, which was ~600 ms of the UPS median (task:bc39e90e)."
       ],
-      "last_validated": "2026-11-23T14:58:10.732417+00:00",
+      "last_validated": "2026-11-25T00:00:00+00:00",
       "module": "hooks/server.py",
       "name": "server-fastapi-hook-server",
       "related": []
@@ -720,47 +700,55 @@
       "name": "server-memory-window-and-snapshot",
       "related": []
     },
-    "session-graph-test-production-routing": {
-      "confidence": 0.9,
-      "contracts": [
-        "get_session_graph(session_id: str = '') -> a compiled, checkpointer-backed StateGraph, production or test depending on session_id prefix"
-      ],
-      "created_at": "2026-07-28T01:58:19.215098+00:00",
-      "description": "get_session_graph(session_id) is the single chokepoint every hook entry point (run_session, run_gate, run_post_tool, run_stop, prewarm_session) already calls to obtain the compiled LangGraph StateGraph. Since task:b63088a1, it also decides WHICH of two graph instances to return based on session_id's prefix, isolating integration-test checkpoint traffic from the shared production MemorySaver without changing any endpoint URL or code path.",
-      "evidence": [
-        "langchain_learning/session_graph.py:get_session_graph",
-        "langchain_learning/session_graph.py:TEST_SESSION_PREFIX",
-        "hooks/server.py:session_detail",
-        "hooks/dispatcher.py:_handle_session_end",
-        "tests/test_session_graph_test_isolation.py"
-      ],
-      "invariants": [
-        "Any session_id starting with TEST_SESSION_PREFIX ('integration-test-') routes to _test_graph, a separate lazily-built graph/MemorySaver instance; every other session_id (including '') routes to the production _graph, exactly as before this routing existed.",
-        "Both _graph and _test_graph are built lazily on first use via the identical build_session_graph(checkpointer=MemorySaver()) pattern — no special-casing between them except which module-level global gets populated.",
-        "A checkpoint written under a test-prefixed session_id is genuinely invisible to the production graph, not just conventionally separated — they are two distinct MemorySaver instances with independent .storage dicts.",
-        "No eviction/cleanup logic exists for _test_graph and none is needed: both graphs reset to empty on every server restart, since MemorySaver has no persistence and none is intended for either.",
-        "Callers that reference the underlying singleton directly (sg._graph) rather than through get_session_graph(session_id) will NOT get isolation-aware routing — hooks/server.py's session_detail endpoint and hooks/dispatcher.py's _handle_session_end both had to be updated to route through get_session_graph(session_id) (or check the correct global explicitly) for the isolation guarantee to hold end-to-end."
-      ],
-      "last_validated": "2026-07-28T01:58:19.215098+00:00",
-      "module": "langchain_learning/session_graph.py",
-      "name": "session-graph-test-production-routing"
-    },
     "session-state-latest-checkpoint-lookup": {
       "confidence": 0.9,
       "contracts": [
-        "get_current_session() -> {session_id, turn} or {} if no checkpoint exists anywhere"
+        "get_current_session() -> {session_id, turn} or {} if no real session exists",
+        "session_store.current() skips TEST_SESSION_PREFIX'd sessions, so integration traffic never changes what /session/current reports"
       ],
       "created_at": "2026-07-28T01:58:12.018834+00:00",
-      "description": "get_current_session backs GET /session/current — the only signal available for 'what session am I in' before any thread_id is known. Uses _latest_checkpoint_tuple() to find the single most-recently-written checkpoint across all threads. get_active_session (and GET /session/active) were removed (task:8529435a): active_task_id/active_task_title stopped being written into checkpoint state once task:882d67fa moved active-task ownership fully to task-framework, so the function always returned {}. Ask task-framework (tasks__active) for the live answer instead. A later push cache (set_active_task/get_active_task, task:996cc8f0) briefly held the active task in this module; it was removed (task:173e6846) once task-framework stopped pushing and nothing read it back.",
+      "description": "get_current_session backs GET /session/current — the only signal available for 'what session am I in' before any thread_id is known. It is session_store.current(): the most recently touched session whose id lacks TEST_SESSION_PREFIX. The old _latest_checkpoint_tuple cross-thread timestamp scan over MemorySaver went with the graph (task:31fb711d); an OrderedDict kept in touch order makes the answer structural rather than computed. get_active_session (and GET /session/active) were removed (task:8529435a) and the push cache (task:996cc8f0) in task:173e6846: task-framework owns the active task (tasks__active).",
       "evidence": [
-        "hooks/session_state.py:_latest_checkpoint_tuple"
+        "hooks/session_state.py:get_current_session",
+        "hooks/session_store.py:current",
+        "tests/test_session_state.py"
       ],
       "invariants": [
-        "No active-task concept lives in this module anymore — session_state.py only ever reports session_id/turn from the checkpoint, never a task id"
+        "No active-task concept lives in this module — it only ever reports session_id/turn, never a task id",
+        "A long-lived first-inserted session must not shadow newer ones (the task:a4531510 bug): every begin_turn/mark_stop moves the session to the end of the order"
       ],
-      "last_validated": "2026-08-01T05:48:37.367361+00:00",
+      "last_validated": "2026-11-25T00:00:00+00:00",
       "module": "hooks/session_state.py",
       "name": "session-state-latest-checkpoint-lookup"
+    },
+    "session-store-per-session-dict": {
+      "confidence": 0.9,
+      "contracts": [
+        "begin_turn(session_id, prompt) -> copy of state; bumps turn, mints a prompt_id, resets the Stop flags",
+        "mark_stop(session_id) -> True exactly once per turn (the chime guard)",
+        "get(session_id) -> copy or fresh defaults; never creates an entry",
+        "end(session_id) -> True if an entry existed; current() -> {session_id, turn} of the most recently touched non-test session or {}"
+      ],
+      "created_at": "2026-11-25T00:00:00+00:00",
+      "description": "The dispatcher's per-session state: a lock-guarded OrderedDict of {turn, prompt, prompt_id, stop_alert_sent, sound_played}, in-process only. It replaced a LangGraph StateGraph + MemorySaver whose four chains held one to three trivial nodes each while every event paid get_state x2 + invoke + update_state (task:31fb711d). The dispatcher is the single orchestrator; new behaviour is a function in the handler, new per-session state a field here.",
+      "evidence": [
+        "hooks/session_store.py:begin_turn",
+        "hooks/stop_effects.py:play_completion_sound",
+        "tests/test_session_store.py",
+        "task:31fb711d"
+      ],
+      "invariants": [
+        "Capped at _MAX_SESSIONS (200): the oldest touched session is dropped, so sessions that never send SessionEnd cannot grow the store without bound",
+        "Lost on server restart by design; losing a turn counter is cheap, a corrupt persisted store was not (task:b3964f85)",
+        "TEST_SESSION_PREFIX'd sessions share the store but are skipped by current()"
+      ],
+      "last_validated": "2026-11-25T00:00:00+00:00",
+      "module": "hooks/session_store.py",
+      "name": "session-store-per-session-dict",
+      "related": [
+        "server-fastapi-hook-server",
+        "live-session-audit"
+      ]
     },
     "toon-encoding-shared-module": {
       "confidence": 0.9,
@@ -840,6 +828,6 @@
     "commit": "5f62c6b5150a20fe7198d7bd6c155c4b3c0d3101",
     "extracted_at": "2026-07-23T05:42:23Z",
     "note": "incremental upsert (task:a2fd402d)",
-    "updated_at": "2026-11-25T04:19:34.468618+00:00"
+    "updated_at": "2026-11-25T00:00:00+00:00"
   }
 }

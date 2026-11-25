@@ -68,7 +68,7 @@ principles rather than specifics, and points at things that are checked:
   task-framework's `concept__*` MCP tools and re-check evidence before relying
   on it.
 - **`ontology/claude-hooks-domain.json`** — the domain vocabulary: bounded
-  contexts, terms that span modules (SessionState, GateContext, NodeRegistry),
+  contexts, terms that span modules (SessionStore, GateContext, GateCheck),
   and typed relations between them. Answers "what is this thing, and how does
   it relate to the others" — concept_store answers "what does this module
   promise" instead. `tests/test_ontology.py` checks that every evidence

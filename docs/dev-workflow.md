@@ -14,11 +14,11 @@ Single worktree, single branch:
 The dev/test/main three-worktree layout was retired — only main exists now.
 Edits, commits, and the running server all live in the same checkout.
 
-The hook server runs with **MemorySaver** — in-process, in-memory
-checkpointing (task:b3964f85 retired `SqliteSaver` after two corruption
-incidents). Checkpoint state does NOT survive server restarts;
-`~/.claude/langgraph_checkpoints.db` is a retired file nothing writes to
-anymore. `/deploy` restarts the server after each commit.
+The hook server keeps per-session state in `hooks/session_store.py` — an
+in-process dict (task:31fb711d removed the LangGraph checkpointer; task:b3964f85
+had retired `SqliteSaver` after two corruption incidents). Session state does NOT
+survive server restarts; `~/.claude/langgraph_checkpoints.db` is a retired file
+nothing writes to anymore. `/deploy` restarts the server after each commit.
 
 ## Day-to-day loop
 
@@ -62,9 +62,9 @@ task:abc123
 epic:def456
 ```
 
-## Checkpoint state
+## Session state
 
-The server uses `MemorySaver` (in-process, in-memory). State does NOT persist
+The server uses `hooks/session_store.py` (in-process, in-memory). State does NOT persist
 across server restarts or redeploys — this is a deliberate tradeoff after
 `SqliteSaver` corruption incidents (task:b3964f85). Design accordingly: don't
-rely on checkpoint state surviving a `/deploy`.
+rely on session state surviving a `/deploy`.

@@ -1,14 +1,14 @@
 # Ontology
 
 This directory holds `claude-hooks-domain.json`, the domain's ubiquitous
-language: the nouns of claude-hooks (SessionState, GateContext, NodeRegistry,
+language: the nouns of claude-hooks (SessionStore, GateContext, GateCheck,
 ...) and the explicit, typed relations between them.
 
 It exists to answer one question: **what is this thing, and what is it to the
 others?** Not how it's implemented — what it *is*, in the vocabulary anyone
 working on this project should share. That question is worth answering
 separately from the code because the terms cut across files (a term like
-SessionState is written and read by nearly every node in the graph), and
+SessionStore is read by several dispatcher handlers), and
 across the project's other memory stores, which answer different questions:
 
 - `concept_store/concepts.json` answers "what does this *module* promise" —

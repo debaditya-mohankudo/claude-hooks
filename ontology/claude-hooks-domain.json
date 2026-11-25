@@ -1,22 +1,21 @@
 {
   "meta": {
-    "note": "Ubiquitous-language ontology for this repo's domain: the vocabulary the code embodies, and the explicit typed relations between terms (is-a, part-of, relates, persists, references, describes, determines). Deliberately separate from concept_store/concepts.json -- that store is architecture PER MODULE (one summary per file) and answers 'what does this module promise'. This file is vocabulary PER DOMAIN TERM and answers 'what is this thing, and what is it to the others' -- a term here can span several modules (SessionState alone is written and read by nearly every node in the graph), and a module can define several terms, so it does not fit concept_store's per-file shape. Ground truth is still the code; this is a durable, human-readable map of the graph rather than N separate summaries. Modelled on task-framework/ontology/task-domain.json: definitions describe what a term IS in domain vocabulary, not how it's implemented -- evidence is a single pointer, a hint for verification, not an implementation trail.",
+    "note": "Ubiquitous-language ontology for this repo's domain: the vocabulary the code embodies, and the explicit typed relations between terms (is-a, part-of, relates, persists, references, describes, determines). Deliberately separate from concept_store/concepts.json -- that store is architecture PER MODULE (one summary per file) and answers 'what does this module promise'. This file is vocabulary PER DOMAIN TERM and answers 'what is this thing, and what is it to the others' -- a term here can span several modules (SessionStore is read by several dispatcher handlers), and a module can define several terms, so it does not fit concept_store's per-file shape. Ground truth is still the code; this is a durable, human-readable map of the domain rather than N separate summaries. Modelled on task-framework/ontology/task-domain.json: definitions describe what a term IS in domain vocabulary, not how it's implemented -- evidence is a single pointer, a hint for verification, not an implementation trail.",
     "repo": "claude-hooks",
     "created_at": "2026-08-25"
   },
   "bounded_contexts": {
     "Hook Dispatch": "The raw Claude Code hook event surface: reading stdin JSON, POSTing it to the FastAPI server, and routing each event type (UserPromptSubmit, PreToolUse, PostToolUse, Stop, SessionStart, SessionEnd) to its handler. Concerned with getting the payload from Claude Code's process to the right handler function -- not with what that handler decides.",
     "Gates/Enforcement": "Deciding allow or deny for a tool call before it executes. The live gates are the commit-traceability checks (every git commit names a task:<id>); the message-send gates moved to LocalMacMCP and the session-history checks went with the history (task:84dbcf14). Fails open on any internal error -- a gate that can't evaluate never blocks the call (task:4e56d23a).",
-    "Session & Checkpoint State": "The SessionState schema and its persistence: one checkpoint per session, the public entry points that read/invoke/write it, and the bookkeeping (checkpoint trim, live-session audit) needed to keep an in-memory, non-persistent store from growing unboundedly.",
-    "LangGraph Node Pipeline": "The node callables that actually do work inside the compiled session graph -- one class per file, wired together into event chains and looked up by name through a registry. Distinct from Session & Checkpoint State: this context is the node implementations and their structural contracts, not the state they read and write.",
     "Memory & Retrieval": "Scoring and injecting relevant memories into a turn: BM25 over each memory's tags and slug words, a recency factor, then the memory_links graph lifting neighbours of the top hits (no embeddings). Also the skill-scoped path that injects memories tagged for a Skill when it runs. Defines the seam that lets nodes swap in a null implementation for tests without touching the production scoring code. Tool hints are no longer injected (dispatcher._format_system_prompt tombstone).",
     "Ambient Context": "Identity and working-style context attached to every prompt turn from the user's vault, built from a typed ontology (LIFE_OS/user-context-ontology.json) rather than raw scored rows. Its always_on nodes (persona, financial profile) inject verbatim every turn; its remaining nodes (work domains) join a '## Relevant context' block only when the prompt's tokens hit their tags. Distinct from Memory & Retrieval, which scores MEMORY.sqlite rows -- this reads one curated graph the user maintains by hand.",
     "Observability": "Answering 'what happened, and what was I working on' after the fact: the consolidated cross-session event timeline, the raw log sink every module writes through, and the per-feature hit-rate logs (find_cli lookups, prompt shadowing) recorded from PostToolUse. Read through `mac hooks ...`.",
     "Concept Store": "The per-module architectural-fact store this repo maintains about its own source, and about which repo boundary a piece of evidence is allowed to cross.",
     "Tool Handler Surface": "The `handle_*` functions in src/tools/* that callers reach by name, and the two front-ends over them: cli-graph's `mac hooks|memory|...` verbs (live -- a subprocess runner imports the handlers) and mcp_server.py (dormant -- registered nowhere, kept on purpose for possible future use). Also the personal tool->domain/tool->skill lookup the pipeline uses to describe tool calls generically.",
-    "Tool-Call Side Effects": "Behaviour the dispatcher runs around the session graph on PreToolUse/PostToolUse rather than inside it: the WebSearch cache, find_cli and prompt-shadow logging, vault reindexing, the context-size nudge, and skill-memory injection with its tag nudge. Each is fail-open and independent of the others; none reads or writes SessionState.",
+    "Tool-Call Side Effects": "Behaviour the dispatcher runs in the dispatcher on PreToolUse/PostToolUse: the WebSearch cache, find_cli and prompt-shadow logging, vault reindexing, the context-size nudge, and skill-memory injection with its tag nudge. Each is fail-open and independent of the others; none reads or writes SessionStore.",
     "Client-side Status": "State the thin hook client writes for the terminal before (or instead of) talking to HookServer: the kitty tab status, the dashboard plan/turn files and the saved last response. Runs in HookClient's process because only it has the session's KITTY_* environment.",
-    "Storage": "Cross-cutting storage primitives other contexts build on: the encrypted-SQLite opener for MEMORY.sqlite and the named in-process caches (optionally persisted) the server exposes under /cache."
+    "Storage": "Cross-cutting storage primitives other contexts build on: the encrypted-SQLite opener for MEMORY.sqlite and the named in-process caches (optionally persisted) the server exposes under /cache.",
+    "Session State": "The per-session dict the hook server keeps between events (turn counter, last prompt, prompt id, once-per-turn Stop flags) and the Stop-time side effects keyed off it. In-process only: lost on restart, evicted on SessionEnd, capped in size. It replaced a LangGraph graph with a checkpointer (task:31fb711d); the dispatcher is now the single orchestrator."
   },
   "terms": {
     "HookDispatchTable": {
@@ -31,7 +30,7 @@
     },
     "HookServer": {
       "bounded_context": "Hook Dispatch",
-      "definition": "The persistent process HookClient talks to, replacing a slower per-invocation subprocess dispatcher. Owns the single checkpoint store for the whole server lifetime.",
+      "definition": "The persistent process HookClient talks to, replacing a slower per-invocation subprocess dispatcher. Owns the single SessionStore for the whole server lifetime.",
       "evidence": "hooks/server.py:lifespan"
     },
     "CopilotBridge": {
@@ -51,12 +50,12 @@
     },
     "PostToolUse": {
       "bounded_context": "Hook Dispatch",
-      "definition": "The moment just after any tool call returns, machine-wide like PreToolUse. The point where a completed call is observed and recorded, never denied; most of what it does runs as Tool-Call Side Effects before the graph.",
+      "definition": "The moment just after any tool call returns, machine-wide like PreToolUse. The point where a completed call is observed and recorded, never denied; most of what it does runs as Tool-Call Side Effects in the dispatcher.",
       "evidence": "hooks/dispatcher.py:_handle_post_tool_use"
     },
     "GateContext": {
       "bounded_context": "Gates/Enforcement",
-      "definition": "The dataclass a PreToolUse call is packaged into before a Gate evaluates it: tool name, tool input and prompt id -- no session history, which was removed with its leak (task:84dbcf14). What a Gate actually sees -- it never touches SessionState directly.",
+      "definition": "The dataclass a PreToolUse call is packaged into before a Gate evaluates it: tool name, tool input and prompt id -- no session history, which was removed with its leak (task:84dbcf14). What a Gate actually sees -- it never reads SessionStore directly.",
       "evidence": "hooks/gates.py:GateContext"
     },
     "Gate": {
@@ -64,60 +63,10 @@
       "definition": "One send-gate rule: given a tool call and a GateContext, decide allow or deny with a reason. The commit-traceability check (every git commit references a task id) is the concrete example; other gates compose as chains.",
       "evidence": "hooks/gates.py:Gate"
     },
-    "GatePolicy": {
-      "bounded_context": "Gates/Enforcement",
-      "definition": "The seam GateCheckNode dispatches through instead of calling gate logic directly, so a test can substitute a stub without the full gate machinery.",
-      "evidence": "langchain_learning/retrievers.py:GatePolicy"
-    },
-    "GateCheckNode": {
-      "bounded_context": "Gates/Enforcement",
-      "definition": "The node PreToolUse routes to. Builds a GateContext from SessionState, dispatches to its GatePolicy, and fails open on any internal error -- a gate that cannot evaluate must never block the call it was supposed to check.",
-      "evidence": "langchain_learning/nodes/gate_check.py:GateCheckNode"
-    },
-    "SessionState": {
-      "bounded_context": "Session & Checkpoint State",
-      "definition": "The single state shape every node in the session graph reads and returns a partial slice of. Carries routing, per-turn fields, and cross-turn fields side by side, though a given event only touches its own subset.",
-      "evidence": "langchain_learning/session_state.py:SessionState"
-    },
-    "SessionGraph": {
-      "bounded_context": "Session & Checkpoint State",
-      "definition": "The single compiled graph handling all four hook event types via one topology, routed by event type. The one chokepoint every public entry point calls to reach the pipeline.",
-      "evidence": "langchain_learning/session_graph.py:build_session_graph"
-    },
-    "SessionCheckpoint": {
-      "bounded_context": "Session & Checkpoint State",
-      "definition": "One session's persisted SessionState, keyed by session id. In-memory only -- does not survive a server restart -- replacing a store that corrupted twice in production. Test sessions are isolated from the production store.",
-      "evidence": "langchain_learning/session_graph.py:TEST_SESSION_PREFIX"
-    },
-    "CheckpointTrim": {
-      "bounded_context": "Session & Checkpoint State",
-      "definition": "The cap on one session's checkpoint history, run on every Stop event. Exists because the in-memory store has no built-in eviction -- without it a long-running session's history grows unboundedly. Frees the channel blobs only evicted checkpoints referenced, which is where the memory actually lives (task:84dbcf14). Costs only time-travel to evicted checkpoints, never current-state correctness.",
-      "evidence": "langchain_learning/nodes/noop.py:_trim_thread_checkpoints"
-    },
     "ActiveSessionLookup": {
-      "bounded_context": "Session & Checkpoint State",
-      "definition": "The only signal available for 'what session am I in' before any session id is explicitly known -- finds the single most-recently-written checkpoint across all sessions.",
+      "bounded_context": "Session State",
+      "definition": "The only signal available for 'what session am I in' before any session id is explicitly known -- the most recently touched real (non-test) session in SessionStore.",
       "evidence": "hooks/session_state.py:get_current_session"
-    },
-    "NodeCallable": {
-      "bounded_context": "LangGraph Node Pipeline",
-      "definition": "The structural contract every session-graph node satisfies: callable with a SessionState, returns a dict of partial state updates. What lets any registered node be instantiated uniformly regardless of which hook-event step it implements.",
-      "evidence": "langchain_learning/nodes/base.py:NodeCallable"
-    },
-    "BackfillNodeProtocol": {
-      "bounded_context": "LangGraph Node Pipeline",
-      "definition": "The contract for the single pluggable memory-backfill slot in the UPS graph. Swapping strategies means replacing the graph edge, not subclassing -- multiple strategies must be composed inside one node rather than adding parallel backfill edges. Currently unwired -- the node that fed it was removed.",
-      "evidence": "langchain_learning/nodes/base.py:BackfillNodeProtocol"
-    },
-    "NodeRegistry": {
-      "bounded_context": "LangGraph Node Pipeline",
-      "definition": "The factory that turns a node name into a fresh NodeCallable instance for graph wiring. Enforces that every registered value is a class, never a pre-built instance shared across graphs.",
-      "evidence": "langchain_learning/nodes/registry.py:NODE_REGISTRY"
-    },
-    "NoopNode": {
-      "bounded_context": "LangGraph Node Pipeline",
-      "definition": "Routed to for stop events and unrecognised event types. Marks the first Stop of a turn, runs CheckpointTrim on every Stop, and logs a warning when more than one live session is detected -- surfacing forgotten detached sessions passively.",
-      "evidence": "langchain_learning/nodes/noop.py:NoopNode"
     },
     "MemoryRetriever": {
       "bounded_context": "Memory & Retrieval",
@@ -126,7 +75,7 @@
     },
     "LoadMemoriesNode": {
       "bounded_context": "Memory & Retrieval",
-      "definition": "The UPS-chain node that tokenises the prompt, calls its MemoryRetriever, and records which memories surfaced and their hit counts -- recording is wrapped so a failure there degrades observability only, never the memories returned to the turn.",
+      "definition": "The class the UserPromptSubmit handler calls; it that tokenises the prompt, calls its MemoryRetriever, and records which memories surfaced and their hit counts -- recording is wrapped so a failure there degrades observability only, never the memories returned to the turn.",
       "evidence": "langchain_learning/nodes/load_memories.py:LoadMemoriesNode"
     },
     "UserContextOntology": {
@@ -218,102 +167,263 @@
       "bounded_context": "Storage",
       "definition": "The hook-server's one long-lived connection to MEMORY.sqlite, opened through EncDB and used under a lock, committed per block. Exists because each encrypted open pays ~300 ms of key derivation; memory scoring, hit counting and skill-tagged lookups all go through it. A plain file opens fresh per call; a replaced file or an error inside a block reopens it.",
       "evidence": "langchain_learning/memory_conn.py:memory_connection"
+    },
+    "SessionStore": {
+      "bounded_context": "Session State",
+      "definition": "The in-process per-session dict (turn, prompt, prompt_id, stop flags) that carries state from one hook event to the next. Evicted on SessionEnd and capped at a fixed number of sessions, so it cannot grow unboundedly; test sessions are skipped by current().",
+      "evidence": "hooks/session_store.py:begin_turn"
+    },
+    "StopEffects": {
+      "bounded_context": "Session State",
+      "definition": "What Stop does besides marking the turn: the completion chime, fired once per turn, and a passive log when more than one live claude process exists, which surfaces forgotten detached sessions.",
+      "evidence": "hooks/stop_effects.py:play_completion_sound"
+    },
+    "GateCheck": {
+      "bounded_context": "Gates/Enforcement",
+      "definition": "The dispatcher step PreToolUse runs for a gated tool: builds a GateContext from the call and the turn's prompt id, runs the registered Gate, and returns allow or deny with a reason. Any internal error fails open -- a gate that cannot evaluate must never block the call it was supposed to check.",
+      "evidence": "hooks/dispatcher.py:_gate_check"
     }
   },
   "relations": [
-    {"subject": "UserPromptSubmit", "predicate": "part-of", "object": "HookDispatchTable",
-     "note": "One of the event names the table routes."},
-    {"subject": "UserPromptSubmit", "predicate": "determines", "object": "LoadMemoriesNode",
-     "note": "The only event that reaches BM25 memory retrieval -- there's nothing to score before the prompt exists. (SkillMemories injects on PostToolUse, by tag, not by score.)"},
-    {"subject": "PreToolUse", "predicate": "part-of", "object": "HookDispatchTable",
-     "note": "One of the event names the table routes."},
-    {"subject": "PostToolUse", "predicate": "part-of", "object": "HookDispatchTable",
-     "note": "PreToolUse's counterpart event, routed the same way."},
-    {"subject": "PreToolUse", "predicate": "determines", "object": "GateCheckNode",
-     "note": "The only event a Gate ever evaluates -- deny/allow only makes sense before the call happens."},
-    {"subject": "UserPromptSubmit", "predicate": "relates", "object": "PreToolUse",
-     "note": "Sibling hook events in the same per-turn sequence: prompt, then zero or more tool calls each bracketed by PreToolUse/PostToolUse."},
-    {"subject": "PreToolUse", "predicate": "relates", "object": "PostToolUse",
-     "note": "Before/after halves of the same tool call, machine-wide, not scoped to this repo's own tools."},
-    {"subject": "HookClient", "predicate": "references", "object": "HookServer",
-     "note": "HookClient forwards the stdin payload to HookServer; the two never share a process, only an HTTP contract."},
-    {"subject": "CopilotBridge", "predicate": "relates", "object": "HookClient",
-     "note": "Functional analogue for non-Claude-Code callers -- same HookServer, same event vocabulary, different invocation surface (CLI args vs. stdin JSON from Claude Code itself)."},
-    {"subject": "HookDispatchTable", "predicate": "part-of", "object": "HookServer",
-     "note": "The subprocess dispatch table and the FastAPI server's routes cover the same event set; the server is what HookClient actually talks to in production; dispatcher.main() is kept for tests, and HookClient prints {} rather than falling back to it."},
-    {"subject": "HookServer", "predicate": "persists", "object": "SessionCheckpoint",
-     "note": "HookServer owns the one place a SessionCheckpoint's storage is constructed, for the life of the process."},
-    {"subject": "SessionCheckpoint", "predicate": "part-of", "object": "SessionGraph",
-     "note": "A checkpoint only exists as the persisted state of one session inside the graph's compiled store; it has no identity or storage independent of the graph that wrote it."},
-    {"subject": "SessionState", "predicate": "part-of", "object": "SessionCheckpoint",
-     "note": "The shape that gets serialised into the checkpoint on every graph invoke; the checkpoint is 'a SessionState at time T for session X', not a separate schema."},
-    {"subject": "CheckpointTrim", "predicate": "references", "object": "SessionCheckpoint",
-     "note": "A defensive, store-specific operation that deletes the oldest entries past a row cap for one session -- a no-op for any checkpointer with its own eviction."},
-    {"subject": "ActiveSessionLookup", "predicate": "references", "object": "SessionCheckpoint",
-     "note": "Scans across all sessions' checkpoints for the most recently written one -- the only way to answer 'current session' before a session id is supplied, since no session identity exists outside the checkpoint store."},
-    {"subject": "NodeCallable", "predicate": "describes", "object": "SessionState",
-     "note": "Every NodeCallable's contract is exactly 'takes a SessionState, returns a partial SessionState update' -- the contract is defined purely in terms of that one shared type."},
-    {"subject": "NodeRegistry", "predicate": "persists", "object": "NodeCallable",
-     "note": "Not persistence in the storage sense -- NodeRegistry is the sole place fresh NodeCallable instances are constructed from, matching the analogous relation in ACME's and task-framework's ontologies for their own registries."},
-    {"subject": "BackfillNodeProtocol", "predicate": "is-a", "object": "NodeCallable",
-     "note": "A BackfillNodeProtocol implementor is still just a NodeCallable (same call signature); the extra protocol exists only to document the specific state fields the backfill slot is expected to read."},
-    {"subject": "GateCheckNode", "predicate": "is-a", "object": "NodeCallable",
-     "note": "Same NodeCallable contract as every other node; listed under Gates/Enforcement rather than LangGraph Node Pipeline because its behaviour (deny/allow via GatePolicy) is the point, not its place in the graph."},
-    {"subject": "GateCheckNode", "predicate": "references", "object": "GatePolicy",
-     "note": "Dispatches through the seam rather than calling gate logic directly, so tests can substitute a stub GatePolicy without touching the real gate machinery."},
-    {"subject": "GatePolicy", "predicate": "describes", "object": "GateContext",
-     "note": "A GatePolicy's check always takes a GateContext as its argument; the seam's shape is defined in terms of that one type."},
-    {"subject": "Gate", "predicate": "relates", "object": "GateContext",
-     "note": "Every concrete Gate receives a GateContext to decide against; a Gate never reads SessionState or the hook payload directly."},
-    {"subject": "LoadMemoriesNode", "predicate": "references", "object": "MemoryRetriever",
-     "note": "Accepts a MemoryRetriever at construction -- the node owns when retrieval happens, the retriever owns how memories are scored."},
-    {"subject": "LoadMemoriesNode", "predicate": "references", "object": "ServerMemory",
-     "note": "Records which memories surfaced after scoring, so it becomes part of the same cross-session timeline as prompts and tool calls -- a one-directional call, not a shared data structure."},
-    {"subject": "ServerMemory", "predicate": "relates", "object": "SQLiteHandler",
-     "note": "Both write to the same database but through separate tables and separate write paths -- co-located storage, not a shared schema."},
-    {"subject": "MCPToolMap", "predicate": "relates", "object": "HookDispatchTable",
-     "note": "Both are dispatch tables keyed by name, but route different protocols -- MCPToolMap wires MCP tool calls, HookDispatchTable wires Claude Code hook events -- no shared code path between them."},
-    {"subject": "PostToolUse", "predicate": "references", "object": "ToolDomainMap",
-     "note": "The log_tool_usage step describes each recorded tool call in domain/skill terms through it; recording does not depend on it being populated (falls back to 'global'/empty skill when the personal registry is absent)."},
-    {"subject": "AmbientRender", "predicate": "references", "object": "UserContextOntology",
-     "note": "AmbientRender is the projection -- always_on nodes verbatim, tag-hit nodes as a '## Relevant context' list; UserContextOntology is the hand-maintained graph it reads. Adding a node with always_on:true adds an always-on section; adding one with tags makes it scored."},
-    {"subject": "AmbientRender", "predicate": "part-of", "object": "UserPromptSubmit",
-     "note": "render_user_context is called on ctx after run_session() returns, once per UserPromptSubmit turn, with ctx['keywords'] (the prompt tokens LoadMemoriesNode already produced); no other hook event builds it."},
-    {"subject": "AmbientRender", "predicate": "relates", "object": "MemoryRetriever",
-     "note": "Sibling ways of populating the injected system prompt that render as adjacent sections -- AmbientRender is one curated ontology (verbatim persona/financial + tag-matched domains), MemoryRetriever is keyword-scored MEMORY.sqlite rows -- sharing no code path; AmbientRender is built in the dispatcher after the graph, not by a node."},
-    {"subject": "UserContextOntology", "predicate": "relates", "object": "UserPromptSubmit",
-     "note": "Its always_on nodes are injected before Claude sees the prompt and shape the tone/style of the response -- the reason it is modelled rather than left as an implementation detail of _format_system_prompt. Not 'determines': it does not trigger or route the event, it only colours the output; the mechanism link is AmbientRender part-of UserPromptSubmit."},
-    {"subject": "PreToolUse", "predicate": "references", "object": "WebSearchCache",
-     "note": "Checked before the gate chain for WebSearch calls only; a fresh hit is returned as a deny whose reason is the cached result."},
-    {"subject": "PostToolUse", "predicate": "persists", "object": "WebSearchCache",
-     "note": "Every completed WebSearch is stored, so the next identical query within its TTL is served from the cache."},
-    {"subject": "UserPromptSubmit", "predicate": "persists", "object": "PromptShadow",
-     "note": "Each prompt gets a shadow find_cli row; PostToolUse later links the session's mac calls to it."},
-    {"subject": "PromptShadow", "predicate": "relates", "object": "FindCliLog",
-     "note": "Same measurement (did the next mac call use a suggestion?) for two triggers: every prompt, silently, vs. an explicit find_cli call."},
-    {"subject": "PostToolUse", "predicate": "references", "object": "FindCliLog",
-     "note": "Records find_cli results and links the next mac calls to them; nothing here changes the tool call's outcome."},
-    {"subject": "PostToolUse", "predicate": "references", "object": "VaultReindex",
-     "note": "Runs after any tool that may have written a vault note; a miss costs one stat."},
-    {"subject": "PostToolUse", "predicate": "references", "object": "ContextSizeNudge",
-     "note": "Checked on every completed tool call; fires once per token band per session."},
-    {"subject": "PostToolUse", "predicate": "references", "object": "SkillMemories",
-     "note": "A Skill tool call is the trigger; its additionalContext carries the skill-tagged memories."},
-    {"subject": "SkillMemories", "predicate": "relates", "object": "LoadMemoriesNode",
-     "note": "Sibling injection paths over the same MEMORY.sqlite: scored per prompt vs. exact tag per skill run; SkillMemories skips what the prompt already injected."},
-    {"subject": "SkillTagNudge", "predicate": "references", "object": "SkillMemories",
-     "note": "Asks for the tags SkillMemories retrieves by, so the next run of that skill has memories to inject."},
-    {"subject": "HookClient", "predicate": "persists", "object": "TerminalStatus",
-     "note": "Written in the client process on every event, before the POST to HookServer and regardless of its outcome."},
-    {"subject": "HookServer", "predicate": "references", "object": "CacheStore",
-     "note": "Exposes every named cache read-only over HTTP; the caches themselves are filled by the modules that own them."},
-    {"subject": "UserContextOntology", "predicate": "references", "object": "CacheStore",
-     "note": "Its last good copy lives in the persisted 'user_context' cache, the first fallback when the vault read fails."},
-    {"subject": "MemoryRetriever", "predicate": "references", "object": "EncDB",
-     "note": "MEMORY.sqlite is SQLCipher-encrypted, so every read of memory rows goes through EncDB rather than sqlite3."},
-    {"subject": "MemoryRetriever", "predicate": "references", "object": "MemoryConnection",
-     "note": "Scoring reads through the shared connection rather than a fresh EncDB open per prompt (task:bc39e90e)."},
-    {"subject": "MemoryConnection", "predicate": "references", "object": "EncDB",
-     "note": "Opens the file once through EncDB and reuses it."}
+    {
+      "subject": "UserPromptSubmit",
+      "predicate": "part-of",
+      "object": "HookDispatchTable",
+      "note": "One of the event names the table routes."
+    },
+    {
+      "subject": "UserPromptSubmit",
+      "predicate": "determines",
+      "object": "LoadMemoriesNode",
+      "note": "The only event that reaches BM25 memory retrieval -- there's nothing to score before the prompt exists. (SkillMemories injects on PostToolUse, by tag, not by score.)"
+    },
+    {
+      "subject": "PreToolUse",
+      "predicate": "part-of",
+      "object": "HookDispatchTable",
+      "note": "One of the event names the table routes."
+    },
+    {
+      "subject": "PostToolUse",
+      "predicate": "part-of",
+      "object": "HookDispatchTable",
+      "note": "PreToolUse's counterpart event, routed the same way."
+    },
+    {
+      "subject": "UserPromptSubmit",
+      "predicate": "relates",
+      "object": "PreToolUse",
+      "note": "Sibling hook events in the same per-turn sequence: prompt, then zero or more tool calls each bracketed by PreToolUse/PostToolUse."
+    },
+    {
+      "subject": "PreToolUse",
+      "predicate": "relates",
+      "object": "PostToolUse",
+      "note": "Before/after halves of the same tool call, machine-wide, not scoped to this repo's own tools."
+    },
+    {
+      "subject": "HookClient",
+      "predicate": "references",
+      "object": "HookServer",
+      "note": "HookClient forwards the stdin payload to HookServer; the two never share a process, only an HTTP contract."
+    },
+    {
+      "subject": "CopilotBridge",
+      "predicate": "relates",
+      "object": "HookClient",
+      "note": "Functional analogue for non-Claude-Code callers -- same HookServer, same event vocabulary, different invocation surface (CLI args vs. stdin JSON from Claude Code itself)."
+    },
+    {
+      "subject": "HookDispatchTable",
+      "predicate": "part-of",
+      "object": "HookServer",
+      "note": "The subprocess dispatch table and the FastAPI server's routes cover the same event set; the server is what HookClient actually talks to in production; dispatcher.main() is kept for tests, and HookClient prints {} rather than falling back to it."
+    },
+    {
+      "subject": "Gate",
+      "predicate": "relates",
+      "object": "GateContext",
+      "note": "Every concrete Gate receives a GateContext to decide against; a Gate never reads SessionStore or the hook payload directly."
+    },
+    {
+      "subject": "LoadMemoriesNode",
+      "predicate": "references",
+      "object": "MemoryRetriever",
+      "note": "Accepts a MemoryRetriever at construction -- the node owns when retrieval happens, the retriever owns how memories are scored."
+    },
+    {
+      "subject": "LoadMemoriesNode",
+      "predicate": "references",
+      "object": "ServerMemory",
+      "note": "Records which memories surfaced after scoring, so it becomes part of the same cross-session timeline as prompts and tool calls -- a one-directional call, not a shared data structure."
+    },
+    {
+      "subject": "ServerMemory",
+      "predicate": "relates",
+      "object": "SQLiteHandler",
+      "note": "Both write to the same database but through separate tables and separate write paths -- co-located storage, not a shared schema."
+    },
+    {
+      "subject": "MCPToolMap",
+      "predicate": "relates",
+      "object": "HookDispatchTable",
+      "note": "Both are dispatch tables keyed by name, but route different protocols -- MCPToolMap wires MCP tool calls, HookDispatchTable wires Claude Code hook events -- no shared code path between them."
+    },
+    {
+      "subject": "PostToolUse",
+      "predicate": "references",
+      "object": "ToolDomainMap",
+      "note": "The log_tool_usage step describes each recorded tool call in domain/skill terms through it; recording does not depend on it being populated (falls back to 'global'/empty skill when the personal registry is absent)."
+    },
+    {
+      "subject": "AmbientRender",
+      "predicate": "references",
+      "object": "UserContextOntology",
+      "note": "AmbientRender is the projection -- always_on nodes verbatim, tag-hit nodes as a '## Relevant context' list; UserContextOntology is the hand-maintained graph it reads. Adding a node with always_on:true adds an always-on section; adding one with tags makes it scored."
+    },
+    {
+      "subject": "AmbientRender",
+      "predicate": "part-of",
+      "object": "UserPromptSubmit",
+      "note": "render_user_context is called on ctx after run_session() returns, once per UserPromptSubmit turn, with ctx['keywords'] (the prompt tokens LoadMemoriesNode already produced); no other hook event builds it."
+    },
+    {
+      "subject": "AmbientRender",
+      "predicate": "relates",
+      "object": "MemoryRetriever",
+      "note": "Sibling ways of populating the injected system prompt that render as adjacent sections -- AmbientRender is one curated ontology (verbatim persona/financial + tag-matched domains), MemoryRetriever is keyword-scored MEMORY.sqlite rows -- sharing no code path; AmbientRender is built in the dispatcher after the graph, not by a node."
+    },
+    {
+      "subject": "UserContextOntology",
+      "predicate": "relates",
+      "object": "UserPromptSubmit",
+      "note": "Its always_on nodes are injected before Claude sees the prompt and shape the tone/style of the response -- the reason it is modelled rather than left as an implementation detail of _format_system_prompt. Not 'determines': it does not trigger or route the event, it only colours the output; the mechanism link is AmbientRender part-of UserPromptSubmit."
+    },
+    {
+      "subject": "PreToolUse",
+      "predicate": "references",
+      "object": "WebSearchCache",
+      "note": "Checked before the gate chain for WebSearch calls only; a fresh hit is returned as a deny whose reason is the cached result."
+    },
+    {
+      "subject": "PostToolUse",
+      "predicate": "persists",
+      "object": "WebSearchCache",
+      "note": "Every completed WebSearch is stored, so the next identical query within its TTL is served from the cache."
+    },
+    {
+      "subject": "UserPromptSubmit",
+      "predicate": "persists",
+      "object": "PromptShadow",
+      "note": "Each prompt gets a shadow find_cli row; PostToolUse later links the session's mac calls to it."
+    },
+    {
+      "subject": "PromptShadow",
+      "predicate": "relates",
+      "object": "FindCliLog",
+      "note": "Same measurement (did the next mac call use a suggestion?) for two triggers: every prompt, silently, vs. an explicit find_cli call."
+    },
+    {
+      "subject": "PostToolUse",
+      "predicate": "references",
+      "object": "FindCliLog",
+      "note": "Records find_cli results and links the next mac calls to them; nothing here changes the tool call's outcome."
+    },
+    {
+      "subject": "PostToolUse",
+      "predicate": "references",
+      "object": "VaultReindex",
+      "note": "Runs after any tool that may have written a vault note; a miss costs one stat."
+    },
+    {
+      "subject": "PostToolUse",
+      "predicate": "references",
+      "object": "ContextSizeNudge",
+      "note": "Checked on every completed tool call; fires once per token band per session."
+    },
+    {
+      "subject": "PostToolUse",
+      "predicate": "references",
+      "object": "SkillMemories",
+      "note": "A Skill tool call is the trigger; its additionalContext carries the skill-tagged memories."
+    },
+    {
+      "subject": "SkillMemories",
+      "predicate": "relates",
+      "object": "LoadMemoriesNode",
+      "note": "Sibling injection paths over the same MEMORY.sqlite: scored per prompt vs. exact tag per skill run; SkillMemories skips what the prompt already injected."
+    },
+    {
+      "subject": "SkillTagNudge",
+      "predicate": "references",
+      "object": "SkillMemories",
+      "note": "Asks for the tags SkillMemories retrieves by, so the next run of that skill has memories to inject."
+    },
+    {
+      "subject": "HookClient",
+      "predicate": "persists",
+      "object": "TerminalStatus",
+      "note": "Written in the client process on every event, before the POST to HookServer and regardless of its outcome."
+    },
+    {
+      "subject": "HookServer",
+      "predicate": "references",
+      "object": "CacheStore",
+      "note": "Exposes every named cache read-only over HTTP; the caches themselves are filled by the modules that own them."
+    },
+    {
+      "subject": "UserContextOntology",
+      "predicate": "references",
+      "object": "CacheStore",
+      "note": "Its last good copy lives in the persisted 'user_context' cache, the first fallback when the vault read fails."
+    },
+    {
+      "subject": "MemoryRetriever",
+      "predicate": "references",
+      "object": "EncDB",
+      "note": "MEMORY.sqlite is SQLCipher-encrypted, so every read of memory rows goes through EncDB rather than sqlite3."
+    },
+    {
+      "subject": "MemoryRetriever",
+      "predicate": "references",
+      "object": "MemoryConnection",
+      "note": "Scoring reads through the shared connection rather than a fresh EncDB open per prompt (task:bc39e90e)."
+    },
+    {
+      "subject": "MemoryConnection",
+      "predicate": "references",
+      "object": "EncDB",
+      "note": "Opens the file once through EncDB and reuses it."
+    },
+    {
+      "subject": "PreToolUse",
+      "predicate": "determines",
+      "object": "GateCheck",
+      "note": "PreToolUse runs GateCheck for a gated tool and denies the call when it says so."
+    },
+    {
+      "subject": "GateCheck",
+      "predicate": "references",
+      "object": "GateContext",
+      "note": "Builds the GateContext each Gate evaluates."
+    },
+    {
+      "subject": "HookServer",
+      "predicate": "persists",
+      "object": "SessionStore",
+      "note": "The server process owns the one store for its lifetime; it is lost on restart."
+    },
+    {
+      "subject": "ActiveSessionLookup",
+      "predicate": "references",
+      "object": "SessionStore",
+      "note": "Reads the most recently touched real session from the store."
+    },
+    {
+      "subject": "StopEffects",
+      "predicate": "references",
+      "object": "SessionStore",
+      "note": "The once-per-turn chime guard lives in the store; Stop fires the chime only when it says so."
+    }
   ]
 }

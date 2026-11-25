@@ -113,7 +113,6 @@ def test_plain_db_opens_fresh_and_commits(tmp_path):
 # Opened through memory_conn, never directly. Each entry says why it may open its own.
 _DIRECT_OPEN_ALLOWED = {
     "langchain_learning/memory_conn.py": "the cache itself",
-    "langchain_learning/nodes/backfill_memory_files.py": "registered but no graph edge reaches it (session_graph.py)",
 }
 
 

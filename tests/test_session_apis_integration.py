@@ -1,4 +1,4 @@
-"""Live smoke test proving task:b63088a1's test-graph isolation actually holds
+"""Live smoke test proving task:b63088a1's test-session isolation actually holds
 against the real running hook server.
 
 Background: this whole line of work started with task:a4531510 (hooks__session_id
@@ -8,13 +8,9 @@ every run. Since Python dict insertion order never changes on key updates, that 
 became permanently first in the production checkpointer's storage dict, which is exactly
 what made the old `next(iter(checkpointer.list(None)))` approach get stuck on it forever.
 
-task:b63088a1 fixed the root cause: session_graph.get_session_graph(session_id) now
-routes any TEST_SESSION_PREFIX'd session_id to an isolated _test_graph instead of the
-shared production one. hooks/session_state.py's get_current_session (backing
-GET /session/current) reads `sg._graph` directly and was NOT changed — it was
-never the thing writing test data, only the thing reading it, and it already
-exhibits the correct behavior once nothing test-related is written to
-`sg._graph` in the first place.
+task:b63088a1 fixed the root cause by routing TEST_SESSION_PREFIX'd session_ids to an
+isolated test graph. With the graph gone (task:31fb711d) the same guarantee comes from
+hooks/session_store.py: current() skips TEST_SESSION_PREFIX'd sessions.
 
 This test proves the isolation holds end-to-end: posting test-prefixed traffic must NOT
 change what /session/current reports.
@@ -29,7 +25,7 @@ import urllib.request
 
 import pytest
 
-from langchain_learning.session_graph import TEST_SESSION_PREFIX
+from hooks.session_store import TEST_SESSION_PREFIX
 from src.tools.hooks import _SERVER_URL, handle_session_id
 
 pytestmark = pytest.mark.integration
@@ -54,8 +50,8 @@ def _post_prompt(session_id: str, prompt: str = "integration smoke test") -> Non
 
 
 def _test_sid(label: str) -> str:
-    """A TEST_SESSION_PREFIX'd session_id, routing to the isolated test graph
-    (task:b63088a1) instead of production's checkpoint store."""
+    """A TEST_SESSION_PREFIX'd session_id, skipped by session_store.current()
+    (task:b63088a1)."""
     return f"{TEST_SESSION_PREFIX}{label}-{int(time.time() * 1000)}"
 
 
@@ -76,17 +72,13 @@ class TestTestGraphIsolation:
         after = handle_session_id()
         assert after.get("session_id") == before.get("session_id"), (
             "production /session/current changed after posting only test-prefixed "
-            "traffic — the test-graph isolation may have regressed"
+            "traffic — the test-session isolation may have regressed"
         )
 
     def test_test_prefixed_session_still_queryable_by_explicit_id(self, live_server):
         """The debug /session/{id} lookup endpoint (hooks/server.py's
-        session_detail) routes through get_session_graph(session_id) same as
-        everything else (task:b63088a1) — a test session is still directly
-        queryable by its own id, it's just isolated from PRODUCTION traffic,
-        not invisible entirely. This is what keeps
-        test_checkpoint_query_integration.py's explicit-thread_id assertions
-        working after the isolation change."""
+        session_detail) reads session_store by id — a test session is still directly
+        queryable by its own id, it's just never reported as current."""
         from src.tools.hooks import handle_checkpoint_query
 
         sid = _test_sid("lookup-check")

@@ -6,7 +6,7 @@ Measures:
 
 Note: fire-and-forget (daemon thread) was tried and reverted. The hook runs as a
 short-lived subprocess — daemon threads are killed at process exit, so tools with
-large results (e.g. mail__read) silently died before writing to the checkpoint,
+large results (e.g. mail__read) silently died before writing the tool hint,
 breaking gate prereq checks. The pipeline is now synchronous; parallel DB writes
 inside log_tool_usage remain as the latency optimization.
 """
@@ -28,8 +28,8 @@ import pytest
 
 class TestDispatcherSkips:
     def test_memory_tools_skipped(self):
-        """memory__ tools must not trigger the run_post_tool pipeline."""
-        with patch("langchain_learning.session_graph.run_post_tool") as mock_run:
+        """memory__ tools must not reach log_tool_usage."""
+        with patch("hooks.dispatcher._log_tool_usage") as mock_run:
             from hooks.dispatcher import _handle_post_tool_use
             result = _handle_post_tool_use({
                 "tool_name": "mcp__local-mac__memory__add",

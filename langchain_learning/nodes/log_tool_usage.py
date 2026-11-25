@@ -11,8 +11,6 @@ import re
 import sqlite3
 
 from langchain_learning.config import config as _cfg
-from langchain_learning.nodes._node_log import entry
-from langchain_learning.session_state import SessionState
 from src.logger import get_logger
 
 _SPLIT_RE = re.compile(r"[_\-\s]+")
@@ -145,7 +143,7 @@ class LogToolUsageNode:
 
     _TEST_SESSION_PREFIXES = ("api-test-", "test-", "pytest-")
 
-    def __call__(self, state: SessionState) -> dict:
+    def __call__(self, state: dict) -> dict:
         from core.tool_registry import infer_domain, infer_skill, strip_mcp_prefix
 
         tool_name   = state.get("tool_name", "")
@@ -153,8 +151,6 @@ class LogToolUsageNode:
         duration_ms = float(state.get("duration_ms", 0.0))
         prompt_id   = state.get("prompt_id", "")
         session_id  = state.get("session_id", "") or ""
-
-        entry("log_tool_usage", state, duration_ms=round(duration_ms, 1))
 
         if not tool_name:
             return {}

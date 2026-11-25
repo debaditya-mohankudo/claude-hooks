@@ -122,8 +122,13 @@ class TestPartsMatchCode:
     def test_the_parts_are_defined(self, system):
         assert set(PART_DEF.findall(system)) == {
             "HookServer", "MCPTools", "MemoryConceptRAGStores",
-            "LangGraphPipeline", "System",
+            "SessionStore", "System",
         }
+
+    def test_langgraph_pipeline_has_not_reappeared(self, system):
+        """The graph was removed in task:31fb711d; the dispatcher is the orchestrator."""
+        assert "part def LangGraphPipeline" not in system
+        assert "LangGraphPipeline" not in {t for _n, t in PART_INSTANCE.findall(system)}
 
     def test_retired_task_subsystem_has_not_reappeared(self, system):
         """Task tracking left this repo (task:87ec7876, commit 060e823) and

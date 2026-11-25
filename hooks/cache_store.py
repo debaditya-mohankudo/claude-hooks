@@ -4,7 +4,7 @@ Holds named caches (e.g. "vault_context") that survive across hook calls
 within the server process — dispatcher.py is imported once into
 hooks/server.py's process, not re-executed per call. In-process caches are
 discarded on restart, same as every other bit of in-process state this
-server holds (hooks/session_state.py).
+server holds (hooks/session_store.py).
 
 A cache created with persist=True additionally write-throughs to
 config.claude_db_dir/.cache/<name>.json and reloads from it on the first

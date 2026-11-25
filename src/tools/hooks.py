@@ -1,14 +1,9 @@
 """MCP tools for querying hook state and logs.
 
-Production runs on MemorySaver (in-process, in-memory) — task:b3964f85 retired
-SqliteSaver (~/.claude/langgraph_checkpoints.db) after two corruption incidents
-(a 1.7GB .old-bloated file, then a "database disk image is malformed" failure
-that silently broke every Stop-hook write; see hooks/server.py's module
-docstring). checkpoint_query reads live state over HTTP from the running hook
-server (GET /session/{session_id}), not from that retired sqlite file — a
-prior version of this comment claimed the opposite (that SqliteSaver was still
-the live production DB), which was true when confirmed 2026-07-05
-(task:61703ef7) but stale after task:b3964f85's later migration.
+Session state is hooks/session_store.py, an in-process dict in the hook server
+(task:31fb711d removed the LangGraph graph; task:b3964f85 had already retired the
+SqliteSaver file). checkpoint_query reads it over HTTP from the running hook
+server (GET /session/{session_id}); no sqlite file is involved.
 """
 import json
 import sqlite3
@@ -117,15 +112,13 @@ def handle_session_id() -> dict:
 
 
 def handle_checkpoint_query(thread_id: str = "") -> dict:
-    """Query the live LangGraph checkpoint for injected memories, tool hints, session context, and keywords.
+    """Query the hook server's live session state (turn, prompt, prompt_id, Stop flags).
 
     thread_id is the session_id to look up; if omitted, uses the current session
     (same resolution as handle_session_id).
 
     Thin wrapper over the hook server's GET /session/{session_id}, which reads
-    channel_values straight from the live in-process MemorySaver — checkpoint_query
-    no longer reads ~/.claude/langgraph_checkpoints.db directly, since production
-    stopped writing that file after task:b3964f85. hooks__session_id is a lighter-weight
+    the session_store entry. hooks__session_id is a lighter-weight
     alternative when only the session_id itself is needed.
     """
     session_id = thread_id

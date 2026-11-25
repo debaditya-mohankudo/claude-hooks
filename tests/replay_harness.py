@@ -139,10 +139,9 @@ def load_ups_events(since: str, limit: int) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 def _build_graph():
-    import langchain_learning.session_graph as sg
-    from langgraph.checkpoint.memory import MemorySaver
-    sg._graph = sg.build_session_graph(checkpointer=MemorySaver())
-    return sg
+    """The replay target. There is no graph since task:31fb711d: it is the dispatcher's UPS turn."""
+    import hooks.dispatcher as d
+    return d
 
 
 def _synthetic_prompt(prompt_len: int) -> str:
@@ -152,25 +151,22 @@ def _synthetic_prompt(prompt_len: int) -> str:
 
 
 def replay_event(sg, event: dict) -> dict:
-    """Run one UPS event through the current graph; return extracted output fields."""
+    """Run one UPS event through the dispatcher turn; return extracted output fields."""
     prompt = _synthetic_prompt(event.get("prompt_len", 20))
     cwd_str = event.get("cwd", "")
     # Resolve cwd: short names like 'claude-hooks' → full path
     if cwd_str and not cwd_str.startswith("/"):
         cwd_str = str(Path("~/workspace").expanduser() / cwd_str)
 
-    # Fresh session per event (no checkpoint bleed between replays). Prefixed
-    # with TEST_SESSION_PREFIX (task:a10a6638) so this routes to the isolated
-    # test graph (task:b63088a1) instead of writing into the shared production
-    # MemorySaver — replay runs used to leave permanent 'replay-<session>'
-    # threads sitting in production forever (MemorySaver never evicts).
-    from langchain_learning.session_graph import TEST_SESSION_PREFIX
-    session_id = f"{TEST_SESSION_PREFIX}replay-{event['session'][:8]}"
+    # Fresh session per event, prefixed with TEST_SESSION_PREFIX so current() and
+    # tool-hint writes ignore it (task:a10a6638). Evicted once the turn is replayed.
+    from hooks import session_store
+    session_id = f"{session_store.TEST_SESSION_PREFIX}replay-{event['session'][:8]}"
 
-    # active_task seeding is gone (task:882d67fa) — the task-aware nodes it fed
-    # (load_related_tasks, load_task_code, load_task_history) are all gone too;
-    # task-framework owns active-task context now, not this graph.
-    result = sg.run_session(prompt=prompt, session_id=session_id, cwd=cwd_str)
+    try:
+        result = sg._run_user_prompt_turn(prompt, session_id, cwd_str)
+    finally:
+        session_store.end(session_id)
 
     return {
         "session":        event["session"],
@@ -256,7 +252,7 @@ def cmd_capture(args):
     if skipped:
         print(f"  Skipped {len(skipped)} active session(s): {[s['session'][:8] for s in skipped]}")
 
-    print("Building graph...")
+    print("Loading dispatcher...")
     sg = _build_graph()
 
     print("Replaying events to capture baseline...")
@@ -281,7 +277,7 @@ def cmd_replay(baseline: list[dict], args):
     events = load_ups_events(args.since, args.limit)
     print(f"  Found {len(events)} events.")
 
-    print("Building graph...")
+    print("Loading dispatcher...")
     sg = _build_graph()
 
     print("Replaying events...")

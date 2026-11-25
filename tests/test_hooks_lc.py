@@ -1,8 +1,6 @@
-"""Tests for hook → session_graph integration.
+"""Tests for the hook entry point (dispatcher.main) end to end.
 
-All hook modules now delegate to session_graph nodes. Tests patch
-session_graph._cfg (via _make_sg_cfg) to redirect checkpoints_db
-to a tmp directory, giving each test an isolated checkpoint store.
+Session state is hooks/session_store.py (task:31fb711d); tests reset it.
 
 Covered:
   - pre_tool_use_lc:      Gate deny/allow, memory-tool skip, fail-open
@@ -22,13 +20,20 @@ _PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(_PROJECT_ROOT))
 sys.path.insert(0, str(_PROJECT_ROOT / "hooks"))
 
-import langchain_learning.session_graph as sg_mod
+from hooks import session_store
 from src.db.schema import MCP_TOOL_HINTS_DDL
 
 
 # ---------------------------------------------------------------------------
 # Shared fixtures
 # ---------------------------------------------------------------------------
+
+@pytest.fixture(autouse=True)
+def _fresh_session_store():
+    session_store.reset()
+    yield
+    session_store.reset()
+
 
 @pytest.fixture()
 def tool_hints_db(tmp_path):
@@ -48,7 +53,6 @@ class TestPreToolUseLc:
 
     def _run(self, hook_input: dict, checkpoints_db_path: Path | None = None, tmp_path: Path | None = None) -> dict:
         import hooks.dispatcher as hook_mod
-        sg_mod._graph = None
 
         with patch("sys.argv", ["dispatcher.py", "PreToolUse"]), \
              patch("sys.stdin", StringIO(json.dumps(hook_input))), \
@@ -56,7 +60,6 @@ class TestPreToolUseLc:
             hook_mod.main()
             out = mock_out.getvalue().strip()
 
-        sg_mod._graph = None
         return json.loads(out) if out else {}
 
     def test_non_mcp_tool_passes_through(self, tmp_path):
@@ -98,7 +101,6 @@ class TestToolUsageLoggerLc:
              checkpoints_db_path: Path | None = None, tmp_path: Path | None = None) -> dict:
         import hooks.dispatcher as hook_mod
         import langchain_learning.nodes.log_tool_usage as tn
-        sg_mod._graph = None
 
         from langchain_learning.config import config as lc_cfg
         mock_cfg = MagicMock()
@@ -113,7 +115,6 @@ class TestToolUsageLoggerLc:
             hook_mod.main()
             out = mock_out.getvalue().strip()
 
-        sg_mod._graph = None
         return json.loads(out) if out else {}
 
     def test_upserts_new_tool_hint(self, tool_hints_db, tmp_path):
@@ -162,32 +163,16 @@ class TestToolUsageLoggerLc:
         assert count == 0
 
     def test_tool_body_not_retained_in_state(self, tool_hints_db, tmp_path):
-        """task:84dbcf14: the session state used to keep every tool_input
-        (session_tools) and a per-prompt call list (prompt_tools), re-serialised
-        on every PostToolUse. After a call, the current state must hold no copy
-        of the tool body and no history field."""
-        from langgraph.checkpoint.memory import MemorySaver
-        import langchain_learning.nodes.log_tool_usage as tn
-        from langchain_learning.config import config as lc_cfg
-
-        shared = sg_mod.build_session_graph(checkpointer=MemorySaver())
-        sg_mod._graph = shared
-
-        sg_mod.run_session(prompt="search contact", session_id="sess-1", cwd="/tmp")
-
-        mock_cfg_tn = MagicMock()
-        mock_cfg_tn.tool_hints_db = tool_hints_db
-        mock_cfg_tn.valid_domains = lc_cfg.valid_domains
-        mock_cfg_tn.memory_db = lc_cfg.memory_db
-        with patch.object(tn, "_cfg", mock_cfg_tn):
-            sg_mod.run_post_tool("Write", {"file_path": "/x", "content": "BODY" * 500},
-                                 session_id="sess-1", duration_ms=80)
-
-        cp_state = sg_mod.get_session_graph().get_state({"configurable": {"thread_id": "sess-1"}})
-        sg_mod._graph = None
-        values = cp_state.values
-        for gone in ("prompt_tools", "session_tools", "session_prompt_texts", "session_prompt_ids"):
-            assert gone not in values
+        """task:84dbcf14: the session state must hold no copy of a tool body and no
+        per-call history, however many calls the turn makes."""
+        session_store.begin_turn("sess-1", "search contact")
+        self._run(
+            {"tool_name": "mcp__local-mac__contacts__search", "session_id": "sess-1",
+             "duration_ms": 80, "tool_input": {"content": "BODY" * 500}},
+            tool_hints_db, tmp_path=tmp_path,
+        )
+        values = session_store.get("sess-1")
+        assert set(values) == {"turn", "prompt", "prompt_id", "stop_alert_sent", "sound_played"}
         assert "BODY" not in repr(values)
 
     def test_avg_latency_computed_correctly(self, tool_hints_db, tmp_path):
@@ -210,25 +195,20 @@ class TestToolUsageLoggerLc:
 # ---------------------------------------------------------------------------
 
 class TestStopHookLc:
-    def _run(self, hook_input: dict, reset_graph: bool = True) -> dict:
+    def _run(self, hook_input: dict) -> dict:
         import hooks.dispatcher as hook_mod
-        if reset_graph:
-            sg_mod._graph = None
 
-        # NoopNode calls live_claude_sessions() (a `ps` subprocess) on every
-        # Stop for its multi-session audit log. Stub it so these tests stay
-        # deterministic regardless of how many `claude` processes the host is
-        # running, and so popen.assert_called_once() below counts only the
-        # PlaySoundNode call.
+        # Stop calls live_claude_sessions() (a `ps` subprocess) for its multi-session
+        # audit log. Stub it so these tests stay deterministic regardless of how many
+        # `claude` processes the host is running, and so popen.assert_called_once()
+        # below counts only the chime.
         with patch("sys.argv", ["dispatcher.py", "Stop"]), \
              patch("sys.stdin", StringIO(json.dumps(hook_input))), \
-             patch("langchain_learning.nodes.noop.live_claude_sessions", return_value=[]), \
+             patch("hooks.stop_effects.live_claude_sessions", return_value=[]), \
              patch("sys.stdout", new_callable=StringIO) as mock_out:
             hook_mod.main()
             out = mock_out.getvalue().strip()
 
-        if reset_graph:
-            sg_mod._graph = None
         return json.loads(out) if out else {}
 
     def test_stop_hook_first_call_plays_sound_and_returns_empty(self, tmp_path):
@@ -238,14 +218,12 @@ class TestStopHookLc:
         popen.assert_called_once()
 
     def test_stop_hook_second_call_same_turn_is_noop(self, tmp_path):
-        sg_mod._graph = None
         with patch("subprocess.Popen") as popen:
-            first = self._run({"session_id": "any-session"}, reset_graph=False)
+            first = self._run({"session_id": "any-session"})
             assert first == {}
             popen.assert_called_once()
 
-            second = self._run({"session_id": "any-session"}, reset_graph=False)
+            second = self._run({"session_id": "any-session"})
             assert second == {}
             popen.assert_called_once()  # still just the one call from the first Stop
 
-        sg_mod._graph = None

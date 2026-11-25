@@ -31,13 +31,12 @@ def graph(tmp_path, monkeypatch):
 def ptu(monkeypatch):
     """Run the PostToolUse handler, capturing vault reindexes and hint-learning calls."""
     import hooks.dispatcher as d
-    import langchain_learning.session_graph as sg
     import src.tools.vault_index as vi
     seen = {"reindex": [], "learn": [], "tool_reindex": []}
     monkeypatch.setattr(vi, "reindex_for_command", lambda cid, inp: seen["reindex"].append((cid, inp)))
     monkeypatch.setattr(vi, "reindex_for_tool",
                         lambda name, inp, cwd="": seen["tool_reindex"].append((name, inp, cwd)))
-    monkeypatch.setattr(sg, "run_post_tool", lambda **kw: seen["learn"].append(kw) or None)
+    monkeypatch.setattr(d, "_log_tool_usage", lambda state: seen["learn"].append(state) or {})
     monkeypatch.setattr(d, "_maybe_context_size_nudge", lambda *a: None)
 
     def run(tool_name, tool_input, tool_response=None, cwd=""):
@@ -139,10 +138,8 @@ def test_a_failing_pretooluse_handler_does_not_deny_an_outbound_send_through_the
 
 def test_mac_hint_keywords_split_on_spaces_and_drop_mac():
     from langchain_learning.nodes.log_tool_usage import _derive_keywords
-    from langchain_learning.nodes.update_tool_keywords import _tool_keywords
-    for derive in (_derive_keywords, _tool_keywords):
-        kw = derive("mac vault section_search", "vault", "").split(",")
-        assert "mac" not in kw and {"vault", "section", "search"} <= set(kw)
+    kw = _derive_keywords("mac vault section_search", "vault", "").split(",")
+    assert "mac" not in kw and {"vault", "section", "search"} <= set(kw)
 
 
 # --- hint migration -------------------------------------------------------------
