@@ -93,6 +93,34 @@
       "name": "config-db-paths-and-domains",
       "related": []
     },
+    "cross-store-twin-detection": {
+      "confidence": 0.8,
+      "contracts": [
+        "census() returns a Census, never raises: a missing store, a missing decryption key, a locked DB or a renamed column all degrade to an empty twin list.",
+        "Census reports `missing` (store not on this machine) separately from `unreadable` (store present, read failed). The pytest guard skips on the first and FAILS on the second — collapsing them would let a lost key read as a clean run at -q.",
+        "main() exits 1 when any twin's loop side is superseded, and prints the replacement slug plus the `mac memory` commands to fix it.",
+        "The only coupling to taskfw is one query, SELECT slug, superseded_by FROM memories. No taskfw import, no shared schema module, no entry point."
+      ],
+      "created_at": "2026-11-25T04:19:34.468550+00:00",
+      "description": "Lessons live in two stores with asymmetric retirement semantics. ~/.claude/MEMORY.sqlite is scored and injected into every prompt by LoadMemoriesNode and has NO superseded_by column, so a memory competes on keyword relevance until a human edits or deletes it. taskfw loop memory (~/.taskfw/tasks.db) tracks superseded_by and task_memory__recall excludes retired rows. A slug held by both can therefore be retired on the taskfw side and keep being injected. This module is the out-of-band detector for that, deliberately NOT a sync and NOT an injection-time filter (task:b0599ae7).",
+      "evidence": [
+        "scripts/memory_twins.py:census",
+        "scripts/memory_twins.py:Census",
+        "scripts/memory_twins.py:_slugs",
+        "tests/test_memory_twins.py:test_superseding_the_loop_side_makes_the_injected_twin_stale",
+        "tests/test_memory_twins.py:test_unreadable_store_is_reported_not_silently_empty",
+        "tests/test_memory_twins.py:test_live_stores_have_no_stale_twin"
+      ],
+      "invariants": [
+        "Nothing here runs per prompt. The detector is a CLI plus one pytest test, so the memory-injection hot path is unchanged.",
+        "MEMORY_DB comes from src.config so CLAUDE_HOOKS_MEMORY_DB repoints it with the rest of the pipeline; TASKFW_DB is a literal, because this repo owns no part of taskfw's configuration.",
+        "census() resolves its store paths per call rather than binding them as def-time defaults, so repointing MEMORY_DB / TASKFW_DB reaches main()."
+      ],
+      "last_validated": "2026-11-25T04:19:34.468571+00:00",
+      "module": "scripts/memory_twins.py",
+      "name": "cross-store-twin-detection",
+      "related": []
+    },
     "dashboard-plan-mirror": {
       "confidence": 0.8,
       "contracts": [
@@ -812,6 +840,6 @@
     "commit": "5f62c6b5150a20fe7198d7bd6c155c4b3c0d3101",
     "extracted_at": "2026-07-23T05:42:23Z",
     "note": "incremental upsert (task:a2fd402d)",
-    "updated_at": "2026-11-25T03:53:19.357174+00:00"
+    "updated_at": "2026-11-25T04:19:34.468618+00:00"
   }
 }
