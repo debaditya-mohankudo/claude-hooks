@@ -23,8 +23,8 @@ package ClaudeHooksSystem {
     }
 
     part def MCPTools {
-        doc /* FastMCP dispatcher (src/dispatcher.py), 5 domains / 24 actions
-             * (hooks 4, memory 10, think 1, scratch 5, vault_map 4).
+        doc /* FastMCP dispatcher (src/dispatcher.py), 5 domains / 23 actions
+             * (hooks 3, memory 10, think 1, scratch 5, vault_map 4).
              *
              * The count is asserted against DOMAIN_MAP by tests/test_models.py
              * rather than left as prose: it read "9 domains / 56 actions" for a
