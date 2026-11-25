@@ -348,26 +348,22 @@
       "contracts": [
         "handle_server_memory(n_events) returns a markdown table or {error: ...}",
         "handle_read_logs_sqlite(level, logger, search, limit, format=\"toon\") returns a TOON-encoded string by default (\"count: N\\nrows[N]{...}:\\n  ...\"), or {count, rows} dict when format=\"json\"",
-        "handle_session_id() returns {session_id, turn} or {error: ...} after one retry on empty first response",
-        "handle_checkpoint_query(thread_id=\"\") returns {thread_id, turn_count, state, ...} or {error: ...}; thread_id doubles as session_id, omitted thread_id resolves to the current session via GET /session/current — no 'domains' key as of task:5b15dc9b (2026-08-07), since nothing computes domains anymore"
+        "handle_session_id() returns {session_id, turn} or {error: ...} after one retry on empty first response"
       ],
       "created_at": "2026-06-29T09:47:25.288414+00:00",
-      "description": "MCP tools for querying hook state: server_memory (live chronological timeline via HTTP), checkpoint_query (thin HTTP wrapper over the live server's GET /session/{session_id}, reading the in-process session_store entry — no longer a SQLite reader as of task:da29c842), and read_logs_sqlite (filtered log reader from claude_hooks.sqlite at ~/.claude/claude_hooks.sqlite via config.log_db as of task:62ea0ea5). Also session_id (added 2026-07-05, task:61703ef7): returns current session_id via GET /session/current with a built-in one-shot retry, absorbing the checkpoint-write race for a brand-new session.",
+      "description": "MCP tools for querying hook state: server_memory (live chronological timeline via HTTP) and read_logs_sqlite (filtered log reader from claude_hooks.sqlite at ~/.claude/claude_hooks.sqlite via config.log_db as of task:62ea0ea5). Also session_id (added 2026-07-05, task:61703ef7): returns current session_id via GET /session/current with a built-in one-shot retry, absorbing the checkpoint-write race for a brand-new session.",
       "evidence": [
         "src/tools/hooks.py",
         "src/tools/hooks.py:handle_session_id",
         "src/tools/hooks.py:handle_read_logs_sqlite",
-        "src/tools/hooks.py:handle_checkpoint_query",
         "src/toon.py:rows_to_toon",
         "tests/test_session_apis_integration.py"
       ],
       "invariants": [
         "server_memory hits the live FastAPI server at 127.0.0.1:8766 — fails if server is down",
         "session_id retries once (0.5s sleep) if the first /session/current response has no session_id — absorbs the race where a brand-new session's first checkpoint write lags behind the query",
-        "checkpoint_query is a thin HTTP wrapper over GET /session/{session_id} — it does NOT read ~/.claude/langgraph_checkpoints.db directly (that sqlite path was retired in production by task:b3964f85, and the checkpointer itself by task:31fb711d; the prior invariant here claiming checkpoint_query reads that file as 'the live DB SqliteSaver writes to in production' was true when confirmed 2026-07-05 (task:61703ef7) but went stale after task:b3964f85's later migration — corrected 2026-07-27, task:da29c842, after the stale assumption caused an unhandled 'no such table: checkpoints' error). checkpoint_query has no 'latest checkpoint across all threads' mode anymore — omitted thread_id resolves only to the current session, matching hooks__session_id's semantics.",
         "read_logs_sqlite's `format` param defaults to \"toon\" (task:d2165715): rows share a uniform schema (id, ts, level, logger, message), which TOON's tabular header+rows encoding compresses well versus repeating JSON keys per row. format=\"json\" is kept as an explicit fallback returning the original {count, rows} dict shape — callers needing the dict shape (e.g. programmatic filtering) must pass format=\"json\" explicitly.",
         "The TOON encoder itself (rows_to_toon/toon_cell) was extracted to src/toon.py (task:4b5bf21f) so src/tools/tasks.py's handle_list could reuse it — hooks.py now imports rows_to_toon rather than defining its own copy.",
-        "A docstring/comment's 'confirmed on <date>' claim is only as fresh as the last re-check against the code it describes — checkpoint_query's docstring cited a specific confirmation date (task:61703ef7) that read as settled fact but silently went stale after a later migration nobody circled back to update. Re-verify dated confirmations against current runtime behavior, don't trust the date alone.",
         "read_logs_sqlite reads from config.log_db. _HOOKS_LOG_DB in src/tools/hooks.py is `_cfg.log_db` (was a hard-coded iCloud path until task:62ea0ea5, 2026-09-03), resolving to ~/.claude/claude_hooks.sqlite."
       ],
       "last_validated": "2026-11-25T00:00:00+00:00",
@@ -734,8 +730,7 @@
       "evidence": [
         "hooks/session_store.py:begin_turn",
         "hooks/stop_effects.py:play_completion_sound",
-        "tests/test_session_store.py",
-        "task:31fb711d"
+        "tests/test_session_store.py"
       ],
       "invariants": [
         "Capped at _MAX_SESSIONS (200): the oldest touched session is dropped, so sessions that never send SessionEnd cannot grow the store without bound",
@@ -832,7 +827,6 @@
       "created_at": "2026-11-25T07:30:53.359686+00:00",
       "description": "WebSearch results are cached by normalised query (+ domain filters). On a fresh hit PreToolUse serves the cached text by denying the search; cached_hit_output returns both the model-facing permissionDecisionReason and the user-facing systemMessage so the module owns the whole wording.",
       "evidence": [
-        "task:665c7305",
         "tests/test_web_search_cache.py"
       ],
       "invariants": [

@@ -1,4 +1,4 @@
-"""Tests for src/tools/hooks.py — server_memory, read_logs_sqlite, checkpoint_query."""
+"""Tests for src/tools/hooks.py — server_memory, read_logs_sqlite."""
 import json
 import sqlite3
 import threading
@@ -8,7 +8,6 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from src.tools.hooks import (
-    handle_checkpoint_query,
     handle_read_logs_sqlite,
     handle_server_memory,
     handle_session_id,
@@ -212,74 +211,6 @@ class TestHandleReadLogsSqlite:
         with patch("src.tools.hooks._HOOKS_LOG_DB", db):
             result = handle_read_logs_sqlite()
         assert '"has, a comma and a ""quote"""' in result
-
-
-# ---------------------------------------------------------------------------
-# handle_checkpoint_query
-# ---------------------------------------------------------------------------
-
-def _urlopen_router(routes: dict):
-    """Return a side_effect fn for urllib.request.urlopen keyed by URL substring."""
-    def _side_effect(url, timeout=5):
-        for key, response in routes.items():
-            if key in url:
-                if isinstance(response, Exception):
-                    raise response
-                return response
-        raise AssertionError(f"unexpected URL: {url}")
-    return _side_effect
-
-
-class TestHandleCheckpointQuery:
-    def test_explicit_thread_id_queries_session_directly(self):
-        state = {"memories": [], "turn": 3}
-        routes = {"/session/t1": _mock_response({"session_id": "t1", "turn_count": 1, "state": state})}
-        with patch("urllib.request.urlopen", side_effect=_urlopen_router(routes)) as urlopen:
-            result = handle_checkpoint_query(thread_id="t1")
-        assert result["thread_id"] == "t1"
-        assert urlopen.call_count == 1  # no /session/current lookup needed
-
-    def test_no_thread_id_resolves_current_session_first(self):
-        state = {"memories": [], "turn": 7}
-        routes = {
-            "/session/current": _mock_response({"session_id": "sess1", "turn": 7}),
-            "/session/sess1": _mock_response({"session_id": "sess1", "turn_count": 2, "state": state}),
-        }
-        with patch("urllib.request.urlopen", side_effect=_urlopen_router(routes)):
-            result = handle_checkpoint_query()
-        assert result["thread_id"] == "sess1"
-        assert result["turn"] == 7
-
-    def test_no_current_session_returns_error(self):
-        routes = {"/session/current": _mock_response({})}
-        with patch("urllib.request.urlopen", side_effect=_urlopen_router(routes)):
-            result = handle_checkpoint_query()
-        assert "error" in result
-
-    def test_404_returns_no_checkpoints_error(self):
-        import urllib.error
-        routes = {"/session/nonexistent": urllib.error.HTTPError("url", 404, "not found", {}, None)}
-        with patch("urllib.request.urlopen", side_effect=_urlopen_router(routes)):
-            result = handle_checkpoint_query(thread_id="nonexistent")
-        assert "error" in result
-
-    def test_unreachable_server_returns_error(self):
-        routes = {"/session/t1": OSError("refused")}
-        with patch("urllib.request.urlopen", side_effect=_urlopen_router(routes)):
-            result = handle_checkpoint_query(thread_id="t1")
-        assert "error" in result
-
-    def test_returns_memories(self):
-        state = {
-            "memories": [{"name": "test", "type": "feedback",
-                          "tags": "foo", "body": "body text"}],
-        }
-        routes = {"/session/t1": _mock_response({"session_id": "t1", "turn_count": 1, "state": state})}
-        with patch("urllib.request.urlopen", side_effect=_urlopen_router(routes)):
-            result = handle_checkpoint_query(thread_id="t1")
-        assert result["thread_id"] == "t1"
-        assert len(result["memories"]) == 1
-        assert result["memories"][0]["name"] == "test"
 
 
 # ---------------------------------------------------------------------------

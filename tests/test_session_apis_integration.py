@@ -2,7 +2,7 @@
 against the real running hook server.
 
 Background: this whole line of work started with task:a4531510 (hooks__session_id
-returning a stale, wrong session) — root-caused to test_checkpoint_query_integration.py's
+returning a stale, wrong session) — root-caused to an earlier checkpoint test's
 fixture posting a hardcoded session_id straight into the LIVE PRODUCTION MemorySaver on
 every run. Since Python dict insertion order never changes on key updates, that thread
 became permanently first in the production checkpointer's storage dict, which is exactly
@@ -74,18 +74,6 @@ class TestTestGraphIsolation:
             "production /session/current changed after posting only test-prefixed "
             "traffic — the test-session isolation may have regressed"
         )
-
-    def test_test_prefixed_session_still_queryable_by_explicit_id(self, live_server):
-        """The debug /session/{id} lookup endpoint (hooks/server.py's
-        session_detail) reads session_store by id — a test session is still directly
-        queryable by its own id, it's just never reported as current."""
-        from src.tools.hooks import handle_checkpoint_query
-
-        sid = _test_sid("lookup-check")
-        _post_prompt(sid)
-        result = handle_checkpoint_query(thread_id=sid)
-        assert "error" not in result, result
-        assert result.get("thread_id") == sid
 
 
 class TestHandleSessionIdLive:
