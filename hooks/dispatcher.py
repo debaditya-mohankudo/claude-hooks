@@ -203,8 +203,8 @@ def _handle_user_prompt_submit(hook_input: dict) -> dict | None:
 # own injected memory payload, not the full conversation. Fires once per 50K
 # band crossed (100K, 150K, 200K, ...) so it reminds periodically as context
 # keeps growing instead of nagging every call or going silent after the first
-# warning (task:e849c7ad). Non-blocking, same allow+additionalContext shape
-# as _maybe_tmux_nudge below, but for PostToolUse instead of PreToolUse.
+# warning (task:e849c7ad). Non-blocking additionalContext, like
+# _maybe_tmux_nudge below, but for PostToolUse instead of PreToolUse.
 _CONTEXT_NUDGE_THRESHOLD = 100_000
 _CONTEXT_NUDGE_STEP = 50_000
 _CONTEXT_NUDGE_SHOWN_BAND: dict[str, int] = {}
@@ -464,14 +464,25 @@ def _bash_result(tool_response: dict) -> dict:
 
 # Nudge toward tmux for Bash commands (memory: prefer-tmux-for-commands) — tmux panes
 # survive across tool calls and let Claude inspect long-running/interactive output
-# (servers, REPLs, watchers) without blocking the turn. Non-blocking: allow +
-# additionalContext. Fires once per session on the first qualifying Bash call, not
-# on every Bash call, so it doesn't nag on simple one-shot commands.
+# (servers, REPLs, watchers) without blocking the turn. Advisory only: it returns
+# additionalContext and NO permissionDecision. An "allow" here would approve the
+# Bash call outright and skip the user's permission rules (task:d2e7cff6), so the
+# normal permission flow must decide. Fires once per session on the first
+# qualifying Bash call, not on every Bash call, so it doesn't nag on one-shot commands.
+#
+# Hints match as whole words (see _TMUX_NUDGE_HINT_RE): a bare substring test made
+# "serve" match mcpServers/server.py and "watch" match watch_next. "runserver" and
+# "rails server" are listed explicitly because the substring test used to catch them.
 _TMUX_NUDGE_SHOWN: set[str] = set()
 _TMUX_NUDGE_COMMAND_HINTS = (
-    "npm run", "yarn dev", "pnpm dev", "serve", "watch", "--watch",
-    "http.server", "uvicorn", "flask run", "rails s", "tail -f",
+    "npm run", "yarn dev", "pnpm dev", "serve", "runserver", "watch", "--watch",
+    "http.server", "uvicorn", "flask run", "rails s", "rails server", "tail -f",
     "docker compose up", "docker-compose up",
+)
+# A hint must not touch a word character, '.', '/' or '-' on either side, so
+# "serve" matches "npx serve ." but not "server.py", "mcpservers" or "/x/serve.js".
+_TMUX_NUDGE_HINT_RE = re.compile(
+    r"(?<![\w./-])(?:" + "|".join(re.escape(h) for h in _TMUX_NUDGE_COMMAND_HINTS) + r")(?![\w./-])"
 )
 _TMUX_NUDGE_TEXT = (
     "Reminder: for long-running or interactive commands (dev servers, watchers, "
@@ -486,13 +497,12 @@ def _maybe_tmux_nudge(short_name: str, tool_input: dict, session_id: str) -> dic
     if short_name != "Bash" or not session_id or session_id in _TMUX_NUDGE_SHOWN:
         return None
     command = (tool_input.get("command") or "").lower()
-    if "tmux" in command or not any(hint in command for hint in _TMUX_NUDGE_COMMAND_HINTS):
+    if "tmux" in command or not _TMUX_NUDGE_HINT_RE.search(command):
         return None
     _TMUX_NUDGE_SHOWN.add(session_id)
     return {
         "hookSpecificOutput": {
             "hookEventName": "PreToolUse",
-            "permissionDecision": "allow",
             "additionalContext": _TMUX_NUDGE_TEXT,
         }
     }
