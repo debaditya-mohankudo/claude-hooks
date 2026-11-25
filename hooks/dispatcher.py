@@ -535,16 +535,20 @@ def _handle_pre_tool_use(hook_input: dict) -> dict | None:
     elif tool_name == "WebSearch":
         # Serve a fresh cached result instead of searching again
         # (src/tools/web_search_cache.py). A miss falls through to the real search.
+        # "deny" is the only PreToolUse decision that skips the tool and still hands
+        # text back; the cache module owns both the reason and the user-facing
+        # systemMessage so the two halves cannot drift (task:665c7305).
         from src.tools import web_search_cache
-        cached = web_search_cache.cached_reason(session_id, hook_input.get("tool_input") or {})
+        cached = web_search_cache.cached_hit_output(session_id, hook_input.get("tool_input") or {})
         if cached:
             log.info("PreTU websearch cache hit: session=%s", session_id[:8])
             return {
                 "hookSpecificOutput": {
                     "hookEventName": "PreToolUse",
                     "permissionDecision": "deny",
-                    "permissionDecisionReason": cached,
-                }
+                    "permissionDecisionReason": cached["permissionDecisionReason"],
+                },
+                "systemMessage": cached["systemMessage"],
             }
         return None
     else:

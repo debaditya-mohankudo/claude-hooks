@@ -176,8 +176,8 @@
     },
     "WebSearchCache": {
       "bounded_context": "Tool-Call Side Effects",
-      "definition": "A cache of WebSearch results keyed by normalised query. PostToolUse stores each result; on a fresh hit PreToolUse denies the repeated search with the cached result as the reason -- a deny used as a cache hit, not as a refusal. A miss falls through to the real search.",
-      "evidence": "src/tools/web_search_cache.py:cached_reason, src/tools/web_search_cache.py:record_hook"
+      "definition": "A cache of WebSearch results keyed by normalised query. PostToolUse stores each result; on a fresh hit PreToolUse denies the repeated search with the cached result as the reason (opening 'NOT AN ERROR AND NOT A REFUSAL', since Claude Code wraps a deny reason in a fixed 'hook error:' frame) plus a one-line systemMessage for the user -- a deny used as a cache hit, not as a refusal. A miss falls through to the real search.",
+      "evidence": "src/tools/web_search_cache.py:cached_hit_output, src/tools/web_search_cache.py:record_hook"
     },
     "VaultReindex": {
       "bounded_context": "Tool-Call Side Effects",

@@ -5,6 +5,7 @@ fresh one is served instead of a new search:
 
     store(query, tool_input, tool_response)   PostToolUse on WebSearch
     lookup(query, tool_input)                 PreToolUse on WebSearch -> hit or None
+    cached_hit_output(session_id, tool_input)  PreToolUse hook fields for a hit, or None
     search(text) / stats() / purge(days)      CLI reports
 
 Key: the query lowercased with whitespace collapsed, plus the domain filters
@@ -224,21 +225,56 @@ def record_hook(session_id: str, tool_input: dict, tool_response) -> bool:
         return False
 
 
-def cached_reason(session_id: str, tool_input: dict) -> str | None:
-    """PreToolUse entry: the text to hand back instead of searching, or None. Never raises."""
+def _age_phrase(age_s: int) -> str:
+    if age_s < 60:
+        return f"{age_s}s ago"
+    if age_s < 3600:
+        return f"{age_s // 60} min ago"
+    return f"{age_s / 3600:.1f} h ago"
+
+
+def cached_hit_output(session_id: str, tool_input: dict) -> dict | None:
+    """PreToolUse entry: the hook fields to hand back instead of searching, or None.
+
+    Returns {"permissionDecisionReason", "systemMessage"} -- PreToolUse hook field
+    names, so this module owns the whole wording of a cache hit and the dispatcher
+    owns only the envelope. The keys are not a free-text blob the caller reassembles,
+    because two places composing one message is how the model-facing and user-facing
+    halves drift apart.
+
+    A cache hit has to be served as permissionDecision "deny" (task:665c7305): the
+    PreToolUse hook API has no field that substitutes a tool result -- allow/ask/defer
+    all let the search run or prompt the user, and updatedToolOutput exists only on
+    PostToolUse, after the search already happened. Claude Code then wraps the deny
+    reason as "PreToolUse:WebSearch hook error: <reason>" inside an <error> tag, a
+    prefix no hook output can change, which is why the reason opens by contradicting
+    it rather than describing the cache first. systemMessage is the one user-facing
+    channel: documented as a warning shown to the user, and passed through verbatim
+    by hooks/server.py and hooks/client.py.
+
+    Never raises.
+    """
     try:
         if _skip_session(session_id):
             return None
         hit = lookup(tool_input.get("query", ""), tool_input)
         if not hit:
             return None
-        age_m = hit["age_s"] // 60
-        return (
-            f"CACHED WebSearch result (fetched {age_m} min ago, TTL {hit['ttl_s'] // 60} min, "
-            f"served {hit['hits']}x) for query {hit['query']!r}. The search was skipped. To force a "
-            "fresh search, change the query wording or run `uv run python -m src.tools.web_search_cache "
-            "purge --days 0` first.\n\n" + hit["result"]
-        )
+        age = _age_phrase(hit["age_s"])
+        return {
+            "permissionDecisionReason": (
+                f"NOT AN ERROR AND NOT A REFUSAL \u2014 the WebSearch cache answered this query, so no "
+                f"live search ran. Cached result for {hit['query']!r}, fetched {age} "
+                f"(TTL {hit['ttl_s'] // 60} min, served {hit['hits']}x). Treat the text below as the "
+                "search output. For a fresh search, change the query wording or run "
+                "`uv run python -m src.tools.web_search_cache purge --days 0` first."
+                "\n\n" + hit["result"]
+            ),
+            "systemMessage": (
+                f"WebSearch cache hit: served a result fetched {age} instead of searching "
+                f"({hit['query']!r})."
+            ),
+        }
     except Exception:
         return None
 

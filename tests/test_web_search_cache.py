@@ -67,11 +67,11 @@ def test_purge(db):
 def test_hooks_skip_test_sessions_and_never_raise(monkeypatch, db):
     monkeypatch.setattr(wc, "default_db", lambda: db)
     assert not wc.record_hook("test-123", {"query": "q"}, "r")
-    assert wc.cached_reason("test-123", {"query": "q"}) is None
+    assert wc.cached_hit_output("test-123", {"query": "q"}) is None
     assert wc.record_hook("real-1", {"query": "q"}, "r")
-    assert "CACHED WebSearch result" in wc.cached_reason("real-1", {"query": "q"})
+    assert wc.cached_hit_output("real-1", {"query": "q"})["permissionDecisionReason"]
     monkeypatch.setattr(wc, "connect", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
-    assert wc.cached_reason("real-1", {"query": "q"}) is None
+    assert wc.cached_hit_output("real-1", {"query": "q"}) is None
     assert not wc.record_hook("real-1", {"query": "q"}, "r")
 
 
@@ -89,3 +89,43 @@ def test_dispatcher_serves_hit_then_misses_other_queries(monkeypatch, db):
     assert "ANSWER" in out["hookSpecificOutput"]["permissionDecisionReason"]
     assert dispatcher._handle_pre_tool_use(
         {"tool_name": "WebSearch", "session_id": "real-1", "tool_input": {"query": "other"}}) is None
+
+
+def test_hit_reads_as_a_cache_hit_not_a_refusal(monkeypatch, db):
+    """The deny reason and the user-facing systemMessage must both say "cache".
+
+    Claude Code renders a PreToolUse deny as "PreToolUse:WebSearch hook error:
+    <reason>" inside an <error> tag (confirmed live, task:665c7305). The reason has
+    to open by contradicting that frame, and the hit has to carry a systemMessage --
+    the only user-facing channel -- or the transcript reads as a permission refusal.
+    """
+    monkeypatch.setattr(wc, "default_db", lambda: db)
+    wc.store("gold price history", {"mode": "standard"}, "ANSWER", session_id="real-1")
+    out = wc.cached_hit_output("real-1", {"query": "gold price history", "mode": "standard"})
+    reason, notice = out["permissionDecisionReason"], out["systemMessage"]
+    assert reason.startswith("NOT AN ERROR AND NOT A REFUSAL")
+    assert "cache" in reason.lower() and "ANSWER" in reason
+    assert "cache hit" in notice.lower()
+    # The user-facing line is one line and never carries the result body.
+    assert "\n" not in notice and "ANSWER" not in notice
+
+
+def test_dispatcher_hit_carries_the_user_facing_system_message(monkeypatch, db):
+    import sys
+    sys.path.insert(0, "hooks")
+    import dispatcher
+    monkeypatch.setattr(wc, "default_db", lambda: db)
+    ti = {"query": "silver price history"}
+    wc.store("silver price history", ti, "ANSWER", session_id="real-1")
+    out = dispatcher._handle_pre_tool_use(
+        {"tool_name": "WebSearch", "session_id": "real-1", "tool_input": ti})
+    # systemMessage is a top-level hook field, not part of hookSpecificOutput;
+    # hooks/server.py and hooks/client.py pass the whole dict through verbatim.
+    assert "cache hit" in out["systemMessage"].lower()
+    assert "systemMessage" not in out["hookSpecificOutput"]
+
+
+def test_age_phrase_units():
+    assert wc._age_phrase(5) == "5s ago"
+    assert wc._age_phrase(600) == "10 min ago"
+    assert wc._age_phrase(9000) == "2.5 h ago"
