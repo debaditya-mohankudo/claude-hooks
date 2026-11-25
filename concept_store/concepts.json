@@ -557,6 +557,26 @@
       "name": "mine-tool-sequences",
       "related": []
     },
+    "pretooluse-nudges-are-advisory": {
+      "confidence": 0.8,
+      "contracts": [
+        "_maybe_tmux_nudge returns {hookSpecificOutput: {hookEventName, additionalContext}} with no permissionDecision, or None",
+        "tmux hints match only when not touching a word character, '.', '/' or '-' on either side (_TMUX_NUDGE_HINT_RE), so 'serve' does not match server.py/mcpServers and 'watch' does not match watch_next"
+      ],
+      "created_at": "2026-11-25T03:14:11.980499+00:00",
+      "description": "PreToolUse reminders (the once-per-session tmux nudge, _maybe_tmux_nudge) return additionalContext only. Only a gate denial (run_gate) and the WebSearch cache hit set permissionDecision, and both set \"deny\"; nothing in the hook server returns \"allow\", because an allow approves the tool call outright and skips the user's permission rules.",
+      "evidence": [
+        "hooks/dispatcher.py:_maybe_tmux_nudge",
+        "tests/test_dispatcher.py:test_tmux_nudge_never_sets_a_permission_decision"
+      ],
+      "invariants": [
+        "No hook path returns permissionDecision \"allow\"; the user's permission flow decides every non-denied call"
+      ],
+      "last_validated": "2026-11-25T03:14:11.980520+00:00",
+      "module": "hooks/dispatcher.py",
+      "name": "pretooluse-nudges-are-advisory",
+      "related": []
+    },
     "server-fastapi-hook-server": {
       "confidence": 0.95,
       "contracts": [
@@ -788,6 +808,6 @@
     "commit": "5f62c6b5150a20fe7198d7bd6c155c4b3c0d3101",
     "extracted_at": "2026-07-23T05:42:23Z",
     "note": "incremental upsert (task:a2fd402d)",
-    "updated_at": "2026-11-25T02:45:59.970611+00:00"
+    "updated_at": "2026-11-25T03:14:11.980588+00:00"
   }
 }
