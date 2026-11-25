@@ -5,36 +5,51 @@ inherits KITTY_WINDOW_ID / KITTY_LISTEN_ON. The long-running hook server has
 neither, which is why this lives client-side.
 
 Contract:
-- Maps a hook event to one of three states (working / needs_input / done) and
+- Maps a hook event to one of three states (working / needs_input / waiting) and
   paints the tab that contains this session's window (match window_id:N), so
   concurrent sessions never touch each other's tabs.
-- SessionStart / SessionEnd clear the tab's title and colours.
+- SessionEnd clears the tab's title and colours.
 - A tab launched for a taskfw task (TASKFW_TASK_ID in the environment, set by
   kitty-taskfw at launch) keeps the title it was launched with: only colours are
   painted there, never the title, so the task id is not replaced by "claude".
 - Never raises, never blocks: `kitten @` is spawned detached with output
   discarded and is not waited on. Without kitty, a socket, or the `kitten`
   binary (or with CLAUDE_KITTY_STATUS=0) it does nothing.
+
+Vocabulary (task:b5c1e08c, user decision 2026-11-25): "waiting" means the
+session wants the user's input, and it is the same word taskfw's kitty hook
+(taskfw/kitty/hook.py EVENT_STATE) writes into the `state` user var for the
+same events. Stop used to be called "done" here and painted a green check,
+which read as "finished, nothing needed" while taskfw called the same event
+"waiting" — one event, two opposite-sounding names. The two repos stay
+decoupled: neither reads the other's signal, only the words agree. "done"
+now survives in taskfw alone, where it means the session has ended, which is
+what SessionEnd clears the tab for here.
 """
 import os
 import shutil
 import subprocess
 
 # state -> (glyph, tab background, tab foreground)
+# "waiting" is deliberately not a green check (task:b5c1e08c): the turn being
+# over is the user's cue to type, not a finished job.
 _STATES = {
     "working":     ("●", "#d29922", "#000000"),
     "needs_input": ("▲", "#f85149", "#ffffff"),
-    "done":        ("✓", "#3fb950", "#000000"),
+    "waiting":     ("◆", "#58a6ff", "#000000"),
 }
 
 _EVENT_STATE = {
+    "SessionStart":     "waiting",
     "UserPromptSubmit": "working",
     "PreToolUse":       "working",
     "PostToolUse":      "working",
-    "Stop":             "done",
+    "Stop":             "waiting",
     "Notification":     "needs_input",
 }
-_CLEAR_EVENTS = {"SessionStart", "SessionEnd"}
+# SessionStart no longer clears (task:b5c1e08c): a fresh session is already
+# waiting for its first prompt, and saying so matches taskfw's SessionStart.
+_CLEAR_EVENTS = {"SessionEnd"}
 
 
 def state_for(event: str, payload: dict | None = None) -> str | None:
@@ -42,7 +57,7 @@ def state_for(event: str, payload: dict | None = None) -> str | None:
     if event in _CLEAR_EVENTS:
         return "clear"
     if event == "Notification" and (payload or {}).get("notification_type") == "idle_prompt":
-        return "done"
+        return "waiting"  # idling is the user's turn, not a permission prompt
     return _EVENT_STATE.get(event)
 
 

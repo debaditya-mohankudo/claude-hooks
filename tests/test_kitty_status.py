@@ -3,8 +3,11 @@
 Contract under test (behaviour, not internals):
 - a hook event paints only the tab holding this session's window
   (match window_id:$KITTY_WINDOW_ID) over the socket in $KITTY_LISTEN_ON
-- prompt/tool events -> working, Stop -> done, Notification -> needs input,
-  SessionStart/End -> cleared
+- prompt/tool events -> working, Stop and SessionStart -> waiting,
+  Notification -> needs input, SessionEnd -> cleared
+- "waiting" is the same word taskfw's kitty hook writes for the same events
+  (task:b5c1e08c); the two repos share the vocabulary and nothing else, so
+  this file pins claude-hooks' half of it
 - Notification is never forwarded to the hook server
 - with no kitty env, a missing `kitten`, or CLAUDE_KITTY_STATUS=0 nothing is
   spawned, and the client's stdout/exit code are unchanged
@@ -73,7 +76,8 @@ _KITTY = {"KITTY_WINDOW_ID": "7", "KITTY_LISTEN_ON": "unix:/tmp/kitty-123"}
     ("UserPromptSubmit", "● claude"),
     ("PreToolUse", "● claude"),
     ("PostToolUse", "● claude"),
-    ("Stop", "✓ claude"),
+    ("Stop", "◆ claude"),
+    ("SessionStart", "◆ claude"),
     ("Notification", "▲ claude"),
 ])
 def test_event_sets_state_on_own_window_tab(stub_kitten, event, glyph):
@@ -86,16 +90,69 @@ def test_event_sets_state_on_own_window_tab(stub_kitten, event, glyph):
     assert any("set-tab-color" in l for l in lines)
 
 
-def test_idle_prompt_notification_is_done_not_needs_input(stub_kitten):
+def test_idle_prompt_notification_is_waiting_not_needs_input(stub_kitten):
     path_dir, log = stub_kitten
     _run("Notification", {"notification_type": "idle_prompt"}, path_dir, **_KITTY)
-    assert any("✓ claude" in l for l in _calls(log, 2))
+    assert any("◆ claude" in l for l in _calls(log, 2))
 
 
-@pytest.mark.parametrize("event", ["SessionStart", "SessionEnd"])
-def test_session_boundaries_clear_tab(stub_kitten, event):
+def _kitty_status_module():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "kitty_status", Path(_CLIENT).parent / "kitty_status.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_readme_table_matches_event_state():
+    """kitty/README.md's claude-hooks column is checked, not just written.
+
+    The README is where the two repos' shared vocabulary is written down
+    (task:b5c1e08c). A table that drifts from the code is the "prose enforced by
+    nothing" this repo exists to avoid, so this parses the claude-hooks column
+    back out and compares it to the real mapping. The taskfw column cannot be
+    checked from here — that repo is deliberately not importable — and the
+    README says so.
+    """
+    mod = _kitty_status_module()
+    readme = (Path(__file__).parent.parent / "kitty" / "README.md").read_text()
+    lines = readme.splitlines()
+    start = next(i for i, l in enumerate(lines) if l.startswith("| event |"))
+    table = {}
+    for line in lines[start + 2:]:
+        if not line.startswith("|"):
+            break
+        event, ours, _theirs = (c.strip() for c in line.strip("|").split("|"))
+        table[event] = ours.split(" (")[0]
+    assert table, "the event table vanished from kitty/README.md"
+    for event, documented in table.items():
+        expected = "clear" if documented == "cleared" else documented
+        if event == "Notification `idle_prompt`":
+            names, payload = ["Notification"], {"notification_type": "idle_prompt"}
+        else:
+            names, payload = [e.strip() for e in event.split("/")], None
+        for name in names:
+            actual = mod.state_for(name, payload)
+            assert actual == expected, f"{name}: README says {documented}, code says {actual}"
+    assert set(mod._EVENT_STATE) <= {n.strip() for e in table for n in e.split("/")}, \
+        "an event claude-hooks paints is missing from the README table"
+
+
+def test_no_state_is_called_done():
+    """"done" belongs to taskfw, where it means the session ended (task:b5c1e08c).
+
+    A state named "done" here would again paint a finished-looking tab on Stop,
+    which is the exact confusion this vocabulary was aligned to remove. The
+    event -> state mapping itself is pinned behaviourally above; only the
+    absence of the word needs its own check, since no painted tab can show it.
+    """
+    assert "done" not in _kitty_status_module()._STATES
+
+
+def test_session_end_clears_tab(stub_kitten):
     path_dir, log = stub_kitten
-    _run(event, {"session_id": "s"}, path_dir, **_KITTY)
+    _run("SessionEnd", {"session_id": "s"}, path_dir, **_KITTY)
     lines = _calls(log, 2)
     assert any("set-tab-color" in l and "active_bg=NONE" in l for l in lines)
     assert not any("claude" in l and "set-tab-title" in l for l in lines)
