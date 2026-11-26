@@ -14,7 +14,6 @@ from src.db.schema import MEMORIES_DDL
 
 _CFG = {
     "top_n": 5,
-    "batch_limit": 500,
     "tag_weight": 3.0,
     "body_weight": 1.0,
     "recency_boost": 1.2,
@@ -45,33 +44,14 @@ def _insert(con, name, tags="", body="", related=""):
     con.commit()
 
 
-def test_batch_limit_caps_global_query(mem_conn):
-    """batch_limit caps the single global candidate query — with batch_limit
-    smaller than the total row count, only the most-recently-updated rows
-    (ORDER BY updated DESC LIMIT batch_limit) are even scored."""
-    cfg = {**_CFG, "batch_limit": 3}
-    with patch("langchain_learning.nodes._memory_scoring.load_scoring_cfg", return_value=cfg):
-        for i in range(10):
-            _insert(mem_conn, f"mem-{i}", tags="widget", body="widget")
-
-        results = score_memories({"widget"}, mem_conn, top_n=20)
-        # At most batch_limit rows were candidates, so at most batch_limit can score.
-        assert len(results) <= 3
-
-
-def test_all_rows_scored_when_under_batch_limit(mem_conn):
-    """With batch_limit comfortably above the row count, every matching row
-    is a scoring candidate — there is no per-group starvation any more since
-    scoring is a single global query."""
-    cfg = {**_CFG, "batch_limit": 500}
-    with patch("langchain_learning.nodes._memory_scoring.load_scoring_cfg", return_value=cfg):
-        for i in range(10):
-            _insert(mem_conn, f"mem-{i}", tags="widget", body="widget")
-        _insert(mem_conn, "solo-mem", tags="widget", body="widget")
-
-        results = score_memories({"widget"}, mem_conn, top_n=20)
-        names = {m["name"] for m in results}
-        assert "solo-mem" in names
+def test_old_memory_beyond_500_newer_rows_is_scored(mem_conn):
+    """There is no candidate window: age affects the score, never eligibility."""
+    _insert(mem_conn, "old-one", tags="widget")
+    mem_conn.execute("UPDATE memories SET updated='2020-01-01 00:00:00' WHERE name='old-one'")
+    for i in range(501):
+        _insert(mem_conn, f"filler-{i}", tags="zzz")
+    with patch("langchain_learning.nodes._memory_scoring.load_scoring_cfg", return_value=_CFG):
+        assert [m["name"] for m in score_memories({"widget"}, mem_conn)] == ["old-one"]
 
 
 def test_high_scorer_boosts_related_neighbour(mem_conn):
@@ -174,12 +154,12 @@ def _run(con, tokens, **over):
         return score_memories(tokens, con, top_n=10)
 
 
-def test_link_neighbour_outside_batch_window_still_surfaces(link_conn):
+def test_link_neighbour_with_no_term_match_surfaces(link_conn):
     _insert(link_conn, "old-neighbour", tags="zzz", body="zzz")
     link_conn.execute("UPDATE memories SET updated='2020-01-01 00:00:00' WHERE name='old-neighbour'")
     _insert(link_conn, "seed", tags="gate", body="gate")
     _link(link_conn, "seed", "old-neighbour")
-    names = [m["name"] for m in _run(link_conn, {"gate"}, batch_limit=1)]
+    names = [m["name"] for m in _run(link_conn, {"gate"})]
     assert "old-neighbour" in names
 
 

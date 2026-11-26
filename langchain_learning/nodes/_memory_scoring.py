@@ -45,7 +45,6 @@ def _defaults_from_config() -> dict:
     """Build scalar defaults from src.config (env-overridable)."""
     return {
         "top_n":                   _src_cfg.memory_top_n,
-        "batch_limit":             _src_cfg.memory_batch_limit,
         "tag_weight":              _src_cfg.memory_tag_weight,
         "body_weight":             _src_cfg.memory_body_weight,
         "recency_boost":           _src_cfg.memory_recency_boost,
@@ -200,7 +199,7 @@ def _related_column_boosts(cfg: dict, seed_pool, rows_by_name) -> dict:
 def _link_boosts(conn, cfg: dict, scores, seed_pool, rows_by_name) -> dict | None:
     """Boost graph neighbours from memory_links. None if the table is unusable.
 
-    Neighbours are fetched by id, so they need not be inside the batch_limit window.
+    Neighbours are fetched by id.
     Each seed keeps its best-matching neighbours (not the first in a string), and a
     target's summed boost is capped so a hub memory cannot swamp the top-N.
     Edge rules: relates_to/extends/learned_from boost either way; supersedes boosts
@@ -291,7 +290,7 @@ def score_memories(
     top_n: int | None = None,
     trace: list | None = None,
 ) -> list[dict]:
-    """Score all candidate memories and return top-N by combination signal.
+    """Score every memory and return top-N by combination signal.
 
     When `trace` is a list it receives one dict per top candidate
     ({name, score, hits}) for the audit log; it never changes the result.
@@ -304,11 +303,10 @@ def score_memories(
     keeps the legacy `related`-column boost.
     """
     cfg = load_scoring_cfg()
-    batch_limit = cfg.get("batch_limit", 500)
+    # No row limit: a window ordered by `updated` silently stops scoring old memories.
+    # The ORDER BY keeps score ties newest-first.
     rows: list[sqlite3.Row] = conn.execute(
-        f"SELECT {_NEIGHBOUR_COLS} FROM memories "
-        "ORDER BY updated DESC LIMIT ?",
-        (batch_limit,),
+        f"SELECT {_NEIGHBOUR_COLS} FROM memories ORDER BY updated DESC"
     ).fetchall()
 
     rows_by_name: dict[str, sqlite3.Row] = {row["name"]: row for row in rows}

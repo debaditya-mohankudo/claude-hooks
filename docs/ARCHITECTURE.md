@@ -61,7 +61,7 @@ Removed, and why: the LangGraph graph (`session_graph.py`, `SessionState`, the n
 | Commit ↔ task traceability | concept: `gates-commit-traceability` | `HookServer` |
 | Additive-only migrations | concept: `db-schema-ddl-and-migrations` invariant | `Foundation` |
 | Session state non-persistence | `models/requirements.sysml` | `SessionStore` |
-| Memory scoring global batch limit | concept: `memory-scoring-global-batch-limit` | `Stores` |
+| Every memory is keyword-scored | concept: `memory-scoring-covers-every-row` | `Stores` |
 
 The enforced model lives in `models/*.sysml` and is checked by `tests/test_models.py`; verify a row against `concept_store/concepts.json` before relying on it.
 

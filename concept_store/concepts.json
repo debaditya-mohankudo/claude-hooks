@@ -523,24 +523,24 @@
       "name": "mcp-server-bootstrap",
       "related": []
     },
-    "memory-scoring-global-batch-limit": {
-      "confidence": 0.9,
+    "memory-scoring-covers-every-row": {
+      "confidence": 0.95,
       "contracts": [
-        "score_memories() fetches at most batch_limit candidate rows total, across the whole memories table, before applying combination-signal scoring."
+        "Age affects a memory's score through the recency multiplier, never its eligibility"
       ],
-      "created_at": "2026-07-21T22:21:23.339835+00:00",
-      "description": "score_memories() fetches candidate memory rows via a single aggregate query across the whole memories table (SELECT name, type, tags, body, related, updated FROM memories ORDER BY updated DESC LIMIT batch_limit), then applies combination-signal scoring. Rewritten from a per-domain batched design (task:4c9c21e6, 2026-08-07) after MEMORY.sqlite's domain column was dropped — domain is no longer a retrieval axis, so there is no per-domain SELECT to keep separate.",
+      "created_at": "2026-11-26T12:53:08.765365+00:00",
+      "description": "score_memories() reads every row of MEMORY.sqlite and scores each; there is no candidate window (removed in task:0cf6a64b: ORDER BY updated DESC LIMIT 500 left 341 of 841 memories unscored).",
       "evidence": [
-        "langchain_learning/nodes/_memory_scoring.py:score_memories"
+        "langchain_learning/nodes/_memory_scoring.py:score_memories",
+        "tests/test_memory_scoring.py:test_old_memory_beyond_500_newer_rows_is_scored"
       ],
       "invariants": [
-        "batch_limit (memory_scoring.json / src.config.memory_batch_limit) is now a single global cap across all memories, not a per-domain cap.",
-        "Truncation (when the table exceeds batch_limit rows) always drops the stalest rows first, via ORDER BY updated DESC -- never an arbitrary rowid-order slice.",
-        "The prior per-domain starvation protection (a small/new domain could never be crowded out by a large one) has NO replacement as of this rewrite -- a large volume of recently-updated memories can now crowd out older ones regardless of topic. Accepted as a known, undefended risk when domain was removed (task:4c9c21e6 grooming), not an oversight; revisit only if starvation is observed in practice."
+        "Do not reintroduce a row limit on the candidate query: a window by `updated` drops old memories silently"
       ],
-      "last_validated": "2026-08-07T13:05:00.000000+00:00",
+      "last_validated": "2026-11-26T12:53:08.765389+00:00",
       "module": "langchain_learning/nodes/_memory_scoring.py",
-      "name": "memory-scoring-global-batch-limit"
+      "name": "memory-scoring-covers-every-row",
+      "related": []
     },
     "mine-tool-sequences": {
       "confidence": 0.8,
