@@ -7,9 +7,11 @@ writes and `python -m src.tools.vault_index` refreshes in full -- never edited b
 hand. These tools only read it. The in-memory graph is rebuilt whenever the
 database file changes, so an index update needs no server restart.
 
-Set VAULT_INDEX_DB to read an index elsewhere. scripts/vault_map.py still writes
-VAULT_MAP.json / VAULT_MAP.md in the vault as a standalone export; these tools no
-longer read them.
+Set VAULT_INDEX_DB to read an index elsewhere.
+
+Removed (task:4a55cf9a): scripts/vault_map.py, which exported VAULT_MAP.json /
+VAULT_MAP.md into the vault. Nothing read either file once these tools moved to
+the index, and both were deleted from the vault.
 """
 from __future__ import annotations
 

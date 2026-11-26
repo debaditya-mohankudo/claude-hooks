@@ -33,7 +33,6 @@ VAULT = Path.home() / "Library/Mobile Documents/iCloud~md~obsidian/Documents"
 DB = Path.home() / ".claude/vault_index.sqlite"
 LOG_DB = Path.home() / ".claude/vault_file_log.sqlite"  # read-only here; cli-graph's `mac vault_log` writes it
 SKIP_DIRS = {".obsidian", ".git", ".trash", "Tmp", "__pycache__"}
-SKIP_FILES = {"VAULT_MAP.md"}
 SCHEMA_VERSION = "2"
 STALE_AFTER_S = 60  # reindex_if_stale: a full mtime-gated pass at most this often
 
@@ -206,7 +205,7 @@ def reindex_file(conn: sqlite3.Connection, root: Path | str | None, rel: str) ->
 def _walk(root: Path):
     for p in sorted(root.rglob("*.md")):
         rel = p.relative_to(root)
-        if any(part in SKIP_DIRS or part.startswith(".") for part in rel.parts[:-1]) or rel.name in SKIP_FILES:
+        if any(part in SKIP_DIRS or part.startswith(".") for part in rel.parts[:-1]):
             continue
         yield str(rel)
 
@@ -386,8 +385,7 @@ def _record_error(label: str, exc: Exception) -> None:
 
 def _indexable(rel: str) -> bool:
     parts = Path(rel).parts
-    return (rel.endswith(".md") and parts[-1] not in SKIP_FILES
-            and not any(x in SKIP_DIRS or x.startswith(".") for x in parts[:-1]))
+    return (rel.endswith(".md") and not any(x in SKIP_DIRS or x.startswith(".") for x in parts[:-1]))
 
 
 def _rel_in_vault(raw: str, root: Path, cwd: str) -> str | None:
