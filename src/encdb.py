@@ -31,6 +31,7 @@ from pathlib import Path
 # VENDOR: the key lives in the cli-graph repo, not next to this copy. Override with $ENCDB_KEY_FILE.
 KEY_FILE = Path(os.environ.get("ENCDB_KEY_FILE", "~/workspace/cli-graph/secrets/memory.key")).expanduser()
 PLAIN_HEADER = b"SQLite format 3\x00"
+BUSY_TIMEOUT_MS = 5000  # how long to wait on another writer's lock
 GITCRYPT_MAGIC = b"\x00GITCRYPT"
 _HEX = set("0123456789abcdefABCDEF")
 
@@ -225,6 +226,8 @@ def open_db(path: str | Path, *, readonly: bool = False, key: str | None = None,
     flags = apsw.SQLITE_OPEN_READONLY if readonly else apsw.SQLITE_OPEN_READWRITE
     raw = apsw.Connection(str(p), flags=flags)
     try:
+        # Before the key check: that read is the first to meet another writer's lock.
+        raw.set_busy_timeout(BUSY_TIMEOUT_MS)
         raw.pragma("cipher", "sqlcipher")
         raw.pragma("hexkey", hexkey)
         raw.execute("SELECT count(*) FROM sqlite_master").fetchall()
