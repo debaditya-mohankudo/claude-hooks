@@ -225,8 +225,7 @@ def _handle_user_prompt_submit(hook_input: dict) -> dict | None:
 # own injected memory payload, not the full conversation. Fires once per 50K
 # band crossed (100K, 150K, 200K, ...) so it reminds periodically as context
 # keeps growing instead of nagging every call or going silent after the first
-# warning (task:e849c7ad). Non-blocking additionalContext, like
-# _maybe_tmux_nudge below, but for PostToolUse instead of PreToolUse.
+# warning (task:e849c7ad). Non-blocking additionalContext.
 _CONTEXT_NUDGE_THRESHOLD = 100_000
 _CONTEXT_NUDGE_STEP = 50_000
 _CONTEXT_NUDGE_SHOWN_BAND: dict[str, int] = {}
@@ -478,34 +477,9 @@ def _bash_result(tool_response: dict) -> dict:
 # of the active task and any reminder derived from it.
 
 
-# Nudge toward tmux for Bash commands (memory: prefer-tmux-for-commands) — tmux panes
-# survive across tool calls and let Claude inspect long-running/interactive output
-# (servers, REPLs, watchers) without blocking the turn. Advisory only: it returns
-# additionalContext and NO permissionDecision. An "allow" here would approve the
-# Bash call outright and skip the user's permission rules (task:d2e7cff6), so the
-# normal permission flow must decide. Fires once per session on the first
-# qualifying Bash call, not on every Bash call, so it doesn't nag on one-shot commands.
-#
-# Hints match only at command heads (task:5d6872d4): the command line is split into
-# simple commands and each one's program (and subcommand) is looked at. The
-# whole-word regex this replaced (_TMUX_NUDGE_HINT_RE) still searched quoted
-# strings, heredoc script text and arguments, so a JSON key or a variable named
-# "watch" fired it. Bare "watch" stays, but only as the program being run.
-_TMUX_NUDGE_SHOWN: set[str] = set()
-_TMUX_LONG_RUNNING_PROGRAMS = {"serve", "runserver", "watch", "uvicorn", "http.server"}
-_TMUX_LONG_RUNNING_SUBCOMMANDS = {
-    "npm": (["run"],), "yarn": (["dev"],), "pnpm": (["dev"],),
-    "flask": (["run"],), "rails": (["s"], ["server"]),
-    "docker": (["compose", "up"],), "docker-compose": (["up"],),
-    "django-admin": (["runserver"],), "manage.py": (["runserver"],),
-}
-# Words that run the command after them, so the program is further along.
-_TMUX_WRAPPERS = {
-    "sudo", "nohup", "time", "env", "nice", "exec", "command", "npx", "bunx",
-    "if", "then", "else", "do", "while", "until", "!", "{",
-}
-# Programs whose "--watch" argument is text to find or print, not a mode.
-_TMUX_TEXT_PROGRAMS = {"grep", "rg", "echo", "printf"}
+# tmux nudge — removed at the user's request, 2026-11-26 ("not needed"): the
+# once-per-session PreToolUse reminder, _maybe_tmux_nudge and _is_long_running.
+# Do not re-add it. _shell_commands stays: the skill reminder uses it.
 
 
 def _shell_commands(command: str) -> list[list[str]]:
@@ -581,60 +555,6 @@ def _shell_commands(command: str) -> list[list[str]]:
             i += 1
     end_command()
     return commands
-
-
-def _is_long_running(words: list[str]) -> bool:
-    """Whether one simple command's program is a server, watcher or follower."""
-    words = list(words)
-    while words:
-        name = words[0].rsplit("/", 1)[-1]
-        if re.match(r"[a-z_]\w*=", words[0], re.I) or name in _TMUX_WRAPPERS:
-            del words[0]
-        elif name in ("uv", "poetry", "pipenv") and words[1:2] == ["run"] or (
-                name == "bundle" and words[1:2] == ["exec"]):
-            del words[:2]
-        elif re.fullmatch(r"python[\d.]*", name) and words[1:2] == ["-m"]:
-            del words[:2]
-        elif re.fullmatch(r"python[\d.]*", name) and words[1:2] and words[1].endswith("manage.py"):
-            del words[0]
-        else:
-            break
-        while words and words[0].startswith("-"):
-            del words[0]
-    if not words:
-        return False
-    name, args = words[0].rsplit("/", 1)[-1], words[1:]
-    if name in _TMUX_LONG_RUNNING_PROGRAMS:
-        return True
-    if any(args[:len(sub)] == sub for sub in _TMUX_LONG_RUNNING_SUBCOMMANDS.get(name, ())):
-        return True
-    if name == "tail":
-        return any(a == "--follow" or re.fullmatch(r"-[a-z0-9]*f", a) for a in args)
-    return "--watch" in args and name not in _TMUX_TEXT_PROGRAMS
-
-
-_TMUX_NUDGE_TEXT = (
-    "Reminder: for long-running or interactive commands (dev servers, watchers, "
-    "REPLs, tailing logs), prefer running them inside a tmux session (tmux new-session, "
-    "tmux send-keys, tmux capture-pane) rather than a plain foreground Bash call. tmux "
-    "keeps the process alive and inspectable across tool calls instead of blocking or "
-    "losing output when the call returns."
-)
-
-
-def _maybe_tmux_nudge(short_name: str, tool_input: dict, session_id: str) -> dict | None:
-    if short_name != "Bash" or not session_id or session_id in _TMUX_NUDGE_SHOWN:
-        return None
-    command = (tool_input.get("command") or "").lower()
-    if "tmux" in command or not any(map(_is_long_running, _shell_commands(command))):
-        return None
-    _TMUX_NUDGE_SHOWN.add(session_id)
-    return {
-        "hookSpecificOutput": {
-            "hookEventName": "PreToolUse",
-            "additionalContext": _TMUX_NUDGE_TEXT,
-        }
-    }
 
 
 def _gate_check(tool_name: str, tool_input: dict, session_id: str) -> tuple[bool, str]:
@@ -716,19 +636,13 @@ def _handle_pre_tool_use(hook_input: dict) -> dict | None:
                 "permissionDecisionReason": reason,
             }
         }
-    # Advisory notes only, after the gate so a denied call does not use one up.
-    notes = []
-    tmux_nudge = _maybe_tmux_nudge(short_name, tool_input, session_id)
-    if tmux_nudge:
-        notes.append(tmux_nudge["hookSpecificOutput"]["additionalContext"])
+    # Advisory note only, after the gate so a denied call does not use it up.
     if short_name == "Bash":
         from hooks import skill_reminder
         note = skill_reminder.reminder(session_id, tool_input.get("command") or "", _shell_commands)
         if note:
-            notes.append(note)
-    if notes:
-        log.info("PreTU allow+nudge: session=%s tool=%s notes=%d", session_id[:8], short_name, len(notes))
-        return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": "\n\n".join(notes)}}
+            log.info("PreTU allow+nudge: session=%s tool=%s", session_id[:8], short_name)
+            return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": note}}
 
     log.info("PreTU allow: session=%s tool=%s elapsed_ms=%.1f", session_id[:8], short_name, (time.monotonic() - _t0) * 1000)
     return None

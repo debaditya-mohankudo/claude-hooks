@@ -276,82 +276,12 @@ def test_extract_prompt_preserves_hyphenated_command_name_tag():
 
 
 # ---------------------------------------------------------------------------
-# _maybe_tmux_nudge (task:d2e7cff6)
+# _shell_commands: the program names the skill reminder looks at
 # ---------------------------------------------------------------------------
 
-import pytest
-from dispatcher import _maybe_tmux_nudge, _TMUX_NUDGE_SHOWN
+from dispatcher import _shell_commands
 
 
-def _nudge(command: str, session: str = "test-tmux-session"):
-    _TMUX_NUDGE_SHOWN.discard(session)
-    return _maybe_tmux_nudge("Bash", {"command": command}, session)
-
-
-def test_tmux_nudge_never_sets_a_permission_decision():
-    """An "allow" would approve the Bash call and skip the user's permission rules."""
-    out = _nudge("npm run dev")
-    assert out is not None
-    assert "permissionDecision" not in out["hookSpecificOutput"]
-    assert out["hookSpecificOutput"]["additionalContext"]
-
-
-@pytest.mark.parametrize("command", [
-    "jq '.mcpServers' ~/.claude/settings.json",
-    "uv run python hooks/server.py --check",
-    "uv run python -m stock_tracker.utils.watch_next_store show",
-    "cat /tmp/serve.js",
-    "rg observe src/",
-    "rails spec",
-    # script text, JSON keys and arguments (task:5d6872d4)
-    "python3 -c \"d = {'watch': 1}; print(d['watch'])\"",
-    "python3 - <<'EOF'\nwatch = data['watch']\nserve\nEOF\necho done",
-    "cat <<-END > /tmp/x\n\ttail -f log\n\tEND",
-    "python3 -c '\nwatch = 1\n'",
-    "jq '.watch' data.json",
-    "echo watch",
-    "grep -rn watch src/",
-    "rg -- --watch src/",
-    "git commit -m \"serve: npm run dev && tail -f\"",
-    "ls # then; npm run dev",
-    "cat notes > serve",
-    "tail -n 5 file.log",
-])
-def test_tmux_nudge_ignores_hints_inside_other_words(command):
-    assert _nudge(command) is None
-
-
-@pytest.mark.parametrize("command", [
-    "npx serve .",
-    "npm run watch",
-    "tsc --watch",
-    "python -m http.server 8000",
-    "uvicorn app:app --reload",
-    "python manage.py runserver",
-    "rails server",
-    "rails s",
-    "tail -f /var/log/system.log",
-    "docker compose up",
-    "watch -n1 ls",
-    "cd app && npm run dev",
-    "# don't stop\nwatch ls",
-    "FOO=1 nohup ./node_modules/.bin/serve dist > out.log 2>&1 &",
-    "uv run python -m uvicorn app:app",
-    "uv run python manage.py runserver",
-    "cat <<EOF\nbody\nEOF\ntail -n 100 -f app.log",
-    "for f in a; do tail -F $f; done",
-    "npm test -- --watch",
-    "echo $((1<<2))\nnpm run dev",
-])
-def test_tmux_nudge_still_fires_on_long_running_commands(command):
-    assert _nudge(command) is not None
-
-
-def test_tmux_nudge_skips_commands_already_in_tmux():
-    assert _nudge("tmux new-session -d 'npm run dev'") is None
-
-
-def test_tmux_nudge_fires_once_per_session():
-    session = "test-tmux-once"
-    assert _nudge("npm run dev", session) is not None
-    assert _maybe_tmux_nudge("Bash", {"command": "npm run dev"}, session) is None
+def test_shell_commands_drops_quotes_comments_heredocs_and_redirects():
+    command = "echo 'a; b' > out # c; d\ncat <<EOF\ngit add .\nEOF\nls && pwd"
+    assert _shell_commands(command) == [["echo", "a; b"], ["cat"], ["ls"], ["pwd"]]

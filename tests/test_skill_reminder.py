@@ -10,7 +10,6 @@ def clean(tmp_path, monkeypatch):
     sr._SHOWN.clear()
     monkeypatch.setattr(sr.Path, "home", lambda: tmp_path)
     monkeypatch.setattr(dispatcher, "_gate_check", lambda *a: (False, ""))
-    dispatcher._TMUX_NUDGE_SHOWN.clear()
 
 
 def pre(command, session="s1"):
@@ -120,12 +119,12 @@ def test_denied_call_does_not_use_up_the_note(monkeypatch):
     assert note("git commit -m x")
 
 
-def test_tmux_and_skill_notes_are_both_delivered():
-    text = note("git add . && npm run dev")
-    assert "tmux" in text and "`commit` skill" in text
+def test_a_note_never_sets_a_permission_decision():
+    """An "allow" would approve the Bash call and skip the user's permission rules."""
+    out = pre("git add .")
+    assert out["additionalContext"] and "permissionDecision" not in out
 
 
-def test_a_failing_check_leaves_the_tmux_nudge(monkeypatch):
+def test_a_failing_check_gives_no_note(monkeypatch):
     monkeypatch.setattr(sr, "parse_bash", lambda c: 1 / 0)
-    text = note("git add . && npm run dev")
-    assert "tmux" in text and "skill" not in text
+    assert pre("git add .") is None
