@@ -55,15 +55,28 @@ two "without" figures move.
 
 ## Baseline for the rerun
 
-`uv run python scripts/measure_skill_use.py`, run on 2026-11-26 before the
-reminder reached the live server (14-day window):
+`uv run python scripts/measure_skill_use.py --until 2026-11-26T07:21:17Z` (the
+time of commit 4b80513, when the reminder went live; 14-day window):
 
 | Action | Without its skill | Measure | Loaded | Without |
 |---|---|---|---|---|
-| `git commit` | 127 of 200 | test run in the same turn | 63 of 73 | 30 of 127 |
-| `mac memory add` | 80 of 130 | has `--links` | 46 of 50 | 35 of 80 |
-| | | searched first, same turn | 48 of 50 | 44 of 80 |
-| `mac vault` writes | 37 of 330 (213 more under a market graph skill) | | 80 | |
+| `git commit` | 127 of 201 (63%) | test run in the same turn | 64 of 74 (86%) | 30 of 127 (24%) |
+| `mac memory add` | 82 of 132 (62%) | has `--links` | 46 of 50 (92%) | 35 of 82 (43%) |
+| | | searched earlier in the turn | 45 of 50 (90%) | 37 of 82 (45%) |
+| `mac vault` writes | 38 of 118 (32%; 213 more under a market graph skill) | | 80 | |
+
+This replaces the first baseline, which counted a skill loaded later in the same
+turn as loaded and picked transcripts by file modification time (task:1b86af46).
+Ordering moved one commit and no memory add from loaded to bypassed. "Searched
+first" fell most (it also counted a search made after the add).
+
+The patterns match command text, not parsed calls. In this window, 25 of the 132
+`mac memory add` matches and 6 of the 201 commit matches are not matches for the
+reminder's own parser, so some are mentions inside another command.
+
+For the rerun, on or after 2026-12-03:
+`uv run python scripts/measure_skill_use.py --since 2026-11-26T07:21:17Z`.
+Compare shares, not counts, since the window is shorter.
 
 Expect the commit figure to move little: of 296 commit calls, 265 had `git add`
 in the same Bash call, so the note usually arrives after the commit.
