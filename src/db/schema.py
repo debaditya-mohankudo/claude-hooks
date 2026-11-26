@@ -115,7 +115,7 @@ END;
 
 
 def migrate_memory_db(conn: sqlite3.Connection) -> None:
-    """Additive migrations for MEMORY.sqlite."""
+    """Idempotent migrations for MEMORY.sqlite; no column or row is removed."""
     cols = {r[1] for r in conn.execute("PRAGMA table_info(memories)")}
     additive = {
         "related":        "TEXT DEFAULT ''",
@@ -132,6 +132,9 @@ def migrate_memory_db(conn: sqlite3.Connection) -> None:
     for col, typedef in additive.items():
         if col not in cols:
             conn.execute(f"ALTER TABLE memories ADD COLUMN {col} {typedef}")
+    # An unversioned trigger on older DBs set updated=now on ANY change, so a hit-count
+    # bump made a memory look freshly written. Writers set `updated` themselves.
+    conn.execute("DROP TRIGGER IF EXISTS update_timestamp")
     conn.executescript(MEMORY_LINKS_DDL)
     conn.commit()
 

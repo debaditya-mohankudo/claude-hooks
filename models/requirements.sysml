@@ -36,8 +36,9 @@ package Requirements {
 
     requirement def AdditiveOnlyMigrationRequirement {
         doc /* Source: concept db-schema-ddl-and-migrations invariant
-             * (src/db/schema.py): "All migrations are additive-only
-             * (ALTER TABLE ADD COLUMN) — never destructive." */
+             * (src/db/schema.py): "No migration removes a column or a row."
+             * One removal exists: migrate_memory_db drops the update_timestamp
+             * trigger, which rewrote memories.updated on every change. */
     }
     satisfy requirement AdditiveOnlyMigrationRequirement by system.foundation;
 

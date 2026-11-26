@@ -50,3 +50,18 @@ def test_loop_rows_are_protected_and_not_listed(db):
     assert memory.handle_list()["count"] == 0
     assert memory.handle_stale(unhit_days=0, unvalidated_days=0)["total_stale"] == 0
     assert memory.handle_get("lesson")["origin"] == "loop"
+
+
+def test_only_content_writes_move_updated(db):
+    memory.handle_add("m", "project", "body")
+    _sql(db, "CREATE TRIGGER update_timestamp AFTER UPDATE ON memories BEGIN "
+             "UPDATE memories SET updated = CURRENT_TIMESTAMP WHERE id = NEW.id; END")
+    con = sqlite3.connect(db)
+    migrate_memory_db(con)
+    con.close()
+    _sql(db, "UPDATE memories SET updated='2020-01-01 00:00:00'")
+    _sql(db, "UPDATE memories SET hit_count = 1, last_hit = CURRENT_TIMESTAMP")
+    memory.handle_validate(["m"])
+    assert _sql(db, "SELECT updated FROM memories") == [("2020-01-01 00:00:00",)]
+    memory.handle_add("m", "project", "new body")
+    assert _sql(db, "SELECT updated FROM memories")[0][0] > "2020-01-01 00:00:00"

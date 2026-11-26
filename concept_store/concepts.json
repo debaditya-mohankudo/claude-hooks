@@ -132,12 +132,14 @@
         "src/db/schema.py"
       ],
       "invariants": [
-        "ADDITIVE-ONLY MIGRATION enforced structurally: migrate() can only CREATE TABLE IF NOT EXISTS or ALTER TABLE ADD COLUMN",
-        "This module is not the production schema/migration path for the DBs it still covers"
+        "This module is not the production schema/migration path for the DBs it still covers",
+        "No migration removes a column or a row; the one removal is migrate_memory_db dropping the update_timestamp trigger",
+        "memories.updated is set only by content writers (mac memory add/add_batch); a hit bump or validate must not move it, since recency scoring reads it"
       ],
-      "last_validated": "2026-08-01T05:48:37.366730+00:00",
+      "last_validated": "2026-11-26T13:06:35.537295+00:00",
       "module": "src/db/schema.py",
-      "name": "db-schema-ddl-and-migrations"
+      "name": "db-schema-ddl-and-migrations",
+      "related": []
     },
     "dispatcher-hook-event-routing": {
       "confidence": 0.97,
