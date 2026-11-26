@@ -37,7 +37,7 @@ def test_thin_prompt_borrows_previous_area():
     stub = _Stub([_mem("m", "mac-calendar")])
     node = LoadMemoriesNode(retriever=stub)
     _run(node, "calendar event reminder tomorrow morning")   # 5 tokens: not thin, no carry
-    _run(node, "yes go ahead")                                # thin: carries 'calendar'
+    _run(node, "yes, go ahead with it")                                # thin: carries 'calendar'
     assert "calendar" not in stub.seen[0] or "mac" not in stub.seen[0]
     assert "calendar" in stub.seen[1]
 
@@ -54,7 +54,7 @@ def test_carry_is_per_session():
     stub = _Stub([_mem("m", "mac-calendar")])
     node = LoadMemoriesNode(retriever=stub)
     _run(node, "first prompt about something", session="a")
-    _run(node, "yes", session="b")
+    _run(node, "yes, go ahead with it", session="b")
     assert "calendar" not in stub.seen[1]
 
 
@@ -65,7 +65,7 @@ def test_carry_window_forgets_old_prompts():
     stub.memories = [_mem("n", "plain")]
     for _ in range(3):
         _run(node, "other long prompt about unrelated matters entirely")
-    _run(node, "yes")
+    _run(node, "yes, go ahead with it")
     assert "calendar" not in stub.seen[-1]
 
 
@@ -73,7 +73,7 @@ def test_audit_row_written_with_carried_and_candidates(tmp_path):
     stub = _Stub([_mem("m", "mac-calendar")], trace=[{"name": "m", "score": 1.0, "hits": ["calendar"]}])
     node = LoadMemoriesNode(retriever=stub)
     _run(node, "calendar event reminder tomorrow morning")
-    _run(node, "yes")
+    _run(node, "yes, go ahead with it")
     rows = audit.recent()
     assert len(rows) == 2
     assert rows[0]["carried"] == ["calendar"] and rows[0]["injected"] == ["m"]
@@ -81,13 +81,13 @@ def test_audit_row_written_with_carried_and_candidates(tmp_path):
 
 
 def test_audit_skips_empty_session_id():
-    LoadMemoriesNode(retriever=_Stub([_mem("m")]))({"prompt": "hello there world"})
+    LoadMemoriesNode(retriever=_Stub([_mem("m")]))({"prompt": "hello there wide world"})
     assert audit.recent() == []
 
 
 def test_audit_failure_never_breaks_retrieval(monkeypatch):
     monkeypatch.setattr(audit, "AUDIT_DB", audit.Path("/nonexistent-dir/x/audit.sqlite"))
-    out = _run(LoadMemoriesNode(retriever=_Stub([_mem("m")])), "hello there world")
+    out = _run(LoadMemoriesNode(retriever=_Stub([_mem("m")])), "hello there wide world")
     assert [m["name"] for m in out["memories"]] == ["m"]
 
 
@@ -123,3 +123,54 @@ def test_recent_unmarked_only():
     audit.record("s", "p2", {"t"}, [], [], ["a"])
     audit.mark(audit.recent()[0]["id"], {"a": "useful"})
     assert [r["prompt"] for r in audit.recent(unmarked_only=True)] == ["p1"]
+
+
+@pytest.mark.parametrize("prompt,reason", [
+    ("close", "short"),
+    ("start task f9e7b151", "short"),
+    ('<agent-message from="a1">\nreport on the calendar work\n</agent-message>', "machine"),
+    ('<cross-session-message from="uds:/x">please check the calendar</cross-session-message>', "machine"),
+    ("<task-notification>\n<task-id>b1</task-id> finished the run", "machine"),
+])
+def test_skipped_prompt_injects_nothing_and_is_audited(prompt, reason):
+    stub = _Stub([_mem("m")])
+    out = _run(LoadMemoriesNode(retriever=stub), prompt)
+    assert out["memories"] == [] and stub.seen == []
+    row = audit.recent()[0]
+    assert row["skipped"] == reason and row["injected"] == []
+    assert audit.recent(unmarked_only=True) == []
+
+
+def test_four_words_retrieve():
+    out = _run(LoadMemoriesNode(retriever=_Stub([_mem("m")])), "commit and push it")
+    assert [m["name"] for m in out["memories"]] == ["m"]
+
+
+def test_skipped_prompts_do_not_age_out_carried_areas():
+    stub = _Stub([_mem("m", "mac-calendar")])
+    node = LoadMemoriesNode(retriever=stub)
+    _run(node, "first prompt about something")
+    for _ in range(5):
+        _run(node, "ok")
+    _run(node, "yes, go ahead with it")
+    assert "calendar" in stub.seen[-1]
+
+
+def test_skipped_prompt_clears_prompt_injected_set():
+    from langchain_learning.nodes import _skill_memories as sm
+    node = LoadMemoriesNode(retriever=_Stub([_mem("m")]))
+    _run(node, "first prompt about something", session="skipclear")
+    _run(node, "ok", session="skipclear")
+    assert sm._PROMPT_INJECTED["skipclear"] == set()
+
+
+def test_old_audit_db_gains_skipped_column(tmp_path):
+    import sqlite3
+    db = tmp_path / "old.sqlite"
+    c = sqlite3.connect(db)
+    c.execute("CREATE TABLE memory_audit (id INTEGER PRIMARY KEY, ts REAL, session_id TEXT, prompt TEXT, "
+              "tokens TEXT, carried TEXT, candidates TEXT, injected TEXT, verdict TEXT)")
+    c.commit()
+    c.close()
+    audit.record("s", "ok", set(), [], [], [], path=db, skipped="short")
+    assert audit.recent(path=db)[0]["skipped"] == "short"

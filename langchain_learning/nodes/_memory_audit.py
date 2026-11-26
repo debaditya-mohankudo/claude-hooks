@@ -32,18 +32,21 @@ _DDL = """CREATE TABLE IF NOT EXISTS memory_audit (
     carried     TEXT,   -- JSON list: mac areas added from earlier prompts
     candidates  TEXT,   -- JSON list of {name, score, hits}
     injected    TEXT,   -- JSON list of memory names returned
-    verdict     TEXT    -- JSON {name: 'useful'|'noise'}; NULL until marked
+    verdict     TEXT,   -- JSON {name: 'useful'|'noise'}; NULL until marked
+    skipped     TEXT    -- why retrieval did not run ('short'|'machine'); NULL when it did
 )"""
 
 
 def _connect(path: Path | None = None) -> sqlite3.Connection:
     conn = sqlite3.connect(str(path or AUDIT_DB), timeout=2)
     conn.execute(_DDL)
+    if "skipped" not in {r[1] for r in conn.execute("PRAGMA table_info(memory_audit)")}:
+        conn.execute("ALTER TABLE memory_audit ADD COLUMN skipped TEXT")
     return conn
 
 
 def record(session_id: str, prompt: str, tokens, carried, candidates, injected,
-           path: Path | None = None) -> None:
+           path: Path | None = None, skipped: str | None = None) -> None:
     """Append one audit row. Never raises. Rows with no session id (direct/test calls) are skipped."""
     if not session_id:
         return
@@ -51,10 +54,10 @@ def record(session_id: str, prompt: str, tokens, carried, candidates, injected,
         conn = _connect(path)
         try:
             conn.execute(
-                "INSERT INTO memory_audit (ts, session_id, prompt, tokens, carried, candidates, injected) "
-                "VALUES (?,?,?,?,?,?,?)",
+                "INSERT INTO memory_audit (ts, session_id, prompt, tokens, carried, candidates, injected, skipped) "
+                "VALUES (?,?,?,?,?,?,?,?)",
                 (time.time(), session_id, prompt, json.dumps(sorted(tokens)), json.dumps(list(carried)),
-                 json.dumps(candidates), json.dumps(list(injected))),
+                 json.dumps(candidates), json.dumps(list(injected)), skipped),
             )
             conn.commit()
         finally:
@@ -67,13 +70,13 @@ def recent(limit: int = 20, unmarked_only: bool = False, path: Path | None = Non
     """Newest-first audit rows as dicts (JSON columns decoded)."""
     conn = _connect(path)
     try:
-        q = "SELECT id, ts, session_id, prompt, tokens, carried, candidates, injected, verdict FROM memory_audit"
+        q = "SELECT id, ts, session_id, prompt, tokens, carried, candidates, injected, verdict, skipped FROM memory_audit"
         if unmarked_only:
-            q += " WHERE verdict IS NULL"
+            q += " WHERE verdict IS NULL AND skipped IS NULL"
         rows = conn.execute(q + " ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
     finally:
         conn.close()
-    keys = ("id", "ts", "session_id", "prompt", "tokens", "carried", "candidates", "injected", "verdict")
+    keys = ("id", "ts", "session_id", "prompt", "tokens", "carried", "candidates", "injected", "verdict", "skipped")
     out = []
     for r in rows:
         d = dict(zip(keys, r))

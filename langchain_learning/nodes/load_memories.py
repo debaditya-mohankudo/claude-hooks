@@ -26,6 +26,18 @@ _CARRY_PROMPTS = 3
 _CARRY_AREAS = 2
 _MAX_SESSIONS = 50
 
+# Prompts that get no retrieval (task:beaee05c). Short ones ("commit it", "close") matched on one
+# word and injected off-topic memories; the rest are written by a machine, not typed.
+_SKIP_MAX_WORDS = 3
+_MACHINE_PREFIXES = ("<agent-message", "<cross-session-message", "<task-notification")
+
+
+def skip_reason(prompt: str) -> str:
+    """'machine', 'short' or '' (retrieve). Words are counted as typed, not as scoring tokens."""
+    if prompt.lstrip().startswith(_MACHINE_PREFIXES):
+        return "machine"
+    return "short" if len(prompt.split()) <= _SKIP_MAX_WORDS else ""
+
 
 class LoadMemoriesNode:
     """Retrieve top-N memories for the current prompt via combination signal scoring.
@@ -65,6 +77,23 @@ class LoadMemoriesNode:
         prompt = state["prompt"]
         tokens = set(tokenise(prompt.lower()))
         session_id = state.get("session_id", "")
+
+        reason = skip_reason(prompt)
+        if reason:
+            # Carry-over history is left alone, so a skipped prompt does not age out earlier areas.
+            try:
+                from langchain_learning.nodes._skill_memories import note_prompt_injected
+                note_prompt_injected(session_id, [])
+            except Exception as exc:
+                _log.warning("skill memories prompt tracking failed: %s", exc)
+            try:
+                from langchain_learning.nodes import _memory_audit
+                _memory_audit.record(session_id, prompt, tokens, [], [], [], skipped=reason)
+            except Exception as exc:
+                _log.warning("memory audit failed: %s", exc)
+            _log.info("[load_memories] skipped=%s", reason)
+            return {"memories": [], "keywords": list(tokens)}
+
         carried = self._carried_areas(session_id) if len(tokens) <= _THIN_TOKENS else []
         tokens |= set(carried)
 

@@ -33,7 +33,7 @@ Ground truth: `hooks/dispatcher.py`, one handler per event (`_HANDLERS`). A new 
 
 | Event | Handler does |
 | --- | --- |
-| `UserPromptSubmit` | `session_store.begin_turn` (counter, `prompt_id`, resets Stop flags) → `LoadMemoriesNode` (BM25) → user-context render |
+| `UserPromptSubmit` | `session_store.begin_turn` (counter, `prompt_id`, resets Stop flags) → `LoadMemoriesNode` (BM25; no retrieval for prompts of three words or fewer, or for agent, cross-session and task-notification messages) → user-context render |
 | `PreToolUse` | WebSearch cache check, then `_gate_check` (`hooks.gates.check`, gated tools only) |
 | `PostToolUse` | side effects below, then `log_tool_usage` |
 | `Stop` | `session_store.mark_stop`; the completion chime fires once per turn (`hooks/stop_effects.py`) |

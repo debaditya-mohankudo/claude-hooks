@@ -30,7 +30,7 @@ def main() -> None:
 
     if a.cmd == "list":
         for r in audit.recent(a.n, unmarked_only=a.unmarked):
-            print(f"#{r['id']} {r['prompt'][:70]!r} carried={r['carried']}")
+            print(f"#{r['id']} {r['prompt'][:70]!r} carried={r['carried']}" + (f" skipped={r['skipped']}" if r['skipped'] else ""))
             for c in r["candidates"][:6]:
                 tag = "*" if c["name"] in r["injected"] else " "
                 print(f"   {tag} {c['score']:>6}  {c['name']}  hits={c['hits']}  {(r['verdict'] or {}).get(c['name'], '')}")
