@@ -59,10 +59,10 @@ class NullMemoryRetriever:
 # ---------------------------------------------------------------------------
 
 class CombinationSignalRetriever:
-    """Scores MEMORY.sqlite rows via tag/body overlap + recency.
+    """Scores MEMORY.sqlite rows via BM25 over tags + slug words, recency and links.
 
     Wraps score_memories() from nodes/_memory_scoring.py.
-    Opens and closes its own SQLite connection per retrieve() call.
+    Reads through the process-wide memory_connection(), not a per-call open.
     Satisfies MemoryRetriever Protocol.
 
     `last_trace` holds the top candidates (name, score, hits) of the latest

@@ -1,12 +1,13 @@
 """LoadMemoriesNode — retrieves MEMORY.sqlite rows via combination signal scoring.
 
-Signals per row (all cheap, SQLite-only):
-  1. Tag overlap     — Jaccard(prompt_tokens ∩ tag_tokens) × 3.0  (hand-authored, high signal)
-  2. Body overlap    — Jaccard(prompt_tokens ∩ body_tokens) × 1.0
-  3. Recency boost   — ×1.2 if updated ≤30d, ×0.8 if ≥180d
+Signals per row (all cheap, SQLite-only; details in _memory_scoring.py):
+  1. BM25Plus over tag words plus slug words × 3.0 (body text is not scored)
+  2. Recency boost — ×1.2 if updated ≤30d, ×0.8 if ≥180d
+  3. memory_links neighbours of the top seeds get a boost
 
-A memory is not auto-included — it must earn a slot via keyword overlap.
-Tuning: improve tags on memories that surface incorrectly (visible in sqlite logs).
+A memory earns a slot by keyword match or as a linked neighbour of one that did.
+Superseded and non-'general' memories are never injected (src/db/schema.injectable_sql).
+Tuning: improve tags on memories that surface incorrectly (see memory_audit.sqlite).
 """
 from __future__ import annotations
 
