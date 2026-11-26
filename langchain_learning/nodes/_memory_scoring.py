@@ -30,6 +30,7 @@ from rank_bm25 import BM25Plus
 
 from langchain_learning.nodes._text_utils import _STOP_WORDS
 from src.config import config as _src_cfg
+from src.db.schema import injectable_sql
 from src.logger import get_logger
 
 _log = get_logger(__name__)
@@ -56,7 +57,6 @@ def _defaults_from_config() -> dict:
         "related_max_neighbours":  2,
         "related_source":          "links",   # "links" = memory_links edges; "related" = legacy column
         "related_target_cap":      0.5,       # a target's summed boost <= this x the top seed score
-        "supersedes_penalty":      0.3,       # multiplier on a memory whose superseder is also a candidate
         "min_distinct_terms":      2,         # distinct prompt terms a memory must hit ...
         "rare_term_df":            8,         # ... unless one hit term is in <= this many memories
     }
@@ -113,7 +113,8 @@ def _bm25_index(conn: sqlite3.Connection) -> tuple[BM25Plus | None, dict[int, in
 
     The cache also holds each document's term set and the term -> document-frequency
     counter that `bm25_scores` uses for the match filter."""
-    rows = conn.execute("SELECT id, tags, updated, name FROM memories ORDER BY id").fetchall()
+    rows = conn.execute(
+        f"SELECT id, tags, updated, name FROM memories WHERE {injectable_sql(conn)} ORDER BY id").fetchall()
     sig = hash(tuple((r[0], r[1], r[2], r[3]) for r in rows))
     if _bm25_cache["sig"] != sig:
         corpus = [(_tag_terms(r[1]) + _tag_terms(re.sub(r"[-_]", " ", r[3] or ""))) or ["_"] for r in rows]  # BM25 needs non-empty docs
@@ -202,8 +203,8 @@ def _link_boosts(conn, cfg: dict, scores, seed_pool, rows_by_name) -> dict | Non
     Neighbours are fetched by id.
     Each seed keeps its best-matching neighbours (not the first in a string), and a
     target's summed boost is capped so a hub memory cannot swamp the top-N.
-    Edge rules: relates_to/extends/learned_from boost either way; supersedes boosts
-    only the superseder (new) when the old memory is the seed; contradicts never boosts.
+    Edge rules: relates_to/extends/learned_from boost either way; supersedes and
+    contradicts never boost (a superseded memory is never a seed, see injectable_sql).
     """
     seed_ids = {rows_by_name[name]["id"]: score for name, (score, _) in seed_pool if name in rows_by_name}
     if not seed_ids:
@@ -219,14 +220,15 @@ def _link_boosts(conn, cfg: dict, scores, seed_pool, rows_by_name) -> dict | Non
             for seed, other in ((src, dst), (dst, src)):
                 if seed not in seed_ids or other == seed:
                     continue
-                if etype in _BOOST_TYPES or (etype == "supersedes" and seed == dst):
+                if etype in _BOOST_TYPES:
                     cands[seed].add(other)
         other_ids = {o for c in cands.values() for o in c}
         if not other_ids:
             return {}
         qs = ",".join("?" * len(other_ids))
         rows = {r["id"]: r for r in conn.execute(
-            f"SELECT {_NEIGHBOUR_COLS} FROM memories WHERE id IN ({qs})", list(other_ids))}
+            f"SELECT {_NEIGHBOUR_COLS} FROM memories WHERE id IN ({qs}) AND {injectable_sql(conn)}",
+            list(other_ids))}
     except sqlite3.Error as exc:
         _log.warning("[memory_scoring] memory_links unusable, using related column: %s", exc)
         return None
@@ -237,7 +239,7 @@ def _link_boosts(conn, cfg: dict, scores, seed_pool, rows_by_name) -> dict | Non
     cap = cfg.get("related_target_cap", 0.5) * max(seed_ids.values())
     out: dict[str, tuple[float, sqlite3.Row]] = {}
     for sid, others in cands.items():
-        ranked = sorted(others, key=lambda o: rows[o]["updated"] or "", reverse=True)
+        ranked = sorted((o for o in others if o in rows), key=lambda o: rows[o]["updated"] or "", reverse=True)
         ranked.sort(key=lambda o: -direct[o])  # stable: ties stay newest-first
         for oid in ranked[:max_n]:
             boost = factor * seed_ids[sid]
@@ -245,25 +247,6 @@ def _link_boosts(conn, cfg: dict, scores, seed_pool, rows_by_name) -> dict | Non
                 name = rows[oid]["name"]
                 out[name] = (min(out.get(name, (0.0, None))[0] + boost, cap), rows[oid])
     return out
-
-
-def _demote_superseded(conn, cfg: dict, scored: dict) -> None:
-    """Multiply the score of a memory whose superseder is also a candidate."""
-    by_id = {m["id"]: name for name, (_, m) in scored.items() if m.get("id") is not None}
-    if len(by_id) < 2:
-        return
-    ph = ",".join("?" * len(by_id))
-    try:
-        pairs = conn.execute(
-            f"SELECT dst_id FROM memory_links WHERE type='supersedes' "
-            f"AND src_id IN ({ph}) AND dst_id IN ({ph})", [*by_id, *by_id],
-        ).fetchall()
-    except sqlite3.Error:
-        return
-    for (old_id,) in pairs:
-        old = by_id[old_id]
-        s, m = scored[old]
-        scored[old] = (s * cfg.get("supersedes_penalty", 0.3), m)
 
 
 def _mark_conflicts(conn, top: list[dict]) -> None:
@@ -297,8 +280,7 @@ def score_memories(
 
     After the initial keyword scoring pass, applies a graph-neighbour
     boost: each high-scoring memory lifts its memory_links neighbours by
-    related_boost_factor × seed_score (see _link_boosts), demotes a memory whose
-    superseder is also a candidate, and tags returned contradicting pairs with
+    related_boost_factor × seed_score (see _link_boosts) and tags returned contradicting pairs with
     `conflicts_with`. related_source="related" (or an unusable memory_links)
     keeps the legacy `related`-column boost.
     """
@@ -306,7 +288,7 @@ def score_memories(
     # No row limit: a window ordered by `updated` silently stops scoring old memories.
     # The ORDER BY keeps score ties newest-first.
     rows: list[sqlite3.Row] = conn.execute(
-        f"SELECT {_NEIGHBOUR_COLS} FROM memories ORDER BY updated DESC"
+        f"SELECT {_NEIGHBOUR_COLS} FROM memories WHERE {injectable_sql(conn)} ORDER BY updated DESC"
     ).fetchall()
 
     rows_by_name: dict[str, sqlite3.Row] = {row["name"]: row for row in rows}
@@ -333,9 +315,6 @@ def score_memories(
             scored[name] = (prev_score + boost, mem)
         else:
             scored[name] = (boost, dict(row))
-
-    if graph_ok:
-        _demote_superseded(conn, cfg, scored)
 
     all_scored = sorted(scored.values(), key=lambda x: -x[0])
     top = [m for _, m in all_scored[:n]]

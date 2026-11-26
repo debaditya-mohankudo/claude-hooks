@@ -35,9 +35,26 @@ CREATE TABLE IF NOT EXISTS memories (
     files          TEXT,
     docs           TEXT,
     hit_count      INTEGER DEFAULT 0,
-    last_hit       TIMESTAMP
+    last_hit       TIMESTAMP,
+    origin         TEXT NOT NULL DEFAULT 'general',
+    kind           TEXT DEFAULT '',
+    scope          TEXT DEFAULT '',
+    created        TIMESTAMP
 )
 """
+
+def injectable_sql(conn) -> str:
+    """WHERE clause for "may be injected into a prompt" — the one definition (task:6cca59fc).
+
+    taskfw loop lessons (origin='loop') are pull-only, and a memory that another one
+    supersedes is retired. An unmigrated DB (no origin column, no memory_links
+    table) has no loop rows and nothing superseded, so those clauses drop out.
+    """
+    has_origin = any(r[1] == "origin" for r in conn.execute("PRAGMA table_info(memories)"))
+    sql = "origin = 'general'" if has_origin else "1"
+    if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='memory_links'").fetchone():
+        sql += " AND id NOT IN (SELECT dst_id FROM memory_links WHERE type = 'supersedes')"
+    return sql
 
 # Typed memory-to-memory links (task:5f08a3b8). Edges key on memories.id, so an
 # upsert (ON CONFLICT DO UPDATE) keeps them. The closed type set is the
@@ -81,6 +98,19 @@ BEFORE DELETE ON memories
 BEGIN
     DELETE FROM memory_links WHERE src_id = OLD.id OR dst_id = OLD.id;
 END;
+CREATE TABLE IF NOT EXISTS memory_task_links (
+    memory_id INTEGER NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
+    task_id   TEXT NOT NULL,
+    relation  TEXT NOT NULL DEFAULT 'learned_from',
+    created   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (memory_id, task_id, relation)
+);
+CREATE INDEX IF NOT EXISTS idx_memory_task_links_task ON memory_task_links(task_id);
+CREATE TRIGGER IF NOT EXISTS memory_task_links_cascade
+BEFORE DELETE ON memories
+BEGIN
+    DELETE FROM memory_task_links WHERE memory_id = OLD.id;
+END;
 """
 
 
@@ -94,6 +124,10 @@ def migrate_memory_db(conn: sqlite3.Connection) -> None:
         "docs":           "TEXT",
         "hit_count":      "INTEGER DEFAULT 0",
         "last_hit":       "TIMESTAMP",
+        "origin":         "TEXT NOT NULL DEFAULT 'general'",
+        "kind":           "TEXT DEFAULT ''",
+        "scope":          "TEXT DEFAULT ''",
+        "created":        "TIMESTAMP",
     }
     for col, typedef in additive.items():
         if col not in cols:

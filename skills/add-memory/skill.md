@@ -36,7 +36,7 @@ Write these down in one block:
   decision), `reference` (where to find something), `user` (who the user is).
 - **New or update?** A correction or a fresh read of the same topic updates the existing
   memory. A new date or a new event is a new memory that links to the old one. A memory the new
-  one overrides gets a `supersedes` link (this demotes the old one in recall, so use it only when
+  one overrides gets a `supersedes` link (the old one is then never injected, so use it only when
   the old one is wrong, not merely older).
 - **Content.** The substance the conversation produced: figures exact, sources named, estimates
   and unverified claims marked as such, absolute dates (never "today" or "Friday"). Lead with the
@@ -168,7 +168,7 @@ c.commit()"
   to reset, so always pass it back.
 - Do not link by domain alone; the recall graph lifts neighbours of a hit, so a loose edge injects
   noise into unrelated prompts.
-- `supersedes` demotes the old memory in recall; a stale-but-not-wrong memory wants `extends` or
+- `supersedes` removes the old memory from injection; a stale-but-not-wrong memory wants `extends` or
   `relates_to`.
 - The hook server caches the BM25 index and may need a restart before new edges affect recall.
 - Everything a web search returned is a claim: mark it unverified in the body, name the sources,

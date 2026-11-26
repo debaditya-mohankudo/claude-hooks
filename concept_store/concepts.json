@@ -523,6 +523,29 @@
       "name": "mcp-server-bootstrap",
       "related": []
     },
+    "memory-injectable-filter": {
+      "confidence": 0.95,
+      "contracts": [
+        "BM25 corpus, candidate query, link neighbours and skill lookup all filter through injectable_sql",
+        "mac memory add/add_batch refuse to overwrite an origin='loop' slug; search, list and stale show only origin='general'; get shows any row",
+        "An unmigrated DB (no origin column or no memory_links) still scores"
+      ],
+      "created_at": "2026-11-26T12:57:37.924625+00:00",
+      "description": "injectable_sql(conn) is the one definition of which memories may be injected: origin='general' and not the dst of a memory_links 'supersedes' edge. taskfw loop rows (origin='loop') are pull-only. Task citations live in memory_task_links.",
+      "evidence": [
+        "src/db/schema.py:injectable_sql",
+        "tests/test_memory_scoring.py:test_loop_rows_are_not_injected_directly_or_as_neighbours",
+        "tests/test_memory_loop_rows.py:test_loop_rows_are_protected_and_not_listed"
+      ],
+      "invariants": [
+        "Any new injection read of memories must apply injectable_sql",
+        "There is no superseded_by column in MEMORY.sqlite: supersede is the link, one mechanism"
+      ],
+      "last_validated": "2026-11-26T12:57:37.924661+00:00",
+      "module": "src/db/schema.py",
+      "name": "memory-injectable-filter",
+      "related": []
+    },
     "memory-scoring-covers-every-row": {
       "confidence": 0.95,
       "contracts": [
@@ -845,6 +868,6 @@
     "commit": "5f62c6b5150a20fe7198d7bd6c155c4b3c0d3101",
     "extracted_at": "2026-07-23T05:42:23Z",
     "note": "incremental upsert (task:a2fd402d)",
-    "updated_at": "2026-11-25T00:00:00+00:00"
+    "updated_at": "2026-11-26T12:57:37.924716+00:00"
   }
 }

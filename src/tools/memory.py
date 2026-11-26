@@ -25,6 +25,10 @@ _NEW_COLUMNS = [
     "ALTER TABLE memories ADD COLUMN files TEXT",
     "ALTER TABLE memories ADD COLUMN docs TEXT",
     "ALTER TABLE memories ADD COLUMN related TEXT",
+    "ALTER TABLE memories ADD COLUMN origin TEXT NOT NULL DEFAULT 'general'",
+    "ALTER TABLE memories ADD COLUMN kind TEXT DEFAULT ''",
+    "ALTER TABLE memories ADD COLUMN scope TEXT DEFAULT ''",
+    "ALTER TABLE memories ADD COLUMN created TIMESTAMP",
 ]
 
 
@@ -135,6 +139,12 @@ def _keep_skill_tags(con: sqlite3.Connection, name: str, tags: str) -> str:
     return ", ".join(x for x in [tags, *extra] if x)
 
 
+def _loop_slug_error(con: sqlite3.Connection, name: str) -> str | None:
+    """`name` is the only upsert key, so a general write must not land on a loop lesson."""
+    row = con.execute("SELECT 1 FROM memories WHERE name = ? AND origin = 'loop'", (name,)).fetchone()
+    return f"'{name}' is a taskfw loop lesson; choose another slug or use task_memory__record." if row else None
+
+
 def handle_add(
     name: str,
     type: str,
@@ -174,6 +184,9 @@ def handle_add(
         con.row_factory = sqlite3.Row
         _ensure_schema(con)
         _ensure_links_schema(con)
+        err = _loop_slug_error(con, name)
+        if err:
+            return {"error": err}
         err = _validate_links(con, name, parsed)
         if err:
             _log.warning("handle_add rejected links for name='%s': %s", name, err)
@@ -236,7 +249,7 @@ def handle_add_batch(memories: list[dict]) -> dict:
                 results.append({"name": name, "error": f"invalid type '{mtype}'"})
                 continue
             parsed, err = _normalize_links(m.get("links"))
-            err = err or _validate_links(con, name, parsed, batch_names)
+            err = err or _loop_slug_error(con, name) or _validate_links(con, name, parsed, batch_names)
             if err:
                 results.append({"name": name, "error": err})
                 continue
@@ -296,7 +309,7 @@ def _search_rows(query: str, type: str, con: sqlite3.Connection) -> list:
     # REPLACE(name,'-','') and REPLACE(...,'_','') lets SQLite compare normalized slugs
     sql = (
         "SELECT id, name, type, tags, body, updated FROM memories "
-        "WHERE (name LIKE ? OR REPLACE(REPLACE(name,'-',''),'_','') LIKE ? "
+        "WHERE origin = 'general' AND (name LIKE ? OR REPLACE(REPLACE(name,'-',''),'_','') LIKE ? "
         "OR tags LIKE ? OR body LIKE ?)"
     )
     params: list = [like, norm, like, like]
@@ -338,6 +351,7 @@ def handle_search(query: str, type: str = "", detail: str = "slim") -> dict:
         return {"error": f"detail must be 'slim' or 'full', got {detail!r}"}
     with open_db(MEMORY_DB) as con:
         con.row_factory = sqlite3.Row
+        _ensure_schema(con)
         rows = _search_rows(query, type, con)
 
         if not rows:
@@ -380,7 +394,7 @@ def handle_list(type: str = "") -> dict:
     Args:
         type:   Optional filter by type (user/feedback/project/reference).
     """
-    sql = "SELECT id, name, type, tags, updated FROM memories WHERE 1=1"
+    sql = "SELECT id, name, type, tags, updated FROM memories WHERE origin = 'general'"
     params: list = []
 
     if type:
@@ -391,6 +405,7 @@ def handle_list(type: str = "") -> dict:
 
     with open_db(MEMORY_DB) as con:
         con.row_factory = sqlite3.Row
+        _ensure_schema(con)
         rows = con.execute(sql, params).fetchall()
 
     return {
@@ -525,6 +540,7 @@ def handle_stale(
     """
     where = """
         (last_hit IS NULL OR last_hit < datetime('now', ?))
+        AND origin = 'general'
         AND (COALESCE(last_validated, updated) IS NULL
              OR COALESCE(last_validated, updated) < datetime('now', ?))
     """

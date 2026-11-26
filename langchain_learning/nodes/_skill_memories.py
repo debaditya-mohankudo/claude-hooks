@@ -10,6 +10,7 @@ import re
 import sqlite3
 from collections import OrderedDict
 
+from src.db.schema import injectable_sql
 from src.logger import get_logger
 
 _log = get_logger(__name__)
@@ -62,21 +63,12 @@ def lookup(conn: sqlite3.Connection, tag: str, cap: int = DEFAULT_CAP, skip: set
     """Memories carrying exactly `tag`, newest then most-hit first, superseded ones dropped, `skip` names removed."""
     conn.row_factory = sqlite3.Row
     rows = conn.execute(
-        "SELECT id, name, type, tags, body, updated, hit_count FROM memories WHERE lower(tags) LIKE ?",
+        f"SELECT id, name, type, tags, body, updated, hit_count FROM memories WHERE {injectable_sql(conn)} AND lower(tags) LIKE ?",
         (f"%{tag}%",),
     ).fetchall()
     rows = [r for r in rows if tag in tag_tokens(r["tags"]) and r["name"] not in (skip or ())]
     if not rows:
         return []
-    ph = ",".join("?" * len(rows))
-    try:
-        old = {r[0] for r in conn.execute(
-            f"SELECT dst_id FROM memory_links WHERE type='supersedes' AND dst_id IN ({ph})",
-            [r["id"] for r in rows],
-        )}
-    except sqlite3.Error:
-        old = set()
-    rows = [r for r in rows if r["id"] not in old]
     rows.sort(key=lambda r: (r["updated"] or "", r["hit_count"] or 0), reverse=True)
     top = [dict(r) for r in rows[:cap]]
     try:

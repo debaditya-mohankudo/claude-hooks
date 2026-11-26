@@ -73,7 +73,7 @@ def _has_table(con: sqlite3.Connection, name: str) -> bool:
 
 def orphan_ids(con: sqlite3.Connection) -> list[int]:
     return [r[0] for r in con.execute(
-        "SELECT id FROM memories WHERE id NOT IN (SELECT src_id FROM memory_links) "
+        "SELECT id FROM memories WHERE origin = 'general' AND id NOT IN (SELECT src_id FROM memory_links) "
         "AND id NOT IN (SELECT dst_id FROM memory_links) ORDER BY id")]
 
 
@@ -86,7 +86,7 @@ def _reviewed(con: sqlite3.Connection) -> set[int]:
 def propose(con: sqlite3.Connection) -> dict:
     """{"orphans": [{memory, proposals: [...]}], "reviewed": n, "common_tags": [...]}."""
     mems = {i: {"name": n, "body": b or "", "tags": _tags(t), "paths": _paths(f, d)}
-            for i, n, b, t, f, d in con.execute("SELECT id, name, body, tags, files, docs FROM memories")}
+            for i, n, b, t, f, d in con.execute("SELECT id, name, body, tags, files, docs FROM memories WHERE origin = 'general'")}
     total = len(mems)
     df: dict[str, int] = {}
     for m in mems.values():

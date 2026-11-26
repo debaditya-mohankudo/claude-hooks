@@ -185,13 +185,11 @@ def test_hub_target_boost_is_capped(link_conn):
     assert order.index("hub") > order.index("seed0")  # capped below every direct seed
 
 
-def test_superseded_memory_demoted_below_superseder(link_conn):
+def test_superseded_memory_is_not_injected(link_conn):
     _insert(link_conn, "old-way", tags="gate", body="gate")
     _insert(link_conn, "new-way", tags="gate", body="gate")
-    link_conn.execute("UPDATE memories SET updated='2020-01-01 00:00:00' WHERE name='new-way'")  # new-way would otherwise rank lower
     _link(link_conn, "new-way", "old-way", "supersedes")
-    names = [m["name"] for m in _run(link_conn, {"gate"})]
-    assert names.index("new-way") < names.index("old-way")
+    assert [m["name"] for m in _run(link_conn, {"gate"})] == ["new-way"]
 
 
 def test_superseding_seed_does_not_pull_in_old_memory(link_conn):
@@ -201,11 +199,14 @@ def test_superseding_seed_does_not_pull_in_old_memory(link_conn):
     assert "old-way" not in [m["name"] for m in _run(link_conn, {"gate"})]
 
 
-def test_old_seed_pulls_in_its_superseder(link_conn):
-    _insert(link_conn, "old-way", tags="gate", body="gate")
-    _insert(link_conn, "new-way", tags="zzz", body="zzz")
-    _link(link_conn, "new-way", "old-way", "supersedes")
-    assert "new-way" in [m["name"] for m in _run(link_conn, {"gate"})]
+def test_loop_rows_are_not_injected_directly_or_as_neighbours(link_conn):
+    _insert(link_conn, "seed", tags="gate", body="gate")
+    _insert(link_conn, "loop-direct", tags="gate", body="gate")
+    _insert(link_conn, "loop-neighbour", tags="zzz", body="zzz")
+    link_conn.execute("UPDATE memories SET origin='loop' WHERE name LIKE 'loop-%'")
+    _link(link_conn, "seed", "loop-neighbour")
+    _link(link_conn, "seed", "loop-direct")
+    assert [m["name"] for m in _run(link_conn, {"gate"})] == ["seed"]
 
 
 def test_contradicting_pair_is_marked_and_not_boosted(link_conn):

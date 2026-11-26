@@ -106,7 +106,7 @@ def stale_references(con: sqlite3.Connection, props: list[dict]) -> list[dict]:
         if p["type"] != "supersedes":
             continue
         for (name,) in con.execute(
-            "SELECT name FROM memories WHERE body LIKE ? AND body NOT LIKE ? AND name NOT IN (?, ?)",
+            "SELECT name FROM memories WHERE origin = 'general' AND body LIKE ? AND body NOT LIKE ? AND name NOT IN (?, ?)",
             (f"%{p['dst']}%", f"%{p['src']}%", p["src"], p["dst"]),
         ):
             out.append({"superseded": p["dst"], "by": p["src"], "still_referenced_by": name})
