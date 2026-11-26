@@ -43,7 +43,7 @@ The dispatcher then assembles `additionalContext` (`## Turn state`, user context
 
 | Event | Side effects (`hooks/dispatcher.py`) |
 | --- | --- |
-| `PreToolUse` | WebSearch cache: a fresh hit is returned as a deny carrying the cached result (`src/tools/web_search_cache.py`) |
+| `PreToolUse` | WebSearch cache: a fresh hit is returned as a deny carrying the cached result (`src/tools/web_search_cache.py`). After the gate, advisory notes only: the tmux nudge, and one note per skill when its action runs without it (`hooks/skill_reminder.py`) |
 | `PostToolUse` | WebSearch store, find_cli log, vault reindex (command and file-tool), context-size nudge, skill memories and skill-tag nudge — all before `log_tool_usage` |
 
 The client (`hooks/client.py`) also writes terminal state itself before the POST — kitty tab status, dashboard plan/turn and the saved last response — because only its process has the session's `KITTY_*` environment.

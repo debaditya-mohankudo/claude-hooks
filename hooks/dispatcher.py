@@ -160,6 +160,10 @@ def _handle_user_prompt_submit(hook_input: dict) -> dict | None:
     log.info("UPS enter: session=%s cwd=%s prompt_len=%d",
              session_id[:8], Path(cwd).name, len(prompt))
 
+    # A typed /name loads a skill with no Skill tool call (hooks/skill_reminder.py).
+    from hooks import skill_reminder
+    skill_reminder.note_prompt(session_id, prompt, cwd)
+
     if not prompt:
         log.info("UPS skip: empty prompt")
         return None
@@ -300,6 +304,10 @@ def _handle_post_tool_use(hook_input: dict) -> dict | None:
 
     log.info("PTU enter: session=%s tool=%s duration_ms=%.0f", session_id[:8], tool_name, duration_ms)
     log.debug("tool_response raw: %r", tool_response)
+    # Before every early return below, so a loaded skill is never missed.
+    if tool_name == "Skill" and isinstance(tool_input, dict):
+        from hooks import skill_reminder
+        skill_reminder.note_loaded(session_id, tool_input.get("skill", ""), hook_input.get("cwd", ""))
     if tool_name == "WebSearch":
         from src.tools import web_search_cache
         if web_search_cache.record_hook(session_id, tool_input, hook_input.get("tool_response")):
@@ -697,7 +705,8 @@ def _handle_pre_tool_use(hook_input: dict) -> dict | None:
     else:
         return None
 
-    denied, reason = _gate_check(short_name, hook_input.get("tool_input") or {}, session_id)
+    tool_input = hook_input.get("tool_input") or {}
+    denied, reason = _gate_check(short_name, tool_input, session_id)
     if denied:
         log.info("PreTU deny: session=%s tool=%s reason=%s", session_id[:8], short_name, reason[:80])
         return {
@@ -707,10 +716,19 @@ def _handle_pre_tool_use(hook_input: dict) -> dict | None:
                 "permissionDecisionReason": reason,
             }
         }
-    tmux_nudge = _maybe_tmux_nudge(short_name, hook_input.get("tool_input") or {}, session_id)
+    # Advisory notes only, after the gate so a denied call does not use one up.
+    notes = []
+    tmux_nudge = _maybe_tmux_nudge(short_name, tool_input, session_id)
     if tmux_nudge:
-        log.info("PreTU allow+tmux-nudge: session=%s tool=%s", session_id[:8], short_name)
-        return tmux_nudge
+        notes.append(tmux_nudge["hookSpecificOutput"]["additionalContext"])
+    if short_name == "Bash":
+        from hooks import skill_reminder
+        note = skill_reminder.reminder(session_id, tool_input.get("command") or "", _shell_commands)
+        if note:
+            notes.append(note)
+    if notes:
+        log.info("PreTU allow+nudge: session=%s tool=%s notes=%d", session_id[:8], short_name, len(notes))
+        return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": "\n\n".join(notes)}}
 
     log.info("PreTU allow: session=%s tool=%s elapsed_ms=%.1f", session_id[:8], short_name, (time.monotonic() - _t0) * 1000)
     return None
