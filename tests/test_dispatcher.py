@@ -341,6 +341,7 @@ def test_tmux_nudge_ignores_hints_inside_other_words(command):
     "cat <<EOF\nbody\nEOF\ntail -n 100 -f app.log",
     "for f in a; do tail -F $f; done",
     "npm test -- --watch",
+    "echo $((1<<2))\nnpm run dev",
 ])
 def test_tmux_nudge_still_fires_on_long_running_commands(command):
     assert _nudge(command) is not None

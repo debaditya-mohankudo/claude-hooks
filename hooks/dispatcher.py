@@ -546,7 +546,7 @@ def _shell_commands(command: str) -> list[list[str]]:
             i = n if j < 0 else j
         elif command.startswith("<<", i) and not command.startswith("<<<", i):
             end_word()
-            m = re.compile(r"<<-?[ \t]*\\?(['\"]?)([\w.-]+)\1").match(command, i)
+            m = re.compile(r"<<-?[ \t]*\\?(['\"]?)((?!\d)[\w.-]+)\1").match(command, i)
             if m:
                 heredocs.append(m.group(2))
             i = m.end() if m else i + 2
