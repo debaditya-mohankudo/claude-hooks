@@ -630,6 +630,27 @@
       "name": "pretooluse-nudges-are-advisory",
       "related": []
     },
+    "prompt-time-memory-retrieval": {
+      "confidence": 0.8,
+      "contracts": [
+        "Prompts of three whitespace words or fewer, and <agent-message, <cross-session-message and <task-notification messages, inject no memories; the audit row's skipped column says 'short' or 'machine'"
+      ],
+      "created_at": "2026-11-26T15:25:36.106091+00:00",
+      "description": "LoadMemoriesNode picks the memories injected on UserPromptSubmit and writes one audit row per prompt, including prompts it deliberately skips.",
+      "evidence": [
+        "langchain_learning/nodes/load_memories.py:skip_reason",
+        "langchain_learning/nodes/_memory_audit.py:_connect",
+        "tests/test_memory_audit.py:test_skipped_prompt_injects_nothing_and_is_audited"
+      ],
+      "invariants": [
+        "A skipped prompt still resets the prompt-injected set and does not age out carry-over history",
+        "memory_audit.record is fail-open, so a new audit column needs an ALTER on existing databases, not only a DDL change"
+      ],
+      "last_validated": "2026-11-26T15:25:36.106108+00:00",
+      "module": "langchain_learning/nodes/load_memories.py",
+      "name": "prompt-time-memory-retrieval",
+      "related": []
+    },
     "server-fastapi-hook-server": {
       "confidence": 0.95,
       "contracts": [
@@ -915,6 +936,6 @@
     "commit": "5f62c6b5150a20fe7198d7bd6c155c4b3c0d3101",
     "extracted_at": "2026-07-23T05:42:23Z",
     "note": "incremental upsert (task:a2fd402d)",
-    "updated_at": "2026-11-26T14:59:06.954499+00:00"
+    "updated_at": "2026-11-26T15:25:36.106145+00:00"
   }
 }
