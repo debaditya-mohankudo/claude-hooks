@@ -168,12 +168,11 @@ def _handle_user_prompt_submit(hook_input: dict) -> dict | None:
     ctx = _run_user_prompt_turn(prompt, session_id, cwd)
     elapsed_ms = (time.monotonic() - t0) * 1000
 
-    # Shadow run (task:444cc036): find_cli's answer for the whole prompt is logged,
-    # never shown. Never raises, so it cannot cost the turn its other context.
-    from src.tools import prompt_shadow
-    t_shadow = time.monotonic()
-    prompt_shadow.record(session_id, prompt)
-    shadow_ms = (time.monotonic() - t_shadow) * 1000
+    # The find_cli whole-prompt shadow ran here and its link_calls in PostToolUse
+    # (src/tools/prompt_shadow.py, task:444cc036), removed (task:47d54147): its top
+    # command matched the one run for 7% of prompts, cost up to p95 455 ms per
+    # prompt, and the design rules out a prompt-time pre-lookup. Don't re-add it.
+    # The prompt_shadow table in tool_hints.sqlite is left as collected.
 
     ctx["user_context"] = render_user_context(set(ctx.get("keywords") or []))
     system_prompt = _format_system_prompt(ctx)
@@ -190,10 +189,10 @@ def _handle_user_prompt_submit(hook_input: dict) -> dict | None:
     memories_tokens = count_tokens("".join(m.get("body", "") for m in ctx.get("memories", [])))
     prompt_tokens   = count_tokens(system_prompt)
     log.info(
-        "UPS done: session=%s elapsed_ms=%.0f shadow_ms=%.0f memories=%d "
+        "UPS done: session=%s elapsed_ms=%.0f memories=%d "
         "ctx_chars(memories=%d) ctx_tokens(memories=%d) "
         "prompt_chars=%d prompt_tokens=%d",
-        session_id[:8], elapsed_ms, shadow_ms,
+        session_id[:8], elapsed_ms,
         len(ctx.get("memories", [])),
         memories_chars,
         memories_tokens,
@@ -334,9 +333,6 @@ def _handle_post_tool_use(hook_input: dict) -> dict | None:
         outcome = find_cli_log.link_calls(session_id, [c.id for c in mac_calls])
         if outcome:
             log.info("PTU find_cli link: session=%s outcome=%s", session_id[:8], outcome)
-    if mac_calls:
-        from src.tools import prompt_shadow
-        prompt_shadow.link_calls(session_id, [c.id for c in mac_calls])
 
     # Before the nudge's early return, so a nudge turn never skips a vault reindex.
     # Keeps the vault SQLite index current after vault writes (src/tools/vault_index.py);

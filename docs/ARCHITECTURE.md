@@ -15,7 +15,7 @@ tags: architecture overview, claude-hooks, hook server, MCP tools, dispatcher, s
 2. **Commit traceability gating** — deny a `git commit` that carries no `task:<id>` reference
 3. **Tool usage tracking** — accumulate latency and keyword signals per MCP tool in `tool_hints.sqlite`
 4. **Observability** — structured logs in `claude_hooks.sqlite` and a rolling cross-session event log (`server_memory.sqlite`)
-5. **Tool-call side effects** — the WebSearch cache, find_cli and prompt-shadow hit-rate logs, vault reindexing, the context-size nudge and skill-tagged memory injection. The dispatcher runs these inline in its handlers (see [The dispatcher](#the-dispatcher))
+5. **Tool-call side effects** — the WebSearch cache, the find_cli hit-rate log, vault reindexing, the context-size nudge and skill-tagged memory injection. The dispatcher runs these inline in its handlers (see [The dispatcher](#the-dispatcher))
 
 ---
 
@@ -43,9 +43,8 @@ The dispatcher then assembles `additionalContext` (`## Turn state`, user context
 
 | Event | Side effects (`hooks/dispatcher.py`) |
 | --- | --- |
-| `UserPromptSubmit` | prompt shadow (`src/tools/prompt_shadow.py`) |
 | `PreToolUse` | WebSearch cache: a fresh hit is returned as a deny carrying the cached result (`src/tools/web_search_cache.py`) |
-| `PostToolUse` | WebSearch store, find_cli log, prompt-shadow linking, vault reindex (command and file-tool), context-size nudge, skill memories and skill-tag nudge — all before `log_tool_usage` |
+| `PostToolUse` | WebSearch store, find_cli log, vault reindex (command and file-tool), context-size nudge, skill memories and skill-tag nudge — all before `log_tool_usage` |
 
 The client (`hooks/client.py`) also writes terminal state itself before the POST — kitty tab status, dashboard plan/turn and the saved last response — because only its process has the session's `KITTY_*` environment.
 

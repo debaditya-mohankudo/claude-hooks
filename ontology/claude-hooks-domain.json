@@ -9,10 +9,10 @@
     "Gates/Enforcement": "Deciding allow or deny for a tool call before it executes. The live gates are the commit-traceability checks (every git commit names a task:<id>); the message-send gates moved to LocalMacMCP and the session-history checks went with the history (task:84dbcf14). Fails open on any internal error -- a gate that can't evaluate never blocks the call (task:4e56d23a).",
     "Memory & Retrieval": "Scoring and injecting relevant memories into a turn: BM25 over each memory's tags and slug words, a recency factor, then the memory_links graph lifting neighbours of the top hits (no embeddings). Also the skill-scoped path that injects memories tagged for a Skill when it runs. Defines the seam that lets nodes swap in a null implementation for tests without touching the production scoring code. Tool hints are no longer injected (dispatcher._format_system_prompt tombstone).",
     "Ambient Context": "Identity and working-style context attached to every prompt turn from the user's vault, built from a typed ontology (LIFE_OS/user-context-ontology.json) rather than raw scored rows. Its always_on nodes (persona, financial profile) inject verbatim every turn; its remaining nodes (work domains) join a '## Relevant context' block only when the prompt's tokens hit their tags. Distinct from Memory & Retrieval, which scores MEMORY.sqlite rows -- this reads one curated graph the user maintains by hand.",
-    "Observability": "Answering 'what happened, and what was I working on' after the fact: the consolidated cross-session event timeline, the raw log sink every module writes through, and the per-feature hit-rate logs (find_cli lookups, prompt shadowing) recorded from PostToolUse. Read through `mac hooks ...`.",
+    "Observability": "Answering 'what happened, and what was I working on' after the fact: the consolidated cross-session event timeline, the raw log sink every module writes through, and the find_cli hit-rate log recorded from PostToolUse. Read through `mac hooks ...`.",
     "Concept Store": "The per-module architectural-fact store this repo maintains about its own source, and about which repo boundary a piece of evidence is allowed to cross.",
     "Tool Handler Surface": "The `handle_*` functions in src/tools/* that callers reach by name, and the two front-ends over them: cli-graph's `mac hooks|memory|...` verbs (live -- a subprocess runner imports the handlers) and mcp_server.py (dormant -- registered nowhere, kept on purpose for possible future use). Also the personal tool->domain/tool->skill lookup the pipeline uses to describe tool calls generically.",
-    "Tool-Call Side Effects": "Behaviour the dispatcher runs in the dispatcher on PreToolUse/PostToolUse: the WebSearch cache, find_cli and prompt-shadow logging, vault reindexing, the context-size nudge, and skill-memory injection with its tag nudge. Each is fail-open and independent of the others; none reads or writes SessionStore.",
+    "Tool-Call Side Effects": "Behaviour the dispatcher runs in the dispatcher on PreToolUse/PostToolUse: the WebSearch cache, find_cli logging, vault reindexing, the context-size nudge, and skill-memory injection with its tag nudge. Each is fail-open and independent of the others; none reads or writes SessionStore.",
     "Client-side Status": "State the thin hook client writes for the terminal before (or instead of) talking to HookServer: the kitty tab status, the dashboard plan/turn files and the saved last response. Runs in HookClient's process because only it has the session's KITTY_* environment.",
     "Storage": "Cross-cutting storage primitives other contexts build on: the encrypted-SQLite opener for MEMORY.sqlite and the named in-process caches (optionally persisted) the server exposes under /cache.",
     "Session State": "The per-session dict the hook server keeps between events (turn counter, last prompt, prompt id, once-per-turn Stop flags) and the Stop-time side effects keyed off it. In-process only: lost on restart, evicted on SessionEnd, capped in size. It replaced a LangGraph graph with a checkpointer (task:31fb711d); the dispatcher is now the single orchestrator."
@@ -112,11 +112,6 @@
       "bounded_context": "Tool Handler Surface",
       "definition": "The personal tool-name -> domain/skill lookup, loaded from an external file. How the pipeline describes a raw MCP tool call in domain/skill terms without hardcoding every tool by name.",
       "evidence": "hooks/core/tool_registry.py:infer_domain"
-    },
-    "PromptShadow": {
-      "bounded_context": "Observability",
-      "definition": "A shadow run of find_cli on every user prompt: records what it would have suggested, then links the next `mac` calls of that session to it, so its hit rate can be measured without ever showing the suggestion.",
-      "evidence": "src/tools/prompt_shadow.py:record, src/tools/prompt_shadow.py:link_calls"
     },
     "FindCliLog": {
       "bounded_context": "Observability",
@@ -310,18 +305,6 @@
       "predicate": "persists",
       "object": "WebSearchCache",
       "note": "Every completed WebSearch is stored, so the next identical query within its TTL is served from the cache."
-    },
-    {
-      "subject": "UserPromptSubmit",
-      "predicate": "persists",
-      "object": "PromptShadow",
-      "note": "Each prompt gets a shadow find_cli row; PostToolUse later links the session's mac calls to it."
-    },
-    {
-      "subject": "PromptShadow",
-      "predicate": "relates",
-      "object": "FindCliLog",
-      "note": "Same measurement (did the next mac call use a suggestion?) for two triggers: every prompt, silently, vs. an explicit find_cli call."
     },
     {
       "subject": "PostToolUse",

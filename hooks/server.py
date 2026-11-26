@@ -184,8 +184,8 @@ async def pre_tool_use(request: Request):
 async def post_tool_use(request: Request):
     """PostToolUse hook — runs the dispatcher's side effects, then the log_tool_usage node (a plain call, not a graph node).
 
-    Side effects (each fail-open): WebSearch cache store, find_cli log and prompt-shadow
-    linking, vault reindex, context-size nudge, and skill-tagged memories / skill-tag
+    Side effects (each fail-open): WebSearch cache store, find_cli log,
+    vault reindex, context-size nudge, and skill-tagged memories / skill-tag
     nudge. log_tool_usage upserts the tool hint row in tool_hints.sqlite (skipped for
     test sessions and memory tools). Returns {} or a hookSpecificOutput.additionalContext
     from the nudge or skill-memory side effects — which return early, so log_tool_usage
