@@ -29,6 +29,7 @@ _NEW_COLUMNS = [
     "ALTER TABLE memories ADD COLUMN kind TEXT DEFAULT ''",
     "ALTER TABLE memories ADD COLUMN scope TEXT DEFAULT ''",
     "ALTER TABLE memories ADD COLUMN created TIMESTAMP",
+    "ALTER TABLE memories ADD COLUMN mismatch_count INTEGER NOT NULL DEFAULT 0",
 ]
 
 

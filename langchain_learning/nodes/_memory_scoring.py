@@ -3,8 +3,12 @@
 Used by LoadMemoriesNode (prompt → memories) and ActivateTaskNode (task → memories).
 
 Signals per row:
-  1. BM25 over the memory's tags (IDF + length normalisation) × tag_weight
+  1. BM25 over the memory's tags and slug words (IDF + length normalisation),
+     plus slug_weight × a second BM25 over the slug words alone, so a slug match
+     outranks the same match in the tags; the sum × tag_weight
   2. recency — multiplier based on updated timestamp
+  3. mismatch — each net "noise" audit mark (memories.mismatch_count) multiplies
+     the final score by mismatch_decay, never below mismatch_floor
 
 The BM25 index covers every memory so IDF reflects the whole corpus. It is
 cached at module level and rebuilt only when the (id, updated, tags) signature
@@ -47,8 +51,11 @@ def _defaults_from_config() -> dict:
     return {
         "top_n":                   _src_cfg.memory_top_n,
         "tag_weight":              _src_cfg.memory_tag_weight,
+        "slug_weight":             _src_cfg.memory_slug_weight,
         "body_weight":             _src_cfg.memory_body_weight,
         "recency_boost":           _src_cfg.memory_recency_boost,
+        "mismatch_decay":          _src_cfg.memory_mismatch_decay,
+        "mismatch_floor":          _src_cfg.memory_mismatch_floor,
         "recency_penalty":         _src_cfg.memory_recency_penalty,
         "recency_boost_days":      _src_cfg.memory_recency_boost_days,
         "recency_penalty_days":    _src_cfg.memory_recency_penalty_days,
@@ -100,12 +107,25 @@ def recency_multiplier(updated_str: str | None, cfg: dict) -> float:
         return 1.0
 
 
+def mismatch_multiplier(count: int | None, cfg: dict) -> float:
+    if not count or count <= 0:
+        return 1.0
+    return max(cfg.get("mismatch_floor", 0.4), cfg.get("mismatch_decay", 0.8) ** count)
+
+
+def _mismatch_counts(conn: sqlite3.Connection) -> dict[str, int]:
+    """name -> mismatch_count for marked memories; empty on a DB without the column."""
+    if not any(r[1] == "mismatch_count" for r in conn.execute("PRAGMA table_info(memories)")):
+        return {}
+    return {r[0]: r[1] for r in conn.execute("SELECT name, mismatch_count FROM memories WHERE mismatch_count > 0")}
+
+
 def _tag_terms(tags: str | None) -> list[str]:
     """Tag tokens as a list (duplicates kept so BM25 sees term frequency and length)."""
     return [t for t in re.findall(r"[a-z]{3,}", (tags or "").lower()) if t not in _STOP_WORDS]
 
 
-_bm25_cache: dict = {"sig": None, "bm25": None, "pos": {}, "terms": [], "df": Counter()}
+_bm25_cache: dict = {"sig": None, "bm25": None, "slug_bm25": None, "pos": {}, "terms": [], "df": Counter()}
 
 
 def _bm25_index(conn: sqlite3.Connection) -> tuple[BM25Plus | None, dict[int, int]]:
@@ -117,12 +137,14 @@ def _bm25_index(conn: sqlite3.Connection) -> tuple[BM25Plus | None, dict[int, in
         f"SELECT id, tags, updated, name FROM memories WHERE {injectable_sql(conn)} ORDER BY id").fetchall()
     sig = hash(tuple((r[0], r[1], r[2], r[3]) for r in rows))
     if _bm25_cache["sig"] != sig:
-        corpus = [(_tag_terms(r[1]) + _tag_terms(re.sub(r"[-_]", " ", r[3] or ""))) or ["_"] for r in rows]  # BM25 needs non-empty docs
+        slugs = [_tag_terms(re.sub(r"[-_]", " ", r[3] or "")) for r in rows]
+        corpus = [(_tag_terms(r[1]) + s) or ["_"] for r, s in zip(rows, slugs)]  # BM25 needs non-empty docs
         _bm25_cache.update(
             sig=sig,
             # BM25Plus idf=log((N+1)/n) stays > 0 on tiny corpora; delta=0 keeps
             # a doc that lacks the term at exactly 0 (Okapi's idf hits 0/negative).
             bm25=BM25Plus(corpus, delta=0) if corpus else None,
+            slug_bm25=BM25Plus([s or ["_"] for s in slugs], delta=0) if corpus else None,
             pos={r[0]: i for i, r in enumerate(rows)},
             terms=[set(d) - {"_"} for d in corpus],
             df=Counter(t for d in corpus for t in set(d) if t != "_"),
@@ -143,6 +165,7 @@ def _passes_match_filter(hits: set[str], n_tokens: int, df: Counter, cfg: dict) 
 def bm25_scores(conn: sqlite3.Connection, tokens: set[str]) -> dict[int, float]:
     """BM25 score of the query tokens against every memory's tags and slug, keyed by memory id.
 
+    A slug-word match counts again, weighted by slug_weight.
     A memory that fails the match filter (see module docstring) scores 0."""
     if not tokens:
         return {}
@@ -151,7 +174,8 @@ def bm25_scores(conn: sqlite3.Connection, tokens: set[str]) -> dict[int, float]:
         return {}
     cfg = load_scoring_cfg()
     terms, df = _bm25_cache["terms"], _bm25_cache["df"]
-    raw = bm25.get_scores(sorted(tokens))
+    query = sorted(tokens)
+    raw = bm25.get_scores(query) + cfg.get("slug_weight", 0.5) * _bm25_cache["slug_bm25"].get_scores(query)
     return {
         mid: float(raw[i]) if _passes_match_filter(terms[i] & tokens, len(tokens), df, cfg) else 0.0
         for mid, i in pos.items()
@@ -316,7 +340,11 @@ def score_memories(
         else:
             scored[name] = (boost, dict(row))
 
-    all_scored = sorted(scored.values(), key=lambda x: -x[0])
+    # Applied once, after the boosts, so a boosted neighbour is penalised too.
+    marked = _mismatch_counts(conn)
+    all_scored = sorted(
+        ((s * mismatch_multiplier(marked.get(m["name"]), cfg), m) for s, m in scored.values()),
+        key=lambda x: -x[0])
     top = [m for _, m in all_scored[:n]]
     if trace is not None:
         _fill_trace(trace, all_scored[: n * 2], tokens)

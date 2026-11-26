@@ -414,3 +414,28 @@ def test_trace_lists_candidates_with_matched_terms(mem_conn):
     score_memories({"harness", "replay"}, mem_conn, top_n=3, trace=trace)
     assert trace[0]["name"] == "replay-harness"
     assert trace[0]["hits"] == ["harness", "replay"] and trace[0]["score"] > 0
+
+
+# --- slug words outrank tag words ---------------------------------------------
+
+def test_slug_match_outranks_equal_tag_match(mem_conn):
+    """Same word, same document length: the slug hit ranks first even though
+    the tag-only row is newer (ties would otherwise go newest-first)."""
+    _insert(mem_conn, "widget-notes", tags="alpha")
+    _insert(mem_conn, "other-notes", tags="widget")
+    mem_conn.execute("UPDATE memories SET updated=datetime('now','-1 day') WHERE name='widget-notes'")
+    mem_conn.execute("UPDATE memories SET updated=datetime('now') WHERE name='other-notes'")
+    for i in range(4):
+        _insert(mem_conn, f"filler-{i}", tags="unrelated")
+    assert _names(mem_conn, {"widget"}) == ["widget-notes", "other-notes"]
+
+
+def test_mismatch_count_lowers_score_but_keeps_the_memory(mem_conn):
+    _insert(mem_conn, "first", tags="widget")
+    _insert(mem_conn, "second", tags="widget")
+    for i in range(4):
+        _insert(mem_conn, f"filler-{i}", tags="unrelated")
+    top = _names(mem_conn, {"widget"})[0]
+    mem_conn.execute("UPDATE memories SET mismatch_count=50 WHERE name=?", (top,))
+    names = _names(mem_conn, {"widget"})
+    assert len(names) == 2 and names[-1] == top

@@ -11,7 +11,7 @@ tags: architecture overview, claude-hooks, hook server, MCP tools, dispatcher, s
 
 `claude-hooks` is a Python system that intercepts Claude Code hook events and handles each one in a **single orchestrator, `hooks/dispatcher.py`**, with per-session state in `hooks/session_store.py`. (A LangGraph graph with a checkpointer stood between them until task:31fb711d removed it.) Its responsibilities are:
 
-1. **Memory injection** — score and inject relevant memories from `MEMORY.sqlite` into every prompt (BM25 over tags plus slug words; skill-tagged memories on a `Skill` call)
+1. **Memory injection** — score and inject relevant memories from `MEMORY.sqlite` into every prompt (BM25 over tags plus slug words, slug matches weighted higher, score lowered per noise mark in `mismatch_count`; skill-tagged memories on a `Skill` call)
 2. **Commit traceability gating** — deny a `git commit` that carries no `task:<id>` reference
 3. **Tool usage tracking** — accumulate latency and keyword signals per MCP tool in `tool_hints.sqlite`
 4. **Observability** — structured logs in `claude_hooks.sqlite` and a rolling cross-session event log (`server_memory.sqlite`)

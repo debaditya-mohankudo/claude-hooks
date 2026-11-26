@@ -174,3 +174,29 @@ def test_old_audit_db_gains_skipped_column(tmp_path):
     c.close()
     audit.record("s", "ok", set(), [], [], [], path=db, skipped="short")
     assert audit.recent(path=db)[0]["skipped"] == "short"
+
+
+def test_mark_moves_mismatch_count_once_per_changed_verdict():
+    import sqlite3
+    from src.db.schema import MEMORIES_DDL
+
+    con = sqlite3.connect(str(audit.MEMORY_DB))
+    con.executescript(MEMORIES_DDL)
+    con.execute("INSERT INTO memories (name, type, updated) VALUES ('a', 'project', '2020-01-01')")
+    con.commit()
+    audit.record("s1", "p1", {"x"}, [], [], ["a"])
+    audit.record("s1", "p2", {"x"}, [], [], ["a"])
+    second, first = [r["id"] for r in audit.recent()]
+
+    def state():
+        return con.execute("SELECT mismatch_count, updated FROM memories").fetchone()
+
+    audit.mark(first, {"a": "noise"})
+    audit.mark(first, {"a": "noise"})
+    assert state() == (1, "2020-01-01")
+    audit.mark(second, {"a": "noise"})
+    assert state()[0] == 2
+    audit.mark(second, {"a": "useful"})
+    audit.mark(first, {"a": "useful"})
+    assert state()[0] == 0  # floored, never negative
+    con.close()

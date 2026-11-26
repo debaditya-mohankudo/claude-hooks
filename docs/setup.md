@@ -165,7 +165,7 @@ A successful run exits 0 and emits JSON with `additionalContext`.
 
 ## 7. Seed initial memories (optional but recommended)
 
-The system works without any memories, but seeding a few facts immediately improves context quality. All memories — project architecture facts, cross-cutting mission notes, feedback, reference — live in the single global `MEMORY.sqlite` store, scored per-turn by BM25 over each memory's tags and slug words:
+The system works without any memories, but seeding a few facts immediately improves context quality. All memories — project architecture facts, cross-cutting mission notes, feedback, reference — live in the single global `MEMORY.sqlite` store, scored per-turn by BM25 over each memory's tags and slug words (a slug-word match ranks above the same match in tags; `mac memory audit mark --id N --noise <slug>` raises `mismatch_count`, which lowers that memory's score):
 
 ```bash
 mac memory add <repo>-arch --type project \

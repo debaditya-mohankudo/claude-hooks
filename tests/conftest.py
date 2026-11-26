@@ -288,3 +288,5 @@ def _isolate_memory_audit(tmp_path, monkeypatch):
     """Point the memory audit log at a temp file so no test writes to ~/.claude/memory_audit.sqlite."""
     from langchain_learning.nodes import _memory_audit
     monkeypatch.setattr(_memory_audit, "AUDIT_DB", tmp_path / "memory_audit.sqlite")
+    # mark() also writes memories.mismatch_count; keep that off the real store too.
+    monkeypatch.setattr(_memory_audit, "MEMORY_DB", tmp_path / "audit_memory.sqlite")

@@ -22,6 +22,7 @@ from src.logger import get_logger
 _log = get_logger(__name__)
 
 AUDIT_DB = Path.home() / ".claude" / "memory_audit.sqlite"
+MEMORY_DB: Path | None = None  # None -> config.memory_db; tests point it at a temp file
 
 _DDL = """CREATE TABLE IF NOT EXISTS memory_audit (
     id          INTEGER PRIMARY KEY,
@@ -99,11 +100,34 @@ def mark(audit_id: int, verdicts: dict[str, str], path: Path | None = None) -> N
         unknown = set(verdicts) - set(json.loads(row[0] or "[]"))
         if unknown:
             raise ValueError(f"not injected on that prompt: {sorted(unknown)}")
-        merged = {**(json.loads(row[1]) if row[1] else {}), **verdicts}
+        old = json.loads(row[1]) if row[1] else {}
+        merged = {**old, **verdicts}
+        # Only a changed verdict moves the counter, so re-marking never double counts.
+        # Counters first: if that write fails the verdict stays unset and can be retried.
+        _bump_mismatch({n: 1 if v == "noise" else -1 for n, v in verdicts.items() if old.get(n) != v})
         conn.execute("UPDATE memory_audit SET verdict=? WHERE id=?", (json.dumps(merged), audit_id))
         conn.commit()
     finally:
         conn.close()
+
+
+def _bump_mismatch(deltas: dict[str, int]) -> None:
+    """Add each delta to memories.mismatch_count (never below 0). `updated` is left
+    alone, so a mark does not earn the memory a recency boost."""
+    if not deltas:
+        return
+    from langchain_learning.memory_conn import memory_connection
+    from src.config import config
+    from src.tools.memory import _ensure_schema
+
+    with memory_connection(MEMORY_DB or config.memory_db) as conn:
+        if not conn.execute("SELECT 1 FROM sqlite_master WHERE name = 'memories'").fetchone():
+            return
+        _ensure_schema(conn)
+        conn.executemany(
+            "UPDATE memories SET mismatch_count = MAX(0, mismatch_count + ?) WHERE name = ?",
+            [(d, n) for n, d in deltas.items()],
+        )
 
 
 def report(path: Path | None = None) -> dict:
