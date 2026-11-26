@@ -482,20 +482,133 @@ def _bash_result(tool_response: dict) -> dict:
 # normal permission flow must decide. Fires once per session on the first
 # qualifying Bash call, not on every Bash call, so it doesn't nag on one-shot commands.
 #
-# Hints match as whole words (see _TMUX_NUDGE_HINT_RE): a bare substring test made
-# "serve" match mcpServers/server.py and "watch" match watch_next. "runserver" and
-# "rails server" are listed explicitly because the substring test used to catch them.
+# Hints match only at command heads (task:5d6872d4): the command line is split into
+# simple commands and each one's program (and subcommand) is looked at. The
+# whole-word regex this replaced (_TMUX_NUDGE_HINT_RE) still searched quoted
+# strings, heredoc script text and arguments, so a JSON key or a variable named
+# "watch" fired it. Bare "watch" stays, but only as the program being run.
 _TMUX_NUDGE_SHOWN: set[str] = set()
-_TMUX_NUDGE_COMMAND_HINTS = (
-    "npm run", "yarn dev", "pnpm dev", "serve", "runserver", "watch", "--watch",
-    "http.server", "uvicorn", "flask run", "rails s", "rails server", "tail -f",
-    "docker compose up", "docker-compose up",
-)
-# A hint must not touch a word character, '.', '/' or '-' on either side, so
-# "serve" matches "npx serve ." but not "server.py", "mcpservers" or "/x/serve.js".
-_TMUX_NUDGE_HINT_RE = re.compile(
-    r"(?<![\w./-])(?:" + "|".join(re.escape(h) for h in _TMUX_NUDGE_COMMAND_HINTS) + r")(?![\w./-])"
-)
+_TMUX_LONG_RUNNING_PROGRAMS = {"serve", "runserver", "watch", "uvicorn", "http.server"}
+_TMUX_LONG_RUNNING_SUBCOMMANDS = {
+    "npm": (["run"],), "yarn": (["dev"],), "pnpm": (["dev"],),
+    "flask": (["run"],), "rails": (["s"], ["server"]),
+    "docker": (["compose", "up"],), "docker-compose": (["up"],),
+    "django-admin": (["runserver"],), "manage.py": (["runserver"],),
+}
+# Words that run the command after them, so the program is further along.
+_TMUX_WRAPPERS = {
+    "sudo", "nohup", "time", "env", "nice", "exec", "command", "npx", "bunx",
+    "if", "then", "else", "do", "while", "until", "!", "{",
+}
+# Programs whose "--watch" argument is text to find or print, not a mode.
+_TMUX_TEXT_PROGRAMS = {"grep", "rg", "echo", "printf"}
+
+
+def _shell_commands(command: str) -> list[list[str]]:
+    """Split a shell command line into simple commands, each a list of words.
+
+    A quoted string stays one word; comments, heredoc bodies and redirect targets
+    are dropped. Not a shell parser: it only has to find the program names.
+    """
+    commands: list[list[str]] = []
+    words: list[str] = []
+    heredocs: list[str] = []
+    word, drop_next, i, n = None, False, 0, len(command)
+
+    def end_word():
+        nonlocal word, drop_next
+        if word is not None:
+            if not drop_next:
+                words.append(word)
+            word, drop_next = None, False
+
+    def end_command():
+        nonlocal words, drop_next
+        end_word()
+        if words:
+            commands.append(words)
+        words, drop_next = [], False
+
+    while i < n:
+        c = command[i]
+        if c == "\\":
+            if command[i + 1:i + 2] != "\n":
+                word = (word or "") + command[i + 1:i + 2]
+            i += 2
+        elif c in "'\"":
+            j = i + 1
+            while j < n and command[j] != c:
+                j += 2 if c == '"' and command[j] == "\\" else 1
+            word = (word or "") + command[i + 1:j]
+            i = j + 1
+        elif c == "#" and word is None:
+            j = command.find("\n", i)
+            i = n if j < 0 else j
+        elif command.startswith("<<", i) and not command.startswith("<<<", i):
+            end_word()
+            m = re.compile(r"<<-?[ \t]*\\?(['\"]?)([\w.-]+)\1").match(command, i)
+            if m:
+                heredocs.append(m.group(2))
+            i = m.end() if m else i + 2
+        elif c in "<>" or command.startswith("&>", i):
+            if word is not None and word.isdigit():
+                word = None  # the fd of "2>"
+            end_word()
+            while i < n and command[i] in "<>&":
+                i += 1
+            drop_next = True
+        elif c == "\n":
+            end_command()
+            i += 1
+            while heredocs and i < n:
+                j = command.find("\n", i)
+                j = n if j < 0 else j
+                if command[i:j].strip() == heredocs[0]:
+                    heredocs.pop(0)
+                i = j + 1
+        elif c in ";&|()`":
+            end_command()
+            i += 1
+        elif c in " \t\r":
+            end_word()
+            i += 1
+        else:
+            word = (word or "") + c
+            i += 1
+    end_command()
+    return commands
+
+
+def _is_long_running(words: list[str]) -> bool:
+    """Whether one simple command's program is a server, watcher or follower."""
+    words = list(words)
+    while words:
+        name = words[0].rsplit("/", 1)[-1]
+        if re.match(r"[a-z_]\w*=", words[0], re.I) or name in _TMUX_WRAPPERS:
+            del words[0]
+        elif name in ("uv", "poetry", "pipenv") and words[1:2] == ["run"] or (
+                name == "bundle" and words[1:2] == ["exec"]):
+            del words[:2]
+        elif re.fullmatch(r"python[\d.]*", name) and words[1:2] == ["-m"]:
+            del words[:2]
+        elif re.fullmatch(r"python[\d.]*", name) and words[1:2] and words[1].endswith("manage.py"):
+            del words[0]
+        else:
+            break
+        while words and words[0].startswith("-"):
+            del words[0]
+    if not words:
+        return False
+    name, args = words[0].rsplit("/", 1)[-1], words[1:]
+    if name in _TMUX_LONG_RUNNING_PROGRAMS:
+        return True
+    if any(args[:len(sub)] == sub for sub in _TMUX_LONG_RUNNING_SUBCOMMANDS.get(name, ())):
+        return True
+    if name == "tail":
+        return any(a == "--follow" or re.fullmatch(r"-[a-z0-9]*f", a) for a in args)
+    return "--watch" in args and name not in _TMUX_TEXT_PROGRAMS
+
+
 _TMUX_NUDGE_TEXT = (
     "Reminder: for long-running or interactive commands (dev servers, watchers, "
     "REPLs, tailing logs), prefer running them inside a tmux session (tmux new-session, "
@@ -509,7 +622,7 @@ def _maybe_tmux_nudge(short_name: str, tool_input: dict, session_id: str) -> dic
     if short_name != "Bash" or not session_id or session_id in _TMUX_NUDGE_SHOWN:
         return None
     command = (tool_input.get("command") or "").lower()
-    if "tmux" in command or not _TMUX_NUDGE_HINT_RE.search(command):
+    if "tmux" in command or not any(map(_is_long_running, _shell_commands(command))):
         return None
     _TMUX_NUDGE_SHOWN.add(session_id)
     return {

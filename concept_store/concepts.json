@@ -569,7 +569,7 @@
       "confidence": 0.8,
       "contracts": [
         "_maybe_tmux_nudge returns {hookSpecificOutput: {hookEventName, additionalContext}} with no permissionDecision, or None",
-        "tmux hints match only when not touching a word character, '.', '/' or '-' on either side (_TMUX_NUDGE_HINT_RE), so 'serve' does not match server.py/mcpServers and 'watch' does not match watch_next"
+        "tmux hints match only the program (and subcommand) of each simple command (_shell_commands, _is_long_running); quoted strings, heredoc bodies, comments and arguments do not match, except a literal --watch flag outside grep/rg/echo/printf"
       ],
       "created_at": "2026-11-25T03:14:11.980499+00:00",
       "description": "PreToolUse reminders (the once-per-session tmux nudge, _maybe_tmux_nudge) return additionalContext only. Only a gate denial (run_gate) and the WebSearch cache hit set permissionDecision, and both set \"deny\"; nothing in the hook server returns \"allow\", because an allow approves the tool call outright and skips the user's permission rules.",
