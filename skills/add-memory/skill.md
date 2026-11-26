@@ -10,6 +10,10 @@ reads, so the skill ships with the code that recalls from it. Deploy: `docs/skil
 
 # Add memory
 
+## Intent
+
+A saved memory is injected into later sessions and trusted without being re-checked. A wrong one costs more than a missing one: save only what you can support, mark what is unverified, and saving nothing is a valid result.
+
 Mirror of `vault-save`: **think first, search the store, then write.** Do not start with
 `mac memory add`. The expensive mistakes are a duplicate of an existing memory, tags that
 recall never matches, a re-add that silently wipes `related` or the body, an edge to a loosely
