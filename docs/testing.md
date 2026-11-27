@@ -115,38 +115,19 @@ uv run python -m pytest tests/test_session_apis_integration.py -v -m integration
 
 ## 4. Replay Harness
 
-**What it covers:** Memory-injection stability against real production UPS events. Detects regressions in memory injection when the dispatcher or scorer changes.
+**What it covers:** which memories, in which order, the current code returns for real past prompts. The module docstring of `tests/replay_harness.py` describes the capture and replay mechanics.
 
-**Files:** `tests/replay_harness.py`, `tests/test_replay_harness.py`, `tests/replay_baseline.json`
-
-**Source:** Reads `UPS enter` + `UPS done` pairs from `claude_hooks.sqlite` (`~/.claude/claude_hooks.sqlite`, resolved via `config.log_db`). One event per unique session (last UPS of each session).
-
-**How it works:**
-
-1. **Capture** — load prod UPS events, replay through the current dispatcher turn, save output as `replay_baseline.json`
-2. **Replay** — load same prod events, replay again, diff against baseline on the fields in `_DONE_FIELDS` in `tests/replay_harness.py` (`memories_count` is the meaningful one now; the task-era fields such as `related` and `rag_chunks` no longer exist)
-3. Any deviation = regression
+**Files:** `tests/replay_harness.py`, `tests/test_replay_harness.py`; local and gitignored: `tests/replay_baseline.json`, `tests/replay_baseline_memory.sqlite`
 
 ```bash
-# Capture a fresh baseline (do this before making retrieval changes)
-uv run python tests/replay_harness.py --capture --since 2026-06-13 --limit 50
+# Capture from known-good code, before a retrieval change (--since / --limit pick the prompts)
+uv run python tests/replay_harness.py --capture --limit 100
 
-# Replay and diff vs saved baseline
-uv run python tests/replay_harness.py --replay --since 2026-06-13 --limit 50
-
-# Both in one shot
-uv run python tests/replay_harness.py --capture --replay --since 2026-06-13 --limit 50
+# After the change: diff against the baseline (exit 1 on any deviation)
+uv run python tests/replay_harness.py --replay
 ```
 
-**As a pytest check:**
-
-```bash
-uv run python -m pytest tests/test_replay_harness.py -v
-```
-
-Skips automatically if `~/.claude/claude_hooks.sqlite` is not present or if no baseline exists. The `test_diff_runs_no_regressions` test compares the last two pytest run_ids in `test_logs.db`.
-
-**When to run:** Before and after any change to the UserPromptSubmit handler, or memory retrieval. Not part of routine CI — run manually as a smoke test.
+The pytest check skips when no baseline was captured. After an intended scoring change, recapture.
 
 ---
 

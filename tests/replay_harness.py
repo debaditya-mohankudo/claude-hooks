@@ -1,337 +1,172 @@
-"""Replay harness — feed real claude_hooks.sqlite UPS events through the current graph.
+"""Replay harness — which memories does the current code return for real past prompts?
 
-Usage:
-    # Capture a baseline snapshot from recent logs:
-    uv run python tests/replay_harness.py --capture --since 2026-06-13 --limit 100
-
-    # Replay against current graph and diff vs baseline:
+Usage (from the repo root):
+    uv run python tests/replay_harness.py --capture [--since YYYY-MM-DD] [--limit 100]
     uv run python tests/replay_harness.py --replay
 
-    # Both in one shot (capture fresh, then diff against saved baseline):
-    uv run python tests/replay_harness.py --capture --replay --since 2026-06-14
+Capture takes prompts from memory_audit.sqlite, snapshots MEMORY.sqlite next to the
+baseline, and records the memory slugs the dispatcher's UPS turn returns for each.
+Replay reruns the same prompts against that snapshot, with the recency clock fixed
+at capture time, so a deviation means the code (or scoring config) changed, not the
+memory store. Neither writes to a live store, so replayed turns are not logged.
+Capture from known-good code.
 
-Baseline is saved to tests/replay_baseline.json.
+Hook-log parsing and synthetic prompts were removed: the log keeps only a prompt's
+length, and replaying filler text said nothing about ranking.
 """
 from __future__ import annotations
 
 import argparse
 import json
-import re
-import sqlite3
+import logging
 import sys
-from collections import OrderedDict
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
+from unittest import mock
 
-# Ensure claude-hooks is on sys.path
 _ROOT = Path(__file__).resolve().parents[1]
-_SRC  = _ROOT / "src"
-for _p in (_ROOT, _SRC):
+for _p in (_ROOT, _ROOT / "src", _ROOT / "hooks"):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 
-# task:62ea0ea5 — the hook log DB moved off iCloud to ~/.claude; resolve it
-# through config rather than re-hard-coding the location here.
-from src.config import config as _cfg  # noqa: E402  (sys.path set up above)
+import hooks.dispatcher as dispatcher  # noqa: E402  (sys.path set up above)
+import hooks.server_memory  # noqa: E402
+from hooks import session_store  # noqa: E402
+from langchain_learning.nodes import _memory_audit, _memory_scoring, _skill_memories  # noqa: E402
+from langchain_learning.nodes.load_memories import LoadMemoriesNode  # noqa: E402
+from langchain_learning.retrievers import CombinationSignalRetriever  # noqa: E402
+from src.config import config  # noqa: E402
+from src.encdb import open_db  # noqa: E402
 
-HOOKS_DB   = Path(_cfg.log_db)
-BASELINE   = Path(__file__).parent / "replay_baseline.json"
-
-# Fields extracted from "UPS done" log line
-_DONE_FIELDS = ["domains", "memories", "tools", "related", "rag_chunks"]
+BASELINE = Path(__file__).parent / "replay_baseline.json"
+SNAPSHOT = Path(__file__).parent / "replay_baseline_memory.sqlite"
 
 
-# ---------------------------------------------------------------------------
-# Log parsing
-# ---------------------------------------------------------------------------
-
-def _parse_ups_done(msg: str) -> dict | None:
-    """Parse a 'UPS done: ...' dispatcher log message into a dict."""
-    if not msg.startswith("UPS done:"):
-        return None
-    out = {}
-    # session
-    m = re.search(r"session=(\S+)", msg)
-    out["session"] = m.group(1) if m else ""
-    # memories count
-    m = re.search(r"memories=(\d+)", msg)
-    out["memories_count"] = int(m.group(1)) if m else 0
-    # tools count
-    m = re.search(r"tools=(\d+)", msg)
-    out["tools_count"] = int(m.group(1)) if m else 0
-    # domains list
-    m = re.search(r"domains=(\[.*?\])", msg)
+def load_prompts(since: str | None, limit: int) -> list[dict]:
+    """The latest `limit` audited prompts, oldest first (area carry-over depends on order)."""
+    since_ts = datetime.fromisoformat(since).timestamp() if since else 0
+    test_prefixes = (session_store.TEST_SESSION_PREFIX, *hooks.server_memory._TEST_PREFIXES)
+    not_test = " AND session_id NOT LIKE ?" * len(test_prefixes)
+    conn = open_db(_memory_audit.AUDIT_DB, readonly=True)
     try:
-        out["domains"] = json.loads(m.group(1).replace("'", '"')) if m else []
-    except Exception:
-        out["domains"] = []
-    # related list
-    m = re.search(r"related=(\[.*?\])", msg)
-    try:
-        out["related"] = json.loads(m.group(1).replace("'", '"')) if m else []
-    except Exception:
-        out["related"] = []
-    # rag_chunks list
-    m = re.search(r"rag_chunks=(\[.*?\])", msg)
-    try:
-        out["rag_chunks"] = json.loads(m.group(1).replace("'", '"')) if m else []
-    except Exception:
-        out["rag_chunks"] = []
-    return out
-
-
-def _parse_ups_enter(msg: str) -> dict | None:
-    """Parse a 'UPS enter: ...' dispatcher log message into a dict."""
-    if not msg.startswith("UPS enter:"):
-        return None
-    out = {}
-    m = re.search(r"session=(\S+)", msg)
-    out["session"] = m.group(1) if m else ""
-    m = re.search(r"cwd=(\S+)", msg)
-    out["cwd"] = m.group(1) if m else ""
-    m = re.search(r"prompt_len=(\d+)", msg)
-    out["prompt_len"] = int(m.group(1)) if m else 0
-    return out
-
-
-def load_ups_events(since: str, limit: int) -> list[dict]:
-    """Load UPS enter+done pairs from the hooks DB."""
-    conn = sqlite3.connect(str(HOOKS_DB))
-    rows = conn.execute("""
-        SELECT id, ts, message FROM hook_logs
-        WHERE logger = 'dispatcher'
-          AND (message LIKE 'UPS enter%' OR message LIKE 'UPS done%')
-          AND message NOT LIKE '%session=test%'
-          AND message NOT LIKE '%session=sess-%'
-          AND ts >= ?
-        ORDER BY id ASC
-    """, (since,)).fetchall()
-    conn.close()
-
-    # Pair enter + done by proximity (done always follows enter)
-    events = []
-    pending_enter: dict | None = None
-    for row_id, ts, msg in rows:
-        if msg.startswith("UPS enter:"):
-            pending_enter = _parse_ups_enter(msg)
-            if pending_enter:
-                pending_enter["ts"] = ts
-        elif msg.startswith("UPS done:") and pending_enter:
-            done = _parse_ups_done(msg)
-            if done and done["session"] == pending_enter["session"]:
-                events.append({**pending_enter, **done})
-                pending_enter = None
-
-    # Filter to real sessions (8-char hex prefix typical)
-    events = [e for e in events if len(e.get("session", "")) >= 8]
-
-    # Deduplicate: keep only the last UPS event per session
-    seen: dict[str, dict] = {}
-    for e in events:
-        seen[e["session"]] = e
-    events = list(seen.values())
-
-    return events[-limit:]  # most recent N unique sessions
-
-
-# ---------------------------------------------------------------------------
-# Graph replay
-# ---------------------------------------------------------------------------
-
-def _build_graph():
-    """The replay target. There is no graph since task:31fb711d: it is the dispatcher's UPS turn."""
-    import hooks.dispatcher as d
-    return d
-
-
-def _synthetic_prompt(prompt_len: int) -> str:
-    """Produce a synthetic prompt of approximately the right length."""
-    base = "replay harness test prompt "
-    return (base * ((prompt_len // len(base)) + 1))[:max(prompt_len, 10)]
-
-
-def replay_event(sg, event: dict) -> dict:
-    """Run one UPS event through the dispatcher turn; return extracted output fields."""
-    prompt = _synthetic_prompt(event.get("prompt_len", 20))
-    cwd_str = event.get("cwd", "")
-    # Resolve cwd: short names like 'claude-hooks' → full path
-    if cwd_str and not cwd_str.startswith("/"):
-        cwd_str = str(Path("~/workspace").expanduser() / cwd_str)
-
-    # Fresh session per event, prefixed with TEST_SESSION_PREFIX so current() and
-    # tool-hint writes ignore it (task:a10a6638). Evicted once the turn is replayed.
-    from hooks import session_store
-    session_id = f"{session_store.TEST_SESSION_PREFIX}replay-{event['session'][:8]}"
-
-    try:
-        result = sg._run_user_prompt_turn(prompt, session_id, cwd_str)
+        rows = conn.execute(
+            f"SELECT id, session_id, prompt FROM memory_audit WHERE ts >= ?{not_test} ORDER BY id DESC LIMIT ?",
+            (since_ts, *(p + "%" for p in test_prefixes), limit),
+        ).fetchall()
     finally:
-        session_store.end(session_id)
-
-    return {
-        "session":        event["session"],
-        "cwd":            event.get("cwd", ""),
-        "domains":        result.get("domains", []),
-        "memories_count": len(result.get("memories", [])),
-        "tools_count":    len(result.get("tool_hints", [])),
-    }
+        conn.close()
+    return [{"id": i, "session": s, "prompt": p} for i, s, p in reversed(rows)]
 
 
-# ---------------------------------------------------------------------------
-# Diff
-# ---------------------------------------------------------------------------
+def snapshot_memory_db(dest: Path, source: Path | None = None) -> None:
+    """Consistent copy of MEMORY.sqlite; VACUUM INTO keeps the source's encryption."""
+    dest.unlink(missing_ok=True)
+    conn = open_db(source or config.memory_db)
+    try:
+        conn.execute("VACUUM INTO ?", (str(dest),))
+    finally:
+        conn.close()
 
-_DIFF_KEYS = ["domains", "memories_count", "tools_count"]
+
+@contextmanager
+def _isolated(snapshot: Path, as_of: datetime):
+    """Point the UPS turn at the snapshot, fix its clock and drop every write it makes."""
+
+    class _Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return as_of.astimezone(tz)
+
+    node = LoadMemoriesNode(CombinationSignalRetriever(snapshot))
+    previous = logging.root.manager.disable
+    logging.disable(logging.CRITICAL)  # the hook log is a live store too
+    try:
+        with mock.patch.object(dispatcher, "_load_memories_node", node), \
+             mock.patch.object(_memory_scoring, "datetime", _Clock), \
+             mock.patch.object(_memory_scoring, "record_memory_hits"), \
+             mock.patch.object(_memory_audit, "record"), \
+             mock.patch.object(_skill_memories, "note_prompt_injected"), \
+             mock.patch.object(hooks.server_memory, "record_memories"):
+            yield
+    finally:
+        logging.disable(previous)
+
+
+def replay(prompts: list[dict], snapshot: Path, as_of: datetime) -> list[dict]:
+    """Run each prompt through the dispatcher's UPS turn; add the returned slugs in rank order."""
+    if not snapshot.exists():
+        raise FileNotFoundError(f"memory snapshot {snapshot} is missing; run --capture")
+    out, sessions = [], set()
+    with _isolated(snapshot, as_of):
+        try:
+            for event in prompts:
+                sid = f"{session_store.TEST_SESSION_PREFIX}replay-{event['session']}"
+                sessions.add(sid)
+                result = dispatcher._run_user_prompt_turn(event["prompt"], sid, str(_ROOT))
+                out.append({**event, "memories": [m["name"] for m in result["memories"]]})
+        finally:
+            for sid in sessions:
+                session_store.end(sid)
+    return out
 
 
 def diff_events(baseline: list[dict], replayed: list[dict]) -> list[dict]:
-    """Compare baseline vs replayed on matching sessions."""
-    base_map = {e["session"]: e for e in baseline}
-    rep_map  = {e["session"]: e for e in replayed}
-
-    deviations = []
-    for session, base in base_map.items():
-        rep = rep_map.get(session)
-        if not rep:
-            continue
-        diffs = {}
-        for key in _DIFF_KEYS:
-            bv, rv = base.get(key), rep.get(key)
-            if bv != rv:
-                diffs[key] = {"baseline": bv, "replayed": rv}
-        if diffs:
-            deviations.append({"session": session, "cwd": base.get("cwd"), "diffs": diffs})
-    return deviations
+    """Events whose returned slugs, or their order, differ."""
+    return [
+        {"id": b["id"], "prompt": b["prompt"], "baseline": b["memories"], "replayed": r["memories"]}
+        for b, r in zip(baseline, replayed, strict=True)
+        if b["memories"] != r["memories"]
+    ]
 
 
-# ---------------------------------------------------------------------------
-# CLI
-# ---------------------------------------------------------------------------
-
-_ACTIVE_SESSION_THRESHOLD_MINUTES = 30
-
-
-def _active_session_ids() -> set[str]:
-    """Return session IDs whose last UPS event is within the active threshold.
-
-    These sessions are still in-progress — their tool_hints scores are a moving
-    target, so including them in the baseline causes spurious drift on replay.
-    """
-    conn = sqlite3.connect(str(HOOKS_DB))
-    rows = conn.execute("""
-        SELECT substr(message, instr(message, 'session=') + 8, 36) AS raw_sid,
-               MAX(ts) AS last_ts
-        FROM hook_logs
-        WHERE message LIKE 'UPS enter%'
-        GROUP BY raw_sid
-    """).fetchall()
-    conn.close()
-
-    now = datetime.now(timezone.utc)
-    active: set[str] = set()
-    for raw_sid, ts_str in rows:
-        sid = raw_sid.split()[0]  # strip trailing payload that follows the UUID
-        try:
-            ts = datetime.fromisoformat(ts_str.replace(" ", "T") + "+00:00")
-            age_minutes = (now - ts).total_seconds() / 60
-            if age_minutes < _ACTIVE_SESSION_THRESHOLD_MINUTES:
-                active.add(sid)
-        except ValueError:
-            pass
-    return active
+def format_deviation(d: dict) -> str:
+    return (f"  audit id={d['id']} prompt={d['prompt'][:70]!r}\n"
+            f"      baseline: {d['baseline']}\n"
+            f"      replayed: {d['replayed']}")
 
 
-def cmd_capture(args):
-    print(f"Loading UPS events since {args.since}, limit={args.limit}...")
-    events = load_ups_events(args.since, args.limit)
-    print(f"  Found {len(events)} events.")
-
-    active_ids = _active_session_ids()
-    skipped = [e for e in events if e["session"] in active_ids]
-    events   = [e for e in events if e["session"] not in active_ids]
-    if skipped:
-        print(f"  Skipped {len(skipped)} active session(s): {[s['session'][:8] for s in skipped]}")
-
-    print("Loading dispatcher...")
-    sg = _build_graph()
-
-    print("Replaying events to capture baseline...")
-    baseline = []
-    for i, event in enumerate(events, 1):
-        try:
-            out = replay_event(sg, event)
-            baseline.append(out)
-            print(f"  [{i}/{len(events)}] session={event['session'][:8]} "
-                  f"domains={out['domains']} memories={out['memories_count']} "
-                  f"related={out['related']}")
-        except Exception as exc:
-            print(f"  [{i}/{len(events)}] session={event['session'][:8]} ERROR: {exc}")
-
-    BASELINE.write_text(json.dumps(baseline, indent=2))
-    print(f"\nBaseline saved → {BASELINE} ({len(baseline)} entries)")
-    return baseline
+def cmd_capture(args) -> None:
+    prompts = load_prompts(args.since, args.limit)
+    snapshot_memory_db(SNAPSHOT)
+    as_of = datetime.now(timezone.utc)
+    events = replay(prompts, SNAPSHOT, as_of)
+    hits = sum(1 for e in events if e["memories"])
+    if not hits:
+        # The retriever fails open, so an unreadable DB would otherwise become an all-empty baseline.
+        sys.exit(f"No memories returned for any of {len(events)} prompts; baseline not saved.")
+    BASELINE.write_text(json.dumps({"as_of": as_of.isoformat(), "events": events}, indent=2))
+    print(f"Baseline saved → {BASELINE}: {len(events)} prompts, {hits} with memories")
 
 
-def cmd_replay(baseline: list[dict], args):
-    print(f"Loading UPS events since {args.since}, limit={args.limit}...")
-    events = load_ups_events(args.since, args.limit)
-    print(f"  Found {len(events)} events.")
-
-    print("Loading dispatcher...")
-    sg = _build_graph()
-
-    print("Replaying events...")
-    replayed = []
-    for i, event in enumerate(events, 1):
-        try:
-            out = replay_event(sg, event)
-            replayed.append(out)
-        except Exception as exc:
-            print(f"  [{i}/{len(events)}] session={event['session'][:8]} ERROR: {exc}")
-
-    deviations = diff_events(baseline, replayed)
-    matched = len([e for e in replayed if e["session"] in {b["session"] for b in baseline}])
-
-    print(f"\n{'='*60}")
-    print(f"Replayed {len(replayed)} events, {matched} matched baseline sessions")
-    print(f"Deviations: {len(deviations)}")
-    if deviations:
-        print()
-        for d in deviations:
-            print(f"  ✗ session={d['session'][:8]} cwd={d['cwd']}")
-            for key, vals in d["diffs"].items():
-                print(f"      {key}: {vals['baseline']} → {vals['replayed']}")
-    else:
-        print("  ✓ All matched baseline")
-    print(f"{'='*60}")
+def cmd_replay(baseline: dict) -> list[dict]:
+    events = baseline["events"]
+    replayed = replay(events, SNAPSHOT, datetime.fromisoformat(baseline["as_of"]))
+    deviations = diff_events(events, replayed)
+    print(f"Replayed {len(replayed)} prompts, deviations: {len(deviations)}")
+    for d in deviations:
+        print(format_deviation(d))
     return deviations
 
 
 def main():
     parser = argparse.ArgumentParser(description="Replay harness for claude-hooks")
-    parser.add_argument("--capture", action="store_true", help="Capture baseline from logs")
+    parser.add_argument("--capture", action="store_true", help="Snapshot memories and capture a baseline")
     parser.add_argument("--replay",  action="store_true", help="Replay and diff vs baseline")
-    parser.add_argument("--since",   default="2026-06-13", help="Start date (YYYY-MM-DD)")
-    parser.add_argument("--limit",   type=int, default=100, help="Max events to process")
+    parser.add_argument("--since",   help="Only prompts from this date (YYYY-MM-DD)")
+    parser.add_argument("--limit",   type=int, default=100, help="Max prompts")
     args = parser.parse_args()
 
     if not args.capture and not args.replay:
         parser.print_help()
         sys.exit(1)
-
-    baseline = None
-
     if args.capture:
-        baseline = cmd_capture(args)
-
+        cmd_capture(args)
     if args.replay:
-        if baseline is None:
-            if not BASELINE.exists():
-                print(f"No baseline found at {BASELINE}. Run --capture first.")
-                sys.exit(1)
-            baseline = json.loads(BASELINE.read_text())
-            print(f"Loaded baseline: {len(baseline)} entries from {BASELINE}")
-        cmd_replay(baseline, args)
+        if not BASELINE.exists():
+            sys.exit(f"No baseline found at {BASELINE}. Run --capture first.")
+        if cmd_replay(json.loads(BASELINE.read_text())):
+            sys.exit(1)
 
 
 if __name__ == "__main__":

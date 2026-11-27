@@ -1,39 +1,40 @@
-"""Pytest wrapper for the replay harness.
-
-Loads the saved baseline and replays it against the current graph.
-Skips if the hooks DB (~/.claude/claude_hooks.sqlite) is not present — CI-safe.
-"""
+"""Replay harness: its own behaviour on a temp store, then the local baseline if one was captured."""
 import json
+from datetime import datetime, timezone
+
 import pytest
-from pathlib import Path
 
-from tests.replay_harness import HOOKS_DB, BASELINE, cmd_replay
-import argparse
-
-
-@pytest.fixture(scope="module")
-def _replay_args():
-    args = argparse.Namespace(since="2026-06-13", limit=100)
-    return args
+from tests import replay_harness as rh
+from tests.fixtures.db_factories import make_memory_db
 
 
-@pytest.mark.skipif(not HOOKS_DB.exists(), reason="~/.claude/claude_hooks.sqlite not present")
-def test_replay_matches_baseline(_replay_args):
-    """Replay baseline UPS events through the current graph — assert 0 deviations."""
-    if not BASELINE.exists():
+def test_replay_returns_slugs_from_the_snapshot_and_writes_nothing(tmp_path, monkeypatch):
+    row = {"name": "zebra-quartz", "type": "project", "tags": "zebra quartz"}
+    live, snap = make_memory_db(tmp_path, [row]), tmp_path / "snap.sqlite"
+    rh.snapshot_memory_db(snap, source=live)
+    make_memory_db(tmp_path, [{**row, "name": "zebra-quartz-later"}])  # added after capture: must not show
+
+    writes = []
+    monkeypatch.setattr(rh._memory_scoring, "record_memory_hits", writes.append)
+    monkeypatch.setattr(rh._memory_audit, "record", lambda *a, **k: writes.append(a))
+    monkeypatch.setattr(rh.hooks.server_memory, "record_memories", lambda *a: writes.append(a))
+
+    prompts = [{"id": 1, "session": "s", "prompt": "tell me about zebra quartz please"}]
+    out = rh.replay(prompts, snap, datetime.now(timezone.utc))
+
+    assert out[0]["memories"] == ["zebra-quartz"]
+    assert writes == []
+
+
+def test_diff_catches_a_different_slug_with_the_same_count():
+    base = [{"id": 1, "prompt": "p", "memories": ["a"]}]
+    assert rh.diff_events(base, [{**base[0], "memories": ["b"]}])
+    assert rh.diff_events(base, base) == []
+
+
+def test_replay_matches_baseline():
+    """Needs a local capture (gitignored): replay_harness.py --capture."""
+    if not rh.BASELINE.exists():
         pytest.skip("replay_baseline.json not found — run replay_harness.py --capture first")
-
-    baseline = json.loads(BASELINE.read_text())
-    if not baseline:
-        pytest.skip("baseline is empty")
-
-    deviations = cmd_replay(baseline, _replay_args)
-    assert deviations == [], (
-        f"{len(deviations)} replay deviation(s):\n" +
-        "\n".join(
-            f"  session={d['session'][:8]} cwd={d['cwd']}\n" +
-            "\n".join(f"    {k}: {v['baseline']} → {v['replayed']}" for k, v in d["diffs"].items())
-            for d in deviations
-        )
-    )
-
+    deviations = rh.cmd_replay(json.loads(rh.BASELINE.read_text()))
+    assert deviations == [], "\n".join(rh.format_deviation(d) for d in deviations)

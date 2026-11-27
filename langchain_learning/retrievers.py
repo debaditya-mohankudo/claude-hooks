@@ -71,6 +71,9 @@ class CombinationSignalRetriever:
 
     last_trace: list[dict] = []
 
+    def __init__(self, db_path=None) -> None:
+        self._db_path = db_path  # None -> config.memory_db; the replay harness passes a snapshot
+
     def retrieve(
         self,
         tokens: set[str],
@@ -81,13 +84,14 @@ class CombinationSignalRetriever:
         from langchain_learning.nodes._memory_scoring import score_memories
         from langchain_learning.memory_conn import memory_connection
 
-        if not _cfg.memory_db.exists():
-            _log.debug("[CombinationSignalRetriever] memory_db not found: %s", _cfg.memory_db)
+        db_path = self._db_path or _cfg.memory_db
+        if not db_path.exists():
+            _log.debug("[CombinationSignalRetriever] memory_db not found: %s", db_path)
             return []
         # Shared process connection, not a fresh open_db: an encrypted open costs
         # ~300 ms of key derivation per call (task:bc39e90e).
         try:
-            with memory_connection(_cfg.memory_db, row_factory=sqlite3.Row) as conn:
+            with memory_connection(db_path, row_factory=sqlite3.Row) as conn:
                 trace: list[dict] = []
                 results = score_memories(tokens, conn, top_n=top_n, trace=trace)
             self.last_trace = trace
