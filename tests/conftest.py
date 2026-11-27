@@ -3,6 +3,7 @@ and hooks/ directory on sys.path, matching the runtime environment."""
 import os
 import sys
 import sqlite3
+import tempfile
 from datetime import datetime
 from pathlib import Path
 
@@ -17,6 +18,8 @@ _TEST_LOG_DB = _PROJECT_ROOT / "tests" / "test_logs.db"
 
 # No test may write commit links into the real task store (hooks/commit_link.py).
 os.environ["CLAUDE_HOOKS_BACKFILL_BIN"] = "/usr/bin/false"
+# No test may write derived DB keys into ~/.claude/encdb-cache (task:d2330f3a).
+os.environ["ENCDB_CACHE_DIR"] = tempfile.mkdtemp(prefix="encdb-cache-")
 
 
 def pytest_collection_modifyitems(items):

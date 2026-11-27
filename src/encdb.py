@@ -1,4 +1,4 @@
-# VENDORED COPY of ~/workspace/cli-graph/mac/encdb.py (cli-graph commit 3f2da8f, task:8b0561d1).
+# VENDORED COPY of ~/workspace/cli-graph/mac/encdb.py (cli-graph commit 618c17b, task:d2330f3a).
 # Do not edit here. To re-sync: diff against the source first, then re-apply the
 # two local changes marked "VENDOR:" below (KEY_FILE and the key-file docstring line).
 """One opener for personal SQLite files that may be SQLCipher-encrypted.
@@ -21,9 +21,17 @@ The encrypted connection is a thin sqlite3-shaped adapter (execute, executemany,
 executescript, commit, rollback, close, cursor, row_factory, context manager; cursors carry
 rowcount and lastrowid, and apsw errors surface as sqlite3.OperationalError/IntegrityError);
 anything beyond that is not supported.
+
+Key derivation (PBKDF2, 256000 rounds) takes about 265 ms per open, so the
+derived key of each DB is cached in DERIVED_CACHE_DIR, owner-only, one file per
+(master key, DB salt). The master key is still read first, so a missing or
+locked key file fails closed. A bad or unwritable cache only costs speed. A
+cached derived key opens its DB without the master key: guard it like the key.
 """
 from __future__ import annotations
 
+import hashlib
+import hmac
 import os
 import sqlite3
 from pathlib import Path
@@ -34,6 +42,9 @@ PLAIN_HEADER = b"SQLite format 3\x00"
 BUSY_TIMEOUT_MS = 5000  # how long to wait on another writer's lock
 GITCRYPT_MAGIC = b"\x00GITCRYPT"
 _HEX = set("0123456789abcdefABCDEF")
+DERIVED_CACHE_DIR = Path(os.environ.get("ENCDB_CACHE_DIR", "~/.claude/encdb-cache")).expanduser()
+KDF_ITERATIONS = 256_000  # SQLCipher 4 defaults: PBKDF2-HMAC-SHA512, 16-byte salt, 32-byte key
+SALT_BYTES = 16
 
 _key_cache: dict[Path, str] = {}
 
@@ -211,6 +222,76 @@ def _binding():
     return apsw
 
 
+def _cache_entry(hexkey: str, salt: bytes) -> Path:
+    return DERIVED_CACHE_DIR / hmac.new(bytes.fromhex(hexkey), salt, hashlib.sha256).hexdigest()
+
+
+def _load_derived(entry: Path) -> str | None:
+    """The cached key, or None when absent, malformed or readable by others."""
+    try:
+        if entry.stat().st_mode & 0o077:
+            return None
+        derived = entry.read_text("ascii").strip()
+    except (OSError, UnicodeDecodeError):
+        return None
+    return derived if _valid_key(derived) else None
+
+
+def _store_derived(entry: Path, derived: str) -> None:
+    """Atomic owner-only write; a failure is ignored (the next open derives again)."""
+    tmp = entry.with_name(f"{entry.name}.{os.getpid()}.{os.urandom(4).hex()}.tmp")
+    try:
+        entry.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        entry.parent.chmod(0o700)
+        with os.fdopen(os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "w") as f:
+            f.write(derived)
+        os.replace(tmp, entry)
+    except OSError:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+
+
+def _keyed(apsw, p: Path, flags: int, pragma: str, value: str):
+    """A connection keyed through `pragma` and verified with one read."""
+    raw = apsw.Connection(str(p), flags=flags)
+    try:
+        # Before the key check: that read is the first to meet another writer's lock.
+        raw.set_busy_timeout(BUSY_TIMEOUT_MS)
+        raw.pragma("cipher", "sqlcipher")
+        raw.pragma(pragma, value)
+        raw.execute("SELECT count(*) FROM sqlite_master").fetchall()
+    except Exception:
+        raw.close()
+        raise
+    return raw
+
+
+def _open_cached(apsw, p: Path, flags: int, hexkey: str):
+    """Open with the derived key, cached or computed here; None means use the normal open."""
+    with open(p, "rb") as f:
+        salt = f.read(SALT_BYTES)
+    if len(salt) < SALT_BYTES:
+        return None
+    entry = _cache_entry(hexkey, salt)
+    cached = _load_derived(entry)
+    if cached:
+        try:
+            return _keyed(apsw, p, flags, "key", f"x'{cached}'")
+        except apsw.NotADBError:
+            pass  # bad entry: derive again and overwrite it
+    derived = hashlib.pbkdf2_hmac("sha512", bytes.fromhex(hexkey), salt, KDF_ITERATIONS, 32).hex()
+    if derived == cached:
+        return None
+    try:
+        raw = _keyed(apsw, p, flags, "key", f"x'{derived}'")
+    except apsw.NotADBError:
+        return None  # wrong key, or a DB with other cipher settings
+    _store_derived(entry, derived)
+    return raw
+
+
 def open_db(path: str | Path, *, readonly: bool = False, key: str | None = None, **kwargs):
     """Open `path`, decrypting with the key file when it is not plain SQLite."""
     p = Path(path).expanduser()
@@ -224,14 +305,11 @@ def open_db(path: str | Path, *, readonly: bool = False, key: str | None = None,
     if not _valid_key(hexkey):
         raise EncDBError("key is not 64 hex characters")
     flags = apsw.SQLITE_OPEN_READONLY if readonly else apsw.SQLITE_OPEN_READWRITE
-    raw = apsw.Connection(str(p), flags=flags)
     try:
-        # Before the key check: that read is the first to meet another writer's lock.
-        raw.set_busy_timeout(BUSY_TIMEOUT_MS)
-        raw.pragma("cipher", "sqlcipher")
-        raw.pragma("hexkey", hexkey)
-        raw.execute("SELECT count(*) FROM sqlite_master").fetchall()
+        # An explicit `key` (tests, one-off scripts) never touches the cache.
+        raw = _open_cached(apsw, p, flags, hexkey) if key is None else None
+        if raw is None:
+            raw = _keyed(apsw, p, flags, "hexkey", hexkey)
     except Exception as e:
-        raw.close()
         raise EncDBError(f"{p.name}: wrong key or not a SQLCipher database ({e})") from e
     return _Conn(raw)
