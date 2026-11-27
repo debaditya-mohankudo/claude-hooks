@@ -107,7 +107,7 @@
         "CLAUDE_DASHBOARD_PLAN overrides the path; '0' disables"
       ],
       "created_at": "2026-10-09T05:19:06.615900+00:00",
-      "description": "Client-side PostToolUse step (called from client.py beside kitty_status) that mirrors Claude's plan into ~/.claude/dashboard_plan.json for the kitty dashboard.",
+      "description": "PostToolUse step (run by server.py for the http hook, beside kitty_status; client.py still calls it) that mirrors Claude's plan into ~/.claude/dashboard_plan.json for the kitty dashboard.",
       "evidence": [
         "hooks/dashboard_plan.py:update",
         "hooks/dashboard_plan.py:new_plan",
@@ -265,7 +265,7 @@
         "Every commit must reference task:<id> somewhere the gate can see — the command string or a -F/--file target, not necessarily the command string alone",
         "_segment_is_git_commit never raises: shlex.split throws ValueError on the unbalanced quotes that heredocs and $(...) fragments routinely produce, so it falls back to a plain split. A gate that denies Bash must degrade rather than except, or one malformed command breaks every Bash call.",
         "hooks/server_memory.py's record_tool_from_hook shares this detector by importing _is_git_commit — it is the second consumer, and it inherited the same false positives until task:e247268e. Changing detection changes what lands on the session timeline as a 'git commit' event, not just what the gate blocks.",
-        "Gate logic runs inside a long-running uvicorn hooks.server:app process (port 8766) — editing hooks/gates.py has no effect until that process restarts; client.py is only a thin HTTP wrapper per call",
+        "Gate logic runs inside a long-running uvicorn hooks.server:app process (port 8766) — editing hooks/gates.py has no effect until that process restarts; PreToolUse and PostToolUse reach it as http hooks, the other events through client.py",
         "Non-commit Bash calls are never blocked by this gate. This is true by construction: detection asks whether a shell segment's COMMAND WORD is git, so the words appearing inside an echo, a string literal, or a shell comment cannot trigger it. Before task:e247268e the regex bridged shell separators and newlines, and denied things like `git status` followed by `echo \"nothing to commit\"`.",
         "The command word is matched by basename, never as a substring anywhere in the command, or `echo \"git commit\"` reintroduces the false-positive class."
       ],
@@ -332,6 +332,7 @@
         "Kitty tab status (hooks/kitty_status.py) is driven from this client, not the server, because only this process inherits the session's KITTY_WINDOW_ID / KITTY_LISTEN_ON. It is fire-and-forget (detached `kitten @`, output discarded, never waited on), targets only `window_id:$KITTY_WINDOW_ID`'s tab, and is a silent no-op without kitty env, the `kitten` binary, or with CLAUDE_KITTY_STATUS=0; it must never change this client's stdout or exit code. Notification is kitty-only: it prints {} and is not POSTed, since the server has no /hook/Notification route (task:ec3a156a)",
         "CLAUDE_CWD env var is a fallback only, used when payload['cwd'] from stdin is missing/empty — it must never unconditionally overwrite a cwd Claude Code already supplied, since CLAUDE_CWD reflects whatever cwd the long-running server process happened to launch from, not the calling session's cwd (bug found 2026-07-08: unconditional overwrite clobbered every session's reported cwd with a stale/empty env var)",
         "Fails open: if the server is unreachable, exits 0 with an empty JSON object rather than blocking the hook event",
+        "PreToolUse and PostToolUse do NOT run this client: ~/.claude/settings.json registers them as type http to http://127.0.0.1:8766/hook/{event} (2 s timeout, 2026-11-27). Anything added to client.py for those events (cwd fallback, hook_client failure row, local effects) never runs in production; CLAUDE_HOOKS_SERVER does not move the URLs. PostToolUse local effects live in server.py _local_effects, gated on header X-Hooks-Local-Effects: 1, with session env only from headers (task:90637166)",
         "Every invocation prints a one-line 'claude-hooks: client.py invoked for {EVENT}' announcement to stderr immediately after EVENT is resolved, unconditionally (before the try/except) — this exists because server-side dispatcher logs only show the server's view, giving no signal that client.py itself ran for a given hook event (task:fb7d3777)"
       ],
       "last_validated": "2026-07-25T20:50:36.296661+00:00",
@@ -342,11 +343,11 @@
       "confidence": 0.9,
       "contracts": [
         "Issues `kitten @ --to $KITTY_LISTEN_ON set-tab-title|set-tab-color --match window_id:$KITTY_WINDOW_ID` — two detached spawns per event; requires allow_remote_control socket-only and listen_on in kitty.conf (kitty restart needed)",
-        "update(event, payload) maps a hook event to a tab state and repaints the tab holding this session's window: UserPromptSubmit/PreToolUse/PostToolUse -> working (amber '● claude'), Stop and SessionStart -> waiting (blue '◆ claude'), Notification -> needs_input (red '▲ claude'; notification_type 'idle_prompt' -> waiting), SessionEnd -> cleared (empty title, NONE colours)",
+        "update(event, payload) maps a hook event to a tab state and repaints the tab holding this session's window: UserPromptSubmit (client.py) and PostToolUse (server.py, env from http hook headers); PreToolUse only if routed through client.py, which production no longer does -> working (amber '● claude'), Stop and SessionStart -> waiting (blue '◆ claude'), Notification -> needs_input (red '▲ claude'; notification_type 'idle_prompt' -> waiting), SessionEnd -> cleared (empty title, NONE colours)",
         "Shares a vocabulary with taskfw and nothing else (task:b5c1e08c, user decision 2026-11-25): 'waiting' means the session wants the user's input in both repos. 'done' is taskfw's alone and means the session ended, which here is the SessionEnd clear. Neither repo imports or reads the other; tests/test_kitty_status.py::test_no_state_is_called_done and task-framework tests/test_kitty_hook.py::test_state_vocabulary_matches_claude_hooks pin the two halves."
       ],
       "created_at": "2026-10-09T04:00:00+00:00",
-      "description": "Per-session kitty tab status driven by Claude Code hook events. Called from hooks/client.py because only the session's own process inherits KITTY_WINDOW_ID / KITTY_LISTEN_ON; the long-running hook server has neither. Its state names are deliberately the same words taskfw's kitty hook writes into the `state` user var (task:b5c1e08c), though neither repo reads the other's signal.",
+      "description": "Per-session kitty tab status driven by Claude Code hook events. Called from hooks/client.py, whose process inherits KITTY_WINDOW_ID / KITTY_LISTEN_ON, and from hooks/server.py for the PostToolUse http hook, which passes them as the `env` argument built from request headers (the launchd server has neither, and its PATH lacks /opt/homebrew/bin, hence _KITTEN_FALLBACKS). Its state names are deliberately the same words taskfw's kitty hook writes into the `state` user var (task:b5c1e08c), though neither repo reads the other's signal.",
       "evidence": [
         "hooks/kitty_status.py",
         "tests/test_kitty_status.py",
@@ -354,7 +355,7 @@
       ],
       "invariants": [
         "Never raises and never blocks the hook: `kitten @` is spawned detached with stdin/stdout/stderr discarded and is not waited on, so latency stays off the PreToolUse/PostToolUse path and a hung kitty cannot stall Claude Code",
-        "Silent no-op when KITTY_LISTEN_ON or KITTY_WINDOW_ID is unset, when the `kitten` binary is not on PATH, or when CLAUDE_KITTY_STATUS=0",
+        "Silent no-op when KITTY_LISTEN_ON or KITTY_WINDOW_ID is unset, when the `kitten` binary is neither on PATH nor at a fallback path, or when CLAUDE_KITTY_STATUS=0",
         "Targets only the tab of the firing window (match window_id:N), so concurrent sessions never repaint each other; two sessions in split windows of one tab share that tab's state",
         "kitty hides the tab bar with a single tab (tab_bar_min_tabs 2), so the status is invisible until a second tab exists",
         "set-tab-title replaces a manually set tab title with '<glyph> claude'; only SessionEnd restores the automatic title, and 'waiting' persists until the next prompt (hooks cannot see focus). A session killed without a SessionEnd therefore leaves its tab painted 'waiting'.",

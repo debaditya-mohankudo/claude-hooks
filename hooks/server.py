@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import sys
 from contextlib import asynccontextmanager
+from functools import partial
 
 from hooks.paths import PROJECT_ROOT as _PROJECT_ROOT, HOOKS_DIR as _HOOKS_DIR
 for _p in (str(_PROJECT_ROOT), str(_HOOKS_DIR)):
@@ -170,7 +171,8 @@ async def pre_tool_use(request: Request):
     (GitCommitGate / GitCommitMcpGate), or — before the gates — if a WebSearch query has a
     fresh cached result, which is returned as the deny reason (src/tools/web_search_cache.py).
     Returns {} to allow. A handler error is a
-    500, which hooks/client.py turns into {} (allow); nothing fails closed here
+    500, which Claude Code treats as a failed http hook and allows the call (this
+    event is registered as "type": "http", not through client.py); nothing fails closed here
     (task:4e56d23a). Gate internals (name_arg_check, ALLOW/DENY rows, prompt_id correlation)
     write immediately to claude_hooks.sqlite via SQLiteHandler.
     """
@@ -180,9 +182,39 @@ async def pre_tool_use(request: Request):
     return JSONResponse(content=result or {})
 
 
+# The PostToolUse "http" hook has no client.py process, so the server does that
+# process's local work from the session env the hook sends as headers
+# (docs/setup.md). Only when it asks: a client.py POST has already done it.
+_LOCAL_EFFECTS_HEADER = "x-hooks-local-effects"
+_HEADER_ENV = {
+    "x-kitty-window-id": "KITTY_WINDOW_ID",
+    "x-kitty-listen-on": "KITTY_LISTEN_ON",
+    "x-taskfw-task-id": "TASKFW_TASK_ID",
+    "x-claude-kitty-status": "CLAUDE_KITTY_STATUS",
+    "x-claude-dashboard-plan": "CLAUDE_DASHBOARD_PLAN",
+}
+
+
+def _session_env(request: Request) -> dict | None:
+    """The session's env from the headers, or None if no local work was asked for.
+    Never falls back to the server's own env. An empty header is an unset var, so it is left out."""
+    if request.headers.get(_LOCAL_EFFECTS_HEADER) != "1":
+        return None
+    return {var: v for header, var in _HEADER_ENV.items() if (v := request.headers.get(header))}
+
+
+def _local_effects(event: str, body: dict, env: dict) -> None:
+    from hooks import dashboard_plan, kitty_status
+    kitty_status.update(event, body, env)
+    dashboard_plan.update(event, body, env)
+
+
 @app.post("/hook/PostToolUse")
 async def post_tool_use(request: Request):
     """PostToolUse hook — runs the dispatcher's side effects, then the log_tool_usage node (a plain call, not a graph node).
+
+    Registered as an "http" hook, so the kitty tab and dashboard plan are done here
+    first (_local_effects).
 
     Side effects (each fail-open): WebSearch cache store, find_cli log,
     vault reindex, context-size nudge, and skill-tagged memories / skill-tag
@@ -192,11 +224,13 @@ async def post_tool_use(request: Request):
     is skipped for that call. Records the call to the server_memory timeline.
     """
     body = await _safe_json(request)
-    result = await _run_hook(_post_tool_use_sync, body)
+    result = await _run_hook(partial(_post_tool_use_sync, env=_session_env(request)), body)
     return JSONResponse(content=result or {})
 
 
-def _post_tool_use_sync(body: dict):
+def _post_tool_use_sync(body: dict, env: dict | None = None):
+    if env is not None:
+        _local_effects("PostToolUse", body, env)
     from hooks.dispatcher import _handle_post_tool_use
     result = _handle_post_tool_use(body)
     try:

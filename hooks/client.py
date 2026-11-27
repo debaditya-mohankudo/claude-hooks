@@ -11,6 +11,9 @@ every session's hook payload report whatever cwd the long-running server
 process happened to launch from). Fail-open: if server unreachable, exits 0
 with empty JSON.
 
+PreToolUse and PostToolUse are not registered through this client: settings.json
+POSTs them to the server as "http" hooks (docs/setup.md).
+
 Usage: python3 client.py <HookEvent>
 Events: UserPromptSubmit | PreToolUse | PostToolUse | Stop | SessionStart | SessionEnd
         | Notification (kitty tab status only; not forwarded to the server)

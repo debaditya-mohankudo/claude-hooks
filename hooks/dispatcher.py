@@ -440,8 +440,8 @@ def _bash_result(tool_response: dict) -> dict:
 # _FAIL_CLOSED_COMMANDS ({"mac imessage send", "mac mail compose"}, task:0aa96180)
 # and the deny-on-handler-error branch in main() that read it were removed
 # (task:4e56d23a). It ran only in main(), the subprocess path; production goes
-# through client.py -> server.py, where a handler error is a 500 that the client
-# turns into {} (allow), so it protected nothing. Nothing here gates those
+# through server.py (an "http" PreToolUse hook), where a handler error is a 500
+# that allows the call, so it protected nothing. Nothing here gates those
 # commands any more: LocalMacMCP owns the send gate (claude_for_mac_local
 # src/tool_hooks.py _imessage_guard, which fails closed itself), and the `mac`
 # CLI reaches it through local-mac's dispatcher. A PreToolUse handler error now

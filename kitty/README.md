@@ -18,7 +18,7 @@ Change both together.
 
 | File | Written by | Override (`=0` disables) |
 |---|---|---|
-| `~/.claude/dashboard_plan.json` | `hooks/dashboard_plan.py` on PostToolUse | `CLAUDE_DASHBOARD_PLAN` |
+| `~/.claude/dashboard_plan.json` | `hooks/dashboard_plan.py` on PostToolUse (run by the server) | `CLAUDE_DASHBOARD_PLAN` |
 | `~/.claude/dashboard_turn.json` | `hooks/dashboard_turn.py` on UserPromptSubmit / Stop | `CLAUDE_DASHBOARD_TURN` |
 | `~/.claude/dashboard_note.md` | Claude, free text (plan / what it is waiting on) | `CLAUDE_DASHBOARD_NOTE` |
 
@@ -59,6 +59,10 @@ and nothing here can check it — that file is the source of truth for it.
 | Notification | needs_input (`▲`, red) | waiting |
 | Notification `idle_prompt` | waiting (`◆`, blue) | waiting |
 | SessionEnd | cleared | done |
+
+In production both tool events are `http` hooks that skip `client.py`. `PreToolUse`
+sets no tab state; `PostToolUse` is painted by the server from the session's kitty
+variables, sent as headers (`hooks/server.py` `_HEADER_ENV`).
 
 `done` exists only in taskfw and only means *the session ended*; claude-hooks
 expresses that by clearing the tab. claude-hooks keeps `needs_input` as a

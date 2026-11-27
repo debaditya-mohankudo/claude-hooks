@@ -75,7 +75,7 @@ curl http://127.0.0.1:8766/health
 
 ## 4. Register the hooks in `~/.claude/settings.json`
 
-Hooks now call `client.py` — a thin HTTP wrapper (stdlib urllib, no curl/jq needed) that posts to the FastAPI server. Add the following to your global Claude Code settings (the server also handles `SessionStart` and `SessionEnd`; register them the same way if you want them) (`~/.claude/settings.json`). Replace the path if you cloned to a different location.
+`PreToolUse` and `PostToolUse` are `http` hooks that POST straight to the FastAPI server. The other events call `client.py`, a thin HTTP wrapper (stdlib urllib, no curl/jq needed) that also does local work (kitty tab, dashboard files, last response) before posting. Add the following to your global Claude Code settings (the server also handles `SessionStart` and `SessionEnd`; register them the same way if you want them) (`~/.claude/settings.json`). Replace the path if you cloned to a different location.
 
 ```json
 {
@@ -94,8 +94,9 @@ Hooks now call `client.py` — a thin HTTP wrapper (stdlib urllib, no curl/jq ne
       {
         "hooks": [
           {
-            "type": "command",
-            "command": "/Users/<you>/workspace/claude-hooks/hooks/client.py PreToolUse"
+            "type": "http",
+            "url": "http://127.0.0.1:8766/hook/PreToolUse",
+            "timeout": 2
           }
         ]
       }
@@ -104,8 +105,24 @@ Hooks now call `client.py` — a thin HTTP wrapper (stdlib urllib, no curl/jq ne
       {
         "hooks": [
           {
-            "type": "command",
-            "command": "/Users/<you>/workspace/claude-hooks/hooks/client.py PostToolUse"
+            "type": "http",
+            "url": "http://127.0.0.1:8766/hook/PostToolUse",
+            "timeout": 2,
+            "headers": {
+              "X-Hooks-Local-Effects": "1",
+              "X-Kitty-Window-Id": "$KITTY_WINDOW_ID",
+              "X-Kitty-Listen-On": "$KITTY_LISTEN_ON",
+              "X-Taskfw-Task-Id": "$TASKFW_TASK_ID",
+              "X-Claude-Kitty-Status": "$CLAUDE_KITTY_STATUS",
+              "X-Claude-Dashboard-Plan": "$CLAUDE_DASHBOARD_PLAN"
+            },
+            "allowedEnvVars": [
+              "KITTY_WINDOW_ID",
+              "KITTY_LISTEN_ON",
+              "TASKFW_TASK_ID",
+              "CLAUDE_KITTY_STATUS",
+              "CLAUDE_DASHBOARD_PLAN"
+            ]
           }
         ]
       }
@@ -124,7 +141,7 @@ Hooks now call `client.py` — a thin HTTP wrapper (stdlib urllib, no curl/jq ne
 }
 ```
 
-`client.py` enriches the payload with `CLAUDE_CWD` and POSTs it to the server. If the server is unreachable, times out (2 s) or errors, it prints `{}` and exits 0: the tool call is allowed and nothing is injected. There is no subprocess fallback.
+`client.py` enriches the payload with `CLAUDE_CWD` and POSTs it to the server. If the server is unreachable, times out (2 s) or errors, it prints `{}` and exits 0: the tool call is allowed and nothing is injected. There is no subprocess fallback. The `PreToolUse` and `PostToolUse` `http` hooks fail open the same way (connection refused or non-2xx never blocks the call), but the failure shows only in `claude --debug` output, not in `hook_logs`. If you move the server off port 8766, change both URLs too: `CLAUDE_HOOKS_SERVER` affects only `client.py`. The `PostToolUse` headers carry the session's kitty and dashboard variables, so the server can paint the tab and mirror the plan; without `X-Hooks-Local-Effects: 1` it does neither.
 
 ---
 

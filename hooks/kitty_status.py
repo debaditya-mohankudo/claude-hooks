@@ -2,7 +2,8 @@
 
 Called from client.py, which runs as a child of the Claude session and so
 inherits KITTY_WINDOW_ID / KITTY_LISTEN_ON. The long-running hook server has
-neither, which is why this lives client-side.
+neither: for the PostToolUse "http" hook it passes `env`, built from the
+request headers (server.py _HEADER_ENV, task:90637166).
 
 Contract:
 - Maps a hook event to one of three states (working / needs_input / waiting) and
@@ -29,6 +30,16 @@ what SessionEnd clears the tab for here.
 import os
 import shutil
 import subprocess
+from collections.abc import Mapping
+
+# The launchd server's PATH has no /opt/homebrew/bin, so PATH lookup alone fails there.
+_KITTEN_FALLBACKS = ("/opt/homebrew/bin/kitten", "/Applications/kitty.app/Contents/MacOS/kitten")
+
+
+def _kitten() -> str | None:
+    return shutil.which("kitten") or next(
+        (p for p in _KITTEN_FALLBACKS if os.access(p, os.X_OK)), None)
+
 
 # state -> (glyph, tab background, tab foreground)
 # "waiting" is deliberately not a green check (task:b5c1e08c): the turn being
@@ -61,9 +72,9 @@ def state_for(event: str, payload: dict | None = None) -> str | None:
     return _EVENT_STATE.get(event)
 
 
-def _commands(window_id: str, state: str) -> list[list[str]]:
+def _commands(window_id: str, state: str, env: Mapping[str, str]) -> list[list[str]]:
     match = ["--match", f"window_id:{window_id}"]
-    title_is_ours = not os.environ.get("TASKFW_TASK_ID")
+    title_is_ours = not env.get("TASKFW_TASK_ID")
     if state == "clear":
         cmds = [["set-tab-color", *match, "active_bg=NONE", "active_fg=NONE",
                  "inactive_bg=NONE", "inactive_fg=NONE"]]
@@ -74,21 +85,23 @@ def _commands(window_id: str, state: str) -> list[list[str]]:
     return [["set-tab-title", *match, f"{glyph} claude"], *cmds] if title_is_ours else cmds
 
 
-def update(event: str, payload: dict | None = None) -> None:
+def update(event: str, payload: dict | None = None, env: Mapping[str, str] | None = None) -> None:
+    """`env` is the session's environment; None means this process's own."""
     try:
-        if os.environ.get("CLAUDE_KITTY_STATUS") == "0":
+        env = os.environ if env is None else env
+        if env.get("CLAUDE_KITTY_STATUS") == "0":
             return
-        socket = os.environ.get("KITTY_LISTEN_ON")
-        window_id = os.environ.get("KITTY_WINDOW_ID")
+        socket = env.get("KITTY_LISTEN_ON")
+        window_id = env.get("KITTY_WINDOW_ID")
         if not socket or not window_id:
             return
         state = state_for(event, payload)
         if state is None:
             return
-        kitten = shutil.which("kitten")
+        kitten = _kitten()
         if not kitten:
             return
-        for args in _commands(window_id, state):
+        for args in _commands(window_id, state, env):
             subprocess.Popen(
                 [kitten, "@", "--to", socket, *args],
                 stdin=subprocess.DEVNULL,

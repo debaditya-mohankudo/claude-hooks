@@ -122,14 +122,14 @@ Show them the exact JSON block to add to `~/.claude/settings.json` with their re
 {
   "hooks": {
     "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "/Users/<mac_user>/workspace/claude-hooks/hooks/client.py UserPromptSubmit" }] }],
-    "PreToolUse":       [{ "hooks": [{ "type": "command", "command": "/Users/<mac_user>/workspace/claude-hooks/hooks/client.py PreToolUse" }] }],
-    "PostToolUse":      [{ "hooks": [{ "type": "command", "command": "/Users/<mac_user>/workspace/claude-hooks/hooks/client.py PostToolUse" }] }],
+    "PreToolUse":       [{ "hooks": [{ "type": "http", "url": "http://127.0.0.1:8766/hook/PreToolUse", "timeout": 2 }] }],
+    "PostToolUse":      [{ "hooks": [{"type": "http", "url": "http://127.0.0.1:8766/hook/PostToolUse", "timeout": 2, "headers": {"X-Hooks-Local-Effects": "1", "X-Kitty-Window-Id": "$KITTY_WINDOW_ID", "X-Kitty-Listen-On": "$KITTY_LISTEN_ON", "X-Taskfw-Task-Id": "$TASKFW_TASK_ID", "X-Claude-Kitty-Status": "$CLAUDE_KITTY_STATUS", "X-Claude-Dashboard-Plan": "$CLAUDE_DASHBOARD_PLAN"}, "allowedEnvVars": ["KITTY_WINDOW_ID", "KITTY_LISTEN_ON", "TASKFW_TASK_ID", "CLAUDE_KITTY_STATUS", "CLAUDE_DASHBOARD_PLAN"]}] }],
     "Stop":             [{ "hooks": [{ "type": "command", "command": "/Users/<mac_user>/workspace/claude-hooks/hooks/client.py Stop" }] }]
   }
 }
 ```
 
-`client.py` is a thin HTTP wrapper (stdlib urllib, no curl/jq needed) that posts to the FastAPI server. If the server is unreachable it falls back to `dispatcher.py` so hooks never silently disappear.
+`PreToolUse` and `PostToolUse` POST straight to the FastAPI server; the other events go through `client.py`, a thin HTTP wrapper (stdlib urllib, no curl/jq needed). If the server is unreachable they fail open: the call runs and nothing is injected.
 
 Tell them: "Open `~/.claude/settings.json` and merge this into the `hooks` key. If the file doesn't exist yet, create it with this content. Let me know when done."
 

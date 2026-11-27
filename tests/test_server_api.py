@@ -475,3 +475,44 @@ class TestMalformedRequestBody:
         r = client.post("/hook/PostToolUse", content=b"{broken", headers={"Content-Type": "application/json"})
         assert r.status_code == 200
         assert r.json() == {}
+
+
+class TestPostToolUseLocalEffects:
+    """The http PostToolUse hook: server does client.py's local work from headers (task:90637166)."""
+
+    TODO = {"session_id": "fx", "tool_name": "TodoWrite",
+            "tool_input": {"todos": [{"content": "a", "status": "completed"}]}}
+
+    @pytest.fixture
+    def spy(self, monkeypatch, tmp_path):
+        from hooks import kitty_status
+        calls = []
+        monkeypatch.setattr(kitty_status.subprocess, "Popen", lambda args, **_: calls.append(args))
+        monkeypatch.setattr(kitty_status.shutil, "which", lambda _: "/bin/kitten")
+        # The server's own env must never be used.
+        monkeypatch.setenv("KITTY_WINDOW_ID", "999")
+        monkeypatch.setenv("KITTY_LISTEN_ON", "unix:/tmp/server-own")
+        monkeypatch.setenv("CLAUDE_DASHBOARD_PLAN", str(tmp_path / "server.json"))
+        return calls, tmp_path
+
+    def test_headers_drive_tab_and_plan(self, client, spy):
+        calls, tmp = spy
+        r = client.post("/hook/PostToolUse", json=self.TODO, headers={
+            "X-Hooks-Local-Effects": "1", "X-Kitty-Window-Id": "7",
+            "X-Kitty-Listen-On": "unix:/tmp/s", "X-Claude-Dashboard-Plan": str(tmp / "plan.json")})
+        assert r.status_code == 200
+        assert calls and all("window_id:7" in c and "unix:/tmp/s" in c for c in calls)
+        assert (tmp / "plan.json").exists()
+        assert not (tmp / "server.json").exists()
+
+    def test_no_opt_in_header_does_nothing(self, client, spy):
+        calls, tmp = spy
+        client.post("/hook/PostToolUse", json=self.TODO)
+        assert calls == [] and not list(tmp.iterdir())
+
+    def test_empty_kitty_headers_paint_nothing(self, client, spy):
+        calls, tmp = spy
+        client.post("/hook/PostToolUse", json=self.TODO, headers={
+            "X-Hooks-Local-Effects": "1", "X-Kitty-Window-Id": "", "X-Kitty-Listen-On": "",
+            "X-Claude-Dashboard-Plan": str(tmp / "plan.json")})
+        assert calls == []

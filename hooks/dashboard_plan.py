@@ -1,6 +1,6 @@
 """Mirror Claude's plan into a JSON file the kitty dashboard renders.
 
-Called from client.py on PostToolUse, next to kitty_status. Sources:
+Called on PostToolUse next to kitty_status, from server.py (http hook) or client.py. Sources:
 - TodoWrite            -> replaces the plan with the todo list
 - tasks__create        -> plan = the task title + its resolution checklist
 - tasks__check_item    -> ticks one item (only if the plan is that task's)
@@ -12,13 +12,15 @@ raises, never blocks; with CLAUDE_DASHBOARD_PLAN=0 it does nothing.
 import json
 import os
 import tempfile
+from collections.abc import Mapping
 from pathlib import Path
 
 _DEFAULT = "~/.claude/dashboard_plan.json"
 
 
-def _path() -> Path | None:
-    p = os.environ.get("CLAUDE_DASHBOARD_PLAN", _DEFAULT)
+def _path(env: Mapping[str, str] | None = None) -> Path | None:
+    env = os.environ if env is None else env
+    p = env.get("CLAUDE_DASHBOARD_PLAN", _DEFAULT)
     return None if p == "0" else Path(p).expanduser()
 
 
@@ -52,9 +54,9 @@ def new_plan(payload: dict, current: dict | None) -> dict | None:
     return None
 
 
-def update(event: str, payload: dict | None = None) -> None:
+def update(event: str, payload: dict | None = None, env: Mapping[str, str] | None = None) -> None:
     try:
-        path = _path()
+        path = _path(env)
         if path is None or event != "PostToolUse" or not payload:
             return
         try:
