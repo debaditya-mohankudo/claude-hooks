@@ -28,6 +28,28 @@
       "name": "cache-store",
       "related": []
     },
+    "commit-link-runs-taskfw-backfill": {
+      "confidence": 0.8,
+      "contracts": [
+        "Only `cd <dir>` and `git -C <dir>` are followed; a $VAR path that the server env cannot expand links nothing."
+      ],
+      "created_at": "2026-11-27T02:37:25.053015+00:00",
+      "description": "The server links a Bash git commit to its tasks on the http PostToolUse by running the taskfw-backfill CLI on that repo (task:e60e2713). claude-hooks only detects the commit; taskfw's store is written by taskfw's own command.",
+      "evidence": [
+        "hooks/commit_link.py:link",
+        "hooks/commit_link.py:commit_dirs",
+        "tests/test_commit_link.py:test_commit_reads_only_head"
+      ],
+      "invariants": [
+        "Never imports taskfw or opens its database; the CLI is the only coupling.",
+        "Fails open: errors are logged under lc.hooks.commit_link, never raised.",
+        "Tests point CLAUDE_HOOKS_BACKFILL_BIN away from the real CLI (tests/conftest.py)."
+      ],
+      "last_validated": "2026-11-27T02:37:25.053460+00:00",
+      "module": "hooks/commit_link.py",
+      "name": "commit-link-runs-taskfw-backfill",
+      "related": []
+    },
     "concept-store-symbol-only-evidence": {
       "confidence": 0.8,
       "contracts": [
@@ -936,6 +958,6 @@
     "commit": "5f62c6b5150a20fe7198d7bd6c155c4b3c0d3101",
     "extracted_at": "2026-07-23T05:42:23Z",
     "note": "incremental upsert (task:a2fd402d)",
-    "updated_at": "2026-11-26T15:25:36.106145+00:00"
+    "updated_at": "2026-11-27T02:37:25.053540+00:00"
   }
 }

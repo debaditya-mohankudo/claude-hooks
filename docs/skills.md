@@ -5,12 +5,13 @@ tags: skills, /add-memory, /commit, /deploy, /pause, /onboarding, /what-am-i-wor
 
 Skills live in `skills/<name>` and are synced to `~/.claude/skills/<name>` after every change. Invoke with `/<name>` in any Claude session.
 
-> Task-lifecycle skills (`/task-framework`, `/task-create`, `/task-grooming`, `/task-implementation`, `/task-introspection`, `/task-log-decision`) have moved to the separate [task-framework](https://github.com/debaditya-mohankudo/Lite-Task-Framework) project. `/commit` is a global skill in `~/.claude/skills/commit`, not shipped from this repo.
+> Task-lifecycle skills (`/task-framework`, `/task-create`, `/task-grooming`, `/task-implementation`, `/task-introspection`, `/task-log-decision`) have moved to the separate [task-framework](https://github.com/debaditya-mohankudo/Lite-Task-Framework) project.
 
 ## Skills index
 
 | Skill | Invoke | Purpose |
 | --- | --- | --- |
+| `/commit` | `/commit` | Commit with a `task:<id>` citation; the server links it to the task. Deployed copy is `~/.claude/skills/commit/SKILL.md` |
 | `/pause` | `/pause` | Finish current action, save pending intent (to the active task, if one exists), wait for user input |
 | `/deploy` | `/deploy` | Run the unit gate, restart the hook server via launchd, run the full suite against it |
 | `/onboarding` | `/onboarding` | Interactive setup guide — walks a new teammate through full claude-hooks setup step by step |
@@ -68,7 +69,7 @@ Interactive setup guide for a new teammate. Steps: OS detection → prerequisite
 After editing any skill file in `skills/`, sync it:
 
 ```bash
-cp skills/<name>/skill.md ~/.claude/skills/<name>/skill.md
+cp skills/<name>/skill.md ~/.claude/skills/<name>/SKILL.md
 ```
 
 The repo is the source of truth — `~/.claude/skills/` is the deployed copy.

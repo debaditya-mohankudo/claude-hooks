@@ -141,7 +141,7 @@ curl http://127.0.0.1:8766/health
 }
 ```
 
-`client.py` enriches the payload with `CLAUDE_CWD` and POSTs it to the server. If the server is unreachable, times out (2 s) or errors, it prints `{}` and exits 0: the tool call is allowed and nothing is injected. There is no subprocess fallback. The `PreToolUse` and `PostToolUse` `http` hooks fail open the same way (connection refused or non-2xx never blocks the call), but the failure shows only in `claude --debug` output, not in `hook_logs`. If you move the server off port 8766, change both URLs too: `CLAUDE_HOOKS_SERVER` affects only `client.py`. The `PostToolUse` headers carry the session's kitty and dashboard variables, so the server can paint the tab and mirror the plan; without `X-Hooks-Local-Effects: 1` it does neither.
+`client.py` enriches the payload with `CLAUDE_CWD` and POSTs it to the server. If the server is unreachable, times out (2 s) or errors, it prints `{}` and exits 0: the tool call is allowed and nothing is injected. There is no subprocess fallback. The `PreToolUse` and `PostToolUse` `http` hooks fail open the same way (connection refused or non-2xx never blocks the call), but the failure shows only in `claude --debug` output, not in `hook_logs`. If you move the server off port 8766, change both URLs too: `CLAUDE_HOOKS_SERVER` affects only `client.py`. The `PostToolUse` headers carry the session's kitty and dashboard variables, so the server can paint the tab and mirror the plan; without `X-Hooks-Local-Effects: 1` it does neither. The server also links a Bash `git commit` to its `task:<id>`s by running `taskfw-backfill` (`hooks/commit_link.py`; override the path with `CLAUDE_HOOKS_BACKFILL_BIN`), so no separate commit hook is registered.
 
 ---
 

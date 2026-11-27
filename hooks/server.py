@@ -24,6 +24,7 @@ import time
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from starlette.background import BackgroundTask
 from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
@@ -214,7 +215,9 @@ async def post_tool_use(request: Request):
     """PostToolUse hook — runs the dispatcher's side effects, then the log_tool_usage node (a plain call, not a graph node).
 
     Registered as an "http" hook, so the kitty tab and dashboard plan are done here
-    first (_local_effects).
+    first (_local_effects). A Bash `git commit` is linked to its tasks
+    (commit_link) as a background task: it spawns git and taskfw-backfill, so it
+    stays out of the dispatcher's per-session lock and the hook's 2 s timeout.
 
     Side effects (each fail-open): WebSearch cache store, find_cli log,
     vault reindex, context-size nudge, and skill-tagged memories / skill-tag
@@ -225,7 +228,8 @@ async def post_tool_use(request: Request):
     """
     body = await _safe_json(request)
     result = await _run_hook(partial(_post_tool_use_sync, env=_session_env(request)), body)
-    return JSONResponse(content=result or {})
+    from hooks import commit_link
+    return JSONResponse(content=result or {}, background=BackgroundTask(commit_link.link, body))
 
 
 def _post_tool_use_sync(body: dict, env: dict | None = None):

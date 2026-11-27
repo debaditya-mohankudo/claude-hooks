@@ -44,7 +44,7 @@ The dispatcher then assembles `additionalContext` (`## Turn state`, user context
 | Event | Side effects (`hooks/dispatcher.py`) |
 | --- | --- |
 | `PreToolUse` | WebSearch cache: a fresh hit is returned as a deny carrying the cached result (`src/tools/web_search_cache.py`). After the gate, advisory notes only: one note per skill when its action runs without it (`hooks/skill_reminder.py`) |
-| `PostToolUse` | WebSearch store, find_cli log, vault reindex (command and file-tool), context-size nudge, skill memories and skill-tag nudge — all before `log_tool_usage` |
+| `PostToolUse` | commit link (`hooks/commit_link.py`, in the server), WebSearch store, find_cli log, vault reindex (command and file-tool), context-size nudge, skill memories and skill-tag nudge — all before `log_tool_usage` |
 
 The client (`hooks/client.py`) also writes terminal state itself before the POST — kitty tab status, dashboard plan/turn and the saved last response — because its process has the session's `KITTY_*` environment. `PreToolUse` and `PostToolUse` do not go through it: they are registered as `"type": "http"`, so Claude Code POSTs straight to the server and no process starts (about 150 ms → 19 ms per tool call, measured 2026-11-27). Neither records a `hook_client` failure row. `PreToolUse` sets no kitty status. For `PostToolUse` the hook sends the session's kitty and dashboard variables as headers, and the server paints the tab and mirrors the plan (`_local_effects`), only when `X-Hooks-Local-Effects: 1` is present.
 

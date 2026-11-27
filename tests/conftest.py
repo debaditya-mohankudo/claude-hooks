@@ -15,6 +15,9 @@ for _p in [str(_PROJECT_ROOT), str(_PROJECT_ROOT / "hooks")]:
 
 _TEST_LOG_DB = _PROJECT_ROOT / "tests" / "test_logs.db"
 
+# No test may write commit links into the real task store (hooks/commit_link.py).
+os.environ["CLAUDE_HOOKS_BACKFILL_BIN"] = "/usr/bin/false"
+
 
 def pytest_collection_modifyitems(items):
     """Enforce test execution order: api → unit → harness.
