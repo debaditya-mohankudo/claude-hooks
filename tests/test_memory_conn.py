@@ -55,6 +55,17 @@ def test_encrypted_db_is_opened_once_across_blocks(enc_db):
     assert len(opens) == 1
 
 
+def test_cached_connection_has_the_enlarged_page_cache_after_reopen(enc_db, tmp_path):
+    """task:4c11ddfc: the 2 MB default re-decrypts pages on every prompt."""
+    path, _ = enc_db
+    for _ in range(2):
+        with memory_conn.memory_connection(path) as conn:
+            assert conn.execute("PRAGMA cache_size").fetchone()[0] == -memory_conn.CACHE_KIB
+        fresh = tmp_path / "fresh.sqlite"
+        _make_encrypted(fresh)
+        os.replace(fresh, path)
+
+
 def test_write_from_another_connection_is_seen_through_cached_one(enc_db):
     """The stale-read check: `mac memory add` in another process must show up."""
     path, _ = enc_db

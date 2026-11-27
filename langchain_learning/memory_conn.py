@@ -22,6 +22,10 @@ cli-graph's opener and is not edited in this repo.
   (replaced on disk) and after any error inside the block.
 - SQLite starts a fresh read snapshot per statement outside a transaction, so writes
   from other processes are visible on the next read; nothing here caches rows.
+- The cached connection gets a CACHE_KIB page cache (task:4c11ddfc). SQLite's default
+  2 MB is smaller than the DB, so each prompt's repeated scans re-read and re-decrypted
+  pages: scoring took ~46 ms median against ~9 ms with 16 MB. SQLite still discards the
+  cache when another process writes, so it does not make reads stale.
 """
 from __future__ import annotations
 
@@ -31,6 +35,8 @@ import threading
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
+
+CACHE_KIB = 16_000  # page cache of the cached connection; SQLite allocates it only as used
 
 _lock = threading.RLock()
 _cached: dict[str, tuple[int, object]] = {}   # resolved path -> (inode, connection)
@@ -89,6 +95,7 @@ def memory_connection(path: str | Path | None = None, *, row_factory=None) -> It
         if entry is None or entry[0] != ino:
             _drop(key)
             entry = (ino, open_db(p))
+            entry[1].execute(f"PRAGMA cache_size=-{CACHE_KIB}")  # negative = KiB, not pages
             _cached[key] = entry
         conn = entry[1]
         conn.row_factory = row_factory  # type: ignore[attr-defined]
