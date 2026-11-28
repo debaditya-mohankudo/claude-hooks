@@ -24,7 +24,7 @@ package UserPromptSubmitFlow {
         }
         action loadMemories {
             doc /* LoadMemoriesNode scores MEMORY.sqlite against the prompt, except
-                 * prompts of three words or fewer and machine messages
+                 * prompts of five words or fewer and machine messages
                  * (load_memories.skip_reason, task:beaee05c). The
                  * task-context pipeline that once sat beside it
                  * (load_active_task, load_related_tasks, summarize_task_context,
