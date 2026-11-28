@@ -36,8 +36,8 @@ def test_area_tokens_ignores_untagged():
 def test_thin_prompt_borrows_previous_area():
     stub = _Stub([_mem("m", "mac-calendar")])
     node = LoadMemoriesNode(retriever=stub)
-    _run(node, "calendar event reminder tomorrow morning")   # 5 tokens: not thin, no carry
-    _run(node, "yes, go ahead with it")                                # thin: carries 'calendar'
+    _run(node, "calendar event reminder for tomorrow morning")   # 5 tokens: not thin, no carry
+    _run(node, "yes, go ahead with it then")                                # thin: carries 'calendar'
     assert "calendar" not in stub.seen[0] or "mac" not in stub.seen[0]
     assert "calendar" in stub.seen[1]
 
@@ -45,7 +45,7 @@ def test_thin_prompt_borrows_previous_area():
 def test_substantive_prompt_does_not_borrow():
     stub = _Stub([_mem("m", "mac-calendar")])
     node = LoadMemoriesNode(retriever=stub)
-    _run(node, "first prompt about something")
+    _run(node, "the first long prompt about something")
     _run(node, "completely different long prompt about astrology charts today")
     assert "calendar" not in stub.seen[1]
 
@@ -53,27 +53,27 @@ def test_substantive_prompt_does_not_borrow():
 def test_carry_is_per_session():
     stub = _Stub([_mem("m", "mac-calendar")])
     node = LoadMemoriesNode(retriever=stub)
-    _run(node, "first prompt about something", session="a")
-    _run(node, "yes, go ahead with it", session="b")
+    _run(node, "the first long prompt about something", session="a")
+    _run(node, "yes, go ahead with it then", session="b")
     assert "calendar" not in stub.seen[1]
 
 
 def test_carry_window_forgets_old_prompts():
     stub = _Stub([_mem("m", "mac-calendar")])
     node = LoadMemoriesNode(retriever=stub)
-    _run(node, "first prompt about something")
+    _run(node, "the first long prompt about something")
     stub.memories = [_mem("n", "plain")]
     for _ in range(3):
         _run(node, "other long prompt about unrelated matters entirely")
-    _run(node, "yes, go ahead with it")
+    _run(node, "yes, go ahead with it then")
     assert "calendar" not in stub.seen[-1]
 
 
 def test_audit_row_written_with_carried_and_candidates(tmp_path):
     stub = _Stub([_mem("m", "mac-calendar")], trace=[{"name": "m", "score": 1.0, "hits": ["calendar"]}])
     node = LoadMemoriesNode(retriever=stub)
-    _run(node, "calendar event reminder tomorrow morning")
-    _run(node, "yes, go ahead with it")
+    _run(node, "calendar event reminder for tomorrow morning")
+    _run(node, "yes, go ahead with it then")
     rows = audit.recent()
     assert len(rows) == 2
     assert rows[0]["carried"] == ["calendar"] and rows[0]["injected"] == ["m"]
@@ -81,13 +81,13 @@ def test_audit_row_written_with_carried_and_candidates(tmp_path):
 
 
 def test_audit_skips_empty_session_id():
-    LoadMemoriesNode(retriever=_Stub([_mem("m")]))({"prompt": "hello there wide world"})
+    LoadMemoriesNode(retriever=_Stub([_mem("m")]))({"prompt": "hello there to the wide world"})
     assert audit.recent() == []
 
 
 def test_audit_failure_never_breaks_retrieval(monkeypatch):
     monkeypatch.setattr(audit, "AUDIT_DB", audit.Path("/nonexistent-dir/x/audit.sqlite"))
-    out = _run(LoadMemoriesNode(retriever=_Stub([_mem("m")])), "hello there wide world")
+    out = _run(LoadMemoriesNode(retriever=_Stub([_mem("m")])), "hello there to the wide world")
     assert [m["name"] for m in out["memories"]] == ["m"]
 
 
@@ -128,6 +128,7 @@ def test_recent_unmarked_only():
 @pytest.mark.parametrize("prompt,reason", [
     ("close", "short"),
     ("start task f9e7b151", "short"),
+    ("commit and push it now", "short"),
     ('<agent-message from="a1">\nreport on the calendar work\n</agent-message>', "machine"),
     ('<cross-session-message from="uds:/x">please check the calendar</cross-session-message>', "machine"),
     ("<task-notification>\n<task-id>b1</task-id> finished the run", "machine"),
@@ -141,25 +142,25 @@ def test_skipped_prompt_injects_nothing_and_is_audited(prompt, reason):
     assert audit.recent(unmarked_only=True) == []
 
 
-def test_four_words_retrieve():
-    out = _run(LoadMemoriesNode(retriever=_Stub([_mem("m")])), "commit and push it")
+def test_six_words_retrieve():
+    out = _run(LoadMemoriesNode(retriever=_Stub([_mem("m")])), "commit and push it to main")
     assert [m["name"] for m in out["memories"]] == ["m"]
 
 
 def test_skipped_prompts_do_not_age_out_carried_areas():
     stub = _Stub([_mem("m", "mac-calendar")])
     node = LoadMemoriesNode(retriever=stub)
-    _run(node, "first prompt about something")
+    _run(node, "the first long prompt about something")
     for _ in range(5):
         _run(node, "ok")
-    _run(node, "yes, go ahead with it")
+    _run(node, "yes, go ahead with it then")
     assert "calendar" in stub.seen[-1]
 
 
 def test_skipped_prompt_clears_prompt_injected_set():
     from langchain_learning.nodes import _skill_memories as sm
     node = LoadMemoriesNode(retriever=_Stub([_mem("m")]))
-    _run(node, "first prompt about something", session="skipclear")
+    _run(node, "the first long prompt about something", session="skipclear")
     _run(node, "ok", session="skipclear")
     assert sm._PROMPT_INJECTED["skipclear"] == set()
 

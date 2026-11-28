@@ -29,7 +29,7 @@ _MAX_SESSIONS = 50
 
 # Prompts that get no retrieval (task:beaee05c). Short ones ("commit it", "close") matched on one
 # word and injected off-topic memories; the rest are written by a machine, not typed.
-_SKIP_MAX_WORDS = 3
+_SKIP_MAX_WORDS = 5
 _MACHINE_PREFIXES = ("<agent-message", "<cross-session-message", "<task-notification")
 
 
